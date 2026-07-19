@@ -1,0 +1,11 @@
+<span class="money" aria-label="@AccessibleValue">
+    @if (Gold > 0)
+    {
+        <span class="amount">@Gold<img src="images/coins/gold.svg" alt=" gold" /></span>
+    }
+    @if (Gold > 0 || Silver > 0)
+    {
+        <span class="amount">@Silver<img src="images/coins/silver.svg" alt=" silver" /></span>
+    }
+    <span class="amount">@CopperRemainder<img src="images/coins/copper.svg" alt=" copper" /></span>
+</span>

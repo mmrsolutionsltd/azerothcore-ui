@@ -1,0 +1,109 @@
+@page "/accounts"
+@page "/"
+@rendermode InteractiveServer
+@using AzerothCore_UI.Web.Models
+@inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
+
+<PageTitle>Accounts</PageTitle>
+
+<h1>Accounts</h1>
+<p class="text-muted">Search and select an account to view its characters.</p>
+
+<form class="row g-2 align-items-end mb-4" @onsubmit="ApplyFilters" @onsubmit:preventDefault>
+    <div class="col-md-4">
+        <label class="form-label" for="account-search">Username</label>
+        <input id="account-search" class="form-control" @bind="searchInput" />
+    </div>
+    <div class="col-md-2">
+        <label class="form-label" for="account-type">Type</label>
+        <select id="account-type" class="form-select" @bind="typeInput">
+            <option value="human">Human</option>
+            <option value="playerbot">PlayerBot</option>
+            <option value="all">All</option>
+        </select>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label" for="account-sort">Sort</label>
+        <select id="account-sort" class="form-select" @bind="sortInput">
+            <option value="username">Username</option>
+            <option value="accountId">Account ID</option>
+            <option value="lastLogin">Last login</option>
+            <option value="characterCount">Character count</option>
+        </select>
+    </div>
+    <div class="col-md-2">
+        <label class="form-label" for="account-direction">Direction</label>
+        <select id="account-direction" class="form-select" @bind="directionInput">
+            <option value="ascending">Ascending</option>
+            <option value="descending">Descending</option>
+        </select>
+    </div>
+    <div class="col-md-2">
+        <button class="btn btn-primary w-100" type="submit">Apply</button>
+    </div>
+</form>
+
+@if (isLoading)
+{
+    <p><em>Loading accounts...</em></p>
+}
+else if (errorMessage is not null)
+{
+    <div class="alert alert-danger" role="alert">@errorMessage</div>
+}
+else if (result.Items.Count == 0)
+{
+    <p>No matching accounts were found.</p>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <span class="text-muted">@GetResultSummary()</span>
+        <select class="form-select form-select-sm w-auto" aria-label="Page size"
+                value="@PageSize" @onchange="ChangePageSize">
+            <option value="10">10 per page</option>
+            <option value="25">25 per page</option>
+            <option value="50">50 per page</option>
+        </select>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>Account ID</th>
+                    <th>Username</th>
+                    <th>Type</th>
+                    <th>Characters</th>
+                    <th>Online</th>
+                    <th>Last login</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var account in result.Items)
+                {
+                    <tr>
+                        <td>@account.AccountId</td>
+                        <td><a href="accounts/@account.AccountId">@account.Username</a></td>
+                        <td>@account.Classification</td>
+                        <td>@account.CharacterCount</td>
+                        <td>@account.OnlineCharacterCount</td>
+                        <td>@FormatLastLogin(account.LastLogin)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <nav class="d-flex justify-content-between align-items-center" aria-label="Account pages">
+        <button class="btn btn-outline-secondary" disabled="@(Page <= 1)"
+                @onclick="() => NavigateToPage(Page - 1)">
+            Previous
+        </button>
+        <span>Page @result.Page of @result.TotalPages</span>
+        <button class="btn btn-outline-secondary" disabled="@(Page >= result.TotalPages)"
+                @onclick="() => NavigateToPage(Page + 1)">
+            Next
+        </button>
+    </nav>
+}

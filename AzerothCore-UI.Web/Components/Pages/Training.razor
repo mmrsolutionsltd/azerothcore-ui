@@ -1,0 +1,151 @@
+@page "/training"
+@rendermode InteractiveServer
+@using AzerothCore_UI.Web.Models
+@inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
+
+<PageTitle>Training</PageTitle>
+
+<h1>Available training</h1>
+<p class="text-muted">Class abilities and profession training currently available to characters on player accounts.</p>
+
+@if (isLoading)
+{
+    <p><em>Checking characters...</em></p>
+}
+else if (errorMessage is not null)
+{
+    <div class="alert alert-danger" role="alert">@errorMessage</div>
+}
+else if (characters.Count == 0)
+{
+    <div class="alert alert-success" role="status">No available training was found.</div>
+}
+else
+{
+    <div class="row g-2 align-items-end mb-4">
+        <div class="col-lg-4">
+            <label class="form-label" for="training-search">Account or character</label>
+            <input id="training-search" class="form-control" @bind="search" @bind:event="oninput"
+                   placeholder="Search by name" />
+        </div>
+        <div class="col-sm-4 col-lg-2">
+            <label class="form-label" for="training-type">Type</label>
+            <select id="training-type" class="form-select" @bind="trainingType">
+                <option>All</option>
+                <option>Class</option>
+                <option>Profession</option>
+            </select>
+        </div>
+        <div class="col-sm-4 col-lg-3">
+            <label class="form-label" for="training-discipline">Class or profession</label>
+            <select id="training-discipline" class="form-select" @bind="discipline">
+                <option>All</option>
+                @foreach (var item in Disciplines)
+                {
+                    <option value="@item">@item</option>
+                }
+            </select>
+        </div>
+        <div class="col-sm-4 col-lg-3">
+            <label class="form-label" for="training-sort">Sort characters by</label>
+            <select id="training-sort" class="form-select" @bind="sort">
+                <option value="Character">Character</option>
+                <option value="Account">Account</option>
+                <option value="Level">Level, highest first</option>
+                <option value="Count">Training count</option>
+                <option value="Cost">Total cost</option>
+                <option value="Requirement">Next level or skill requirement</option>
+            </select>
+        </div>
+    </div>
+
+    var filteredCharacters = FilteredCharacters;
+
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <p class="text-muted mb-0">
+            @filteredCharacters.Count character(s) have
+            @filteredCharacters.Sum(character => character.Requirements.Count) training option(s), costing
+            <MoneyDisplay Copper="filteredCharacters.Aggregate(0u, (total, character) => total + TotalCost(character))" />.
+        </p>
+        <div class="btn-group btn-group-sm" role="group" aria-label="Training sections">
+            <button class="btn btn-outline-secondary" type="button" @onclick="ExpandAll">Expand all</button>
+            <button class="btn btn-outline-secondary" type="button" @onclick="CollapseAll">Collapse all</button>
+        </div>
+    </div>
+
+    @if (filteredCharacters.Count == 0)
+    {
+        <div class="alert alert-info" role="status">No training matches the current filters.</div>
+    }
+
+    @foreach (var character in filteredCharacters)
+    {
+        <section class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center gap-2">
+                    <button class="btn btn-sm btn-link text-decoration-none p-0"
+                            type="button" @onclick="() => ToggleCharacter(character.CharacterGuid)"
+                            aria-label="Toggle @character.CharacterName training">
+                        @(collapsedCharacters.Contains(character.CharacterGuid) ? "▶" : "▼")
+                    </button>
+                    <a class="fw-semibold" href="characters/@character.CharacterGuid?tab=Training">@character.CharacterName</a>
+                    <span class="text-muted">Level @character.CharacterLevel</span>
+                    <span class="text-muted">·</span>
+                    <a class="text-muted" href="accounts/@character.AccountId">@character.Username</a>
+                </div>
+                <div class="text-end">
+                    <span class="badge text-bg-warning">@character.Requirements.Count available</span>
+                    <div class="small text-muted"><MoneyDisplay Copper="TotalCost(character)" /> total</div>
+                </div>
+            </div>
+            @if (!collapsedCharacters.Contains(character.CharacterGuid))
+            {
+                <div class="table-responsive">
+                    <table class="table table-striped align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Type</th>
+                                <th>Training</th>
+                                <th>Rank</th>
+                                <th>Requirement</th>
+                                <th>Cost</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var group in character.Requirements.GroupBy(requirement =>
+                                $"{requirement.Category}: {requirement.Discipline}"))
+                            {
+                                var groupKey = DisciplineKey(character.CharacterGuid, group);
+                                <tr class="table-light">
+                                    <th colspan="5">
+                                        <button class="btn btn-sm btn-link text-decoration-none p-0"
+                                                type="button" @onclick="() => ToggleDiscipline(groupKey)">
+                                            @(collapsedDisciplines.Contains(groupKey) ? "▶" : "▼")
+                                            @group.Key (@group.Count())
+                                        </button>
+                                    </th>
+                                </tr>
+                                @if (!collapsedDisciplines.Contains(groupKey))
+                                {
+                                    @foreach (var requirement in group)
+                                    {
+                                        <tr>
+                                            <td>@requirement.Category</td>
+                                            <td>
+                                                @(requirement.Name ?? $"Spell {requirement.SpellId}")
+                                                <div class="small text-muted">Spell ID @requirement.SpellId</div>
+                                            </td>
+                                            <td>@(requirement.Rank ?? "—")</td>
+                                            <td>@FormatRequirement(requirement)</td>
+                                            <td><MoneyDisplay Copper="requirement.TrainingCost" /></td>
+                                        </tr>
+                                    }
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+    }
+}

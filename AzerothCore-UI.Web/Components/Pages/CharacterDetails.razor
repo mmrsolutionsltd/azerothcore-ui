@@ -1,0 +1,727 @@
+@page "/characters/{CharacterGuid:long}"
+@rendermode InteractiveServer
+@using AzerothCore_UI.Web.Models
+@inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
+
+<PageTitle>Character details</PageTitle>
+
+@if (isLoading)
+{
+    <p><em>Loading character...</em></p>
+}
+else if (errorMessage is not null)
+{
+    <div class="alert alert-danger" role="alert">@errorMessage</div>
+}
+else if (character is not null)
+{
+    <nav aria-label="Breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="accounts">Accounts</a></li>
+            <li class="breadcrumb-item">
+                <a href="accounts/@character.AccountId">@character.Username</a>
+            </li>
+        </ol>
+    </nav>
+
+    <div class="d-flex justify-content-between align-items-start mb-3">
+        <div>
+            <h1>@character.Name</h1>
+            <p class="text-muted mb-0">
+                Level @character.Level @CharacterDisplayNames.Race(character.Race)
+                @CharacterDisplayNames.Class(character.Class) · GUID @character.Guid
+            </p>
+        </div>
+        <span class="badge @(character.Online ? "text-bg-success" : "text-bg-secondary")">
+            @(character.Online ? "Online" : "Offline")
+        </span>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-sm-4">
+            <div class="small text-muted">Money</div>
+            <div><MoneyDisplay Copper="character.Money" /></div>
+        </div>
+        <div class="col-sm-4">
+            <div class="small text-muted">Played time</div>
+            <div>@FormatPlayedTime(character.TotalTime)</div>
+        </div>
+        <div class="col-sm-4">
+            <div class="small text-muted">Location</div>
+            <div>@character.LocationName</div>
+        </div>
+    </div>
+
+    <ul class="nav nav-tabs" role="tablist">
+        @foreach (var tab in tabs)
+        {
+            <li class="nav-item" role="presentation">
+                <button class="nav-link @(activeTab == tab ? "active" : null)"
+                        type="button" role="tab" @onclick="() => SelectTabAsync(tab)">
+                    @tab
+                    @if (tab == "Training" && trainingHasLoaded && AvailableTrainingCount > 0)
+                    {
+                        <span class="badge text-bg-warning ms-1">@AvailableTrainingCount</span>
+                    }
+                </button>
+            </li>
+        }
+    </ul>
+
+    <div class="border border-top-0 rounded-bottom p-3">
+        @if (activeTab == "Inventory")
+        {
+            <ul class="nav nav-pills mb-3">
+                <li class="nav-item">
+                    <button class="nav-link @(inventoryView == "Equipped" ? "active" : null)"
+                            type="button" @onclick="ShowEquippedItems">
+                        Equipped
+                    </button>
+                </li>
+                <li class="nav-item">
+                    <button class="nav-link @(inventoryView == "Bags" ? "active" : null)"
+                            type="button" @onclick="ShowBagItemsAsync">
+                        Bags
+                    </button>
+                </li>
+            </ul>
+
+            @if (inventoryView == "Equipped" && inventoryIsLoading)
+            {
+                <p><em>Loading equipped items...</em></p>
+            }
+            else if (inventoryView == "Equipped" && inventoryErrorMessage is not null)
+            {
+                <div class="alert alert-danger mb-0" role="alert">@inventoryErrorMessage</div>
+            }
+            else if (inventoryView == "Equipped" && equippedItems.Count == 0)
+            {
+                <p class="mb-0">This character has no equipped items.</p>
+            }
+            else if (inventoryView == "Equipped")
+            {
+                <p class="text-muted">Showing @equippedItems.Count equipped item(s).</p>
+                <div class="table-responsive">
+                    <table class="table table-striped align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Slot</th>
+                                <th>Item</th>
+                                <th>Quality</th>
+                                <th>Item level</th>
+                                <th>Durability</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var item in equippedItems)
+                            {
+                                <tr class="@GetDurabilityRowClass(item)">
+                                    <td>@GetEquipmentSlotName(item.Slot)</td>
+                                    <td>
+                                        <span class="@GetItemQualityClass(item.Quality)">
+                                            @(item.Name ?? $"Unknown item ({item.ItemEntry})")
+                                        </span>
+                                        <div class="small text-muted">Entry @item.ItemEntry · Instance @item.ItemGuid</div>
+                                    </td>
+                                    <td>@GetItemQualityName(item.Quality)</td>
+                                    <td>@item.ItemLevel</td>
+                                    <td>@FormatDurability(item)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            else if (bagItemsAreLoading)
+            {
+                <p><em>Loading bag items...</em></p>
+            }
+            else if (bagItemsErrorMessage is not null)
+            {
+                <div class="alert alert-danger mb-0" role="alert">@bagItemsErrorMessage</div>
+            }
+            else if (bagItems.Count == 0)
+            {
+                <p class="mb-0">This character's backpack and equipped bags are empty.</p>
+            }
+            else
+            {
+                <p class="text-muted">Showing @bagItems.Count item stack(s).</p>
+                <div class="table-responsive">
+                    <table class="table table-striped align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Bag</th>
+                                <th>Slot</th>
+                                <th>Item</th>
+                                <th>Quantity</th>
+                                <th>Quality</th>
+                                <th>Item level</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var item in bagItems)
+                            {
+                                <tr>
+                                    <td>@item.BagName</td>
+                                    <td>@GetBagSlotNumber(item.Slot)</td>
+                                    <td>
+                                        <span class="@GetItemQualityClass(item.Quality)">
+                                            @(item.Name ?? $"Unknown item ({item.ItemEntry})")
+                                        </span>
+                                        <div class="small text-muted">Entry @item.ItemEntry · Instance @item.ItemGuid</div>
+                                    </td>
+                                    <td>@item.Count</td>
+                                    <td>@GetItemQualityName(item.Quality)</td>
+                                    <td>@item.ItemLevel</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        }
+        else if (activeTab == "Quests")
+        {
+            <ul class="nav nav-pills mb-3">
+                <li class="nav-item">
+                    <button class="nav-link @(questView == "Current" ? "active" : null)"
+                            type="button" @onclick="ShowCurrentQuests">
+                        Current
+                    </button>
+                </li>
+                <li class="nav-item">
+                    <button class="nav-link @(questView == "Completed" ? "active" : null)"
+                            type="button" @onclick="ShowCompletedQuestsAsync">
+                        Completed
+                    </button>
+                </li>
+            </ul>
+
+            @if (questView == "Current" && questsAreLoading)
+            {
+                <p><em>Loading quests...</em></p>
+            }
+            else if (questView == "Current" && questErrorMessage is not null)
+            {
+                <div class="alert alert-danger mb-0" role="alert">@questErrorMessage</div>
+            }
+            else if (questView == "Current" && quests.Count == 0)
+            {
+                <p class="mb-0">This character has no quests in their current quest log.</p>
+            }
+            else if (questView == "Current")
+            {
+                <div class="table-responsive">
+                    <table class="table table-striped align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Quest ID</th>
+                                <th>Quest</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var quest in quests)
+                            {
+                                <tr>
+                                    <td>@quest.QuestId</td>
+                                    <td>@quest.Title</td>
+                                    <td>@GetQuestStatus(quest.Status)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            else if (completedQuestsAreLoading)
+            {
+                <p><em>Loading completed quests...</em></p>
+            }
+            else if (completedQuestErrorMessage is not null)
+            {
+                <div class="alert alert-danger mb-0" role="alert">@completedQuestErrorMessage</div>
+            }
+            else if (completedQuests.Count == 0)
+            {
+                <p class="mb-0">No completed quests were found for this character.</p>
+            }
+            else
+            {
+                <p class="text-muted">@completedQuests.Count completed quest(s)</p>
+                <div class="table-responsive">
+                    <table class="table table-striped align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Quest ID</th>
+                                <th>Quest</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var quest in completedQuests)
+                            {
+                                <tr>
+                                    <td>@quest.QuestId</td>
+                                    <td>@(quest.Title ?? $"Unknown quest ({quest.QuestId})")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        }
+        else if (activeTab == "Professions")
+        {
+            <ul class="nav nav-pills mb-3">
+                <li class="nav-item">
+                    <button class="nav-link @(professionView == "Skills" ? "active" : null)"
+                            type="button" @onclick="ShowProfessionSkills">Skills</button>
+                </li>
+                <li class="nav-item">
+                    <button class="nav-link @(professionView == "Vendor recipes" ? "active" : null)"
+                            type="button" @onclick="ShowMissingVendorRecipesAsync">
+                        Missing vendor recipes
+                        @if (vendorRecipesHaveLoaded && missingVendorRecipes.Count > 0)
+                        {
+                            <span class="badge text-bg-warning ms-1">@missingVendorRecipes.Count</span>
+                        }
+                    </button>
+                </li>
+                <li class="nav-item">
+                    <button class="nav-link @(professionView == "Quest rewards" ? "active" : null)"
+                            type="button" @onclick="ShowMissingQuestRecipesAsync">
+                        Quest reward recipes
+                        @if (questRecipesHaveLoaded && missingQuestRecipes.Count > 0)
+                        {
+                            <span class="badge text-bg-warning ms-1">@missingQuestRecipes.Count</span>
+                        }
+                    </button>
+                </li>
+                <li class="nav-item">
+                    <button class="nav-link @(professionView == "Drops and other" ? "active" : null)"
+                            type="button" @onclick="ShowOtherRecipesAsync">
+                        Drops and other
+                        @if (otherRecipesHaveLoaded && missingLootRecipes.Count + unclassifiedRecipes.Count > 0)
+                        {
+                            <span class="badge text-bg-warning ms-1">@(missingLootRecipes.Count + unclassifiedRecipes.Count)</span>
+                        }
+                    </button>
+                </li>
+            </ul>
+
+            @if (professionView == "Skills" && professionsAreLoading)
+            {
+                <p><em>Loading professions...</em></p>
+            }
+            else if (professionView == "Skills" && professionsErrorMessage is not null)
+            {
+                <div class="alert alert-danger mb-0" role="alert">@professionsErrorMessage</div>
+            }
+            else if (professionView == "Skills" && professions.Count == 0)
+            {
+                <p class="mb-0">This character has no learned professions.</p>
+            }
+            else if (professionView == "Skills")
+            {
+                @foreach (var category in professions.GroupBy(profession => profession.Category))
+                {
+                    <h2 class="h5 @(category.Key == "Primary" ? null : "mt-4")">@category.Key professions</h2>
+                    <div class="table-responsive">
+                        <table class="table table-striped align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Profession</th>
+                                    <th>Skill</th>
+                                    <th style="width: 45%">Progress</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var profession in category)
+                                {
+                                    <tr>
+                                        <td>@profession.Name</td>
+                                        <td>@profession.Value / @profession.Maximum</td>
+                                        <td>
+                                            <div class="progress" role="progressbar"
+                                                 aria-label="@profession.Name skill progress"
+                                                 aria-valuenow="@profession.Value" aria-valuemin="0"
+                                                 aria-valuemax="@profession.Maximum">
+                                                <div class="progress-bar" style="width: @GetProfessionProgress(profession)%"></div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            }
+            else if (professionView == "Vendor recipes" && vendorRecipesAreLoading)
+            {
+                <p><em>Checking vendor recipes...</em></p>
+            }
+            else if (professionView == "Vendor recipes" && vendorRecipesErrorMessage is not null)
+            {
+                <div class="alert alert-danger mb-0" role="alert">@vendorRecipesErrorMessage</div>
+            }
+            else if (professionView == "Vendor recipes" && missingVendorRecipes.Count == 0)
+            {
+                <div class="alert alert-success mb-0" role="status">
+                    No missing vendor recipes were found for the character's current profession skills.
+                </div>
+            }
+            else if (professionView == "Vendor recipes")
+            {
+                <div class="row g-2 mb-3">
+                    <div class="col-md-3">
+                        <label class="form-label" for="vendor-recipe-profession">Profession</label>
+                        <select id="vendor-recipe-profession" class="form-select" @bind="vendorRecipeProfession">
+                            <option>All</option>
+                            @foreach (var professionName in missingVendorRecipes
+                                .Select(recipe => recipe.ProfessionName).Distinct().OrderBy(name => name))
+                            {
+                                <option value="@professionName">@professionName</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label" for="vendor-recipe-availability">Availability</label>
+                        <select id="vendor-recipe-availability" class="form-select" @bind="vendorRecipeAvailability">
+                            <option>All</option>
+                            <option>Available</option>
+                            <option>Locked</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label" for="vendor-recipe-search">Recipe or vendor</label>
+                        <input id="vendor-recipe-search" class="form-control" @bind="vendorRecipeSearch"
+                               @bind:event="oninput" placeholder="Search recipes and vendors" />
+                    </div>
+                </div>
+
+                var filteredRecipes = FilteredVendorRecipes.ToArray();
+                <p class="text-muted">Showing @filteredRecipes.Length of @missingVendorRecipes.Count missing recipe(s).</p>
+                @if (filteredRecipes.Length == 0)
+                {
+                    <div class="alert alert-info mb-0" role="status">No recipes match the current filters.</div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-striped align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Profession</th>
+                                    <th>Recipe</th>
+                                    <th>Required skill</th>
+                                    <th>Vendor</th>
+                                    <th>Reputation</th>
+                                    <th>Price</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var recipe in filteredRecipes)
+                                {
+                                    <tr>
+                                        <td>@recipe.ProfessionName</td>
+                                        <td>
+                                            @(recipe.RecipeName ?? recipe.ItemName)
+                                            <div class="small text-muted">@recipe.ItemName · Item @recipe.ItemId</div>
+                                        </td>
+                                        <td>@recipe.RequiredSkillRank</td>
+                                        <td>
+                                            @recipe.VendorNames
+                                            @if (recipe.VendorCount > 1)
+                                            {
+                                                <div class="small text-muted">@recipe.VendorCount vendor entries</div>
+                                            }
+                                        </td>
+                                        <td>
+                                            @if (recipe.RequiredFactionId == 0)
+                                            {
+                                                <span class="text-muted">None</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="@(recipe.ReputationRequirementMet ? "text-success" : "text-danger")">
+                                                    @(recipe.FactionName ?? $"Faction {recipe.RequiredFactionId}") ·
+                                                    @ReputationRankName(recipe.RequiredReputationRank)
+                                                </span>
+                                                <div class="small text-muted">Standing @recipe.CurrentStanding</div>
+                                            }
+                                        </td>
+                                        <td>
+                                            <MoneyDisplay Copper="recipe.BuyPrice" />
+                                            @if (recipe.UsesExtendedCost)
+                                            {
+                                                <div class="small text-muted">May require additional currency or items</div>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            }
+            else if (professionView == "Quest rewards" && questRecipesAreLoading)
+            {
+                <p><em>Checking quest reward recipes...</em></p>
+            }
+            else if (professionView == "Quest rewards" && questRecipesErrorMessage is not null)
+            {
+                <div class="alert alert-danger mb-0" role="alert">@questRecipesErrorMessage</div>
+            }
+            else if (professionView == "Quest rewards" && missingQuestRecipes.Count == 0)
+            {
+                <div class="alert alert-success mb-0" role="status">
+                    No missing quest reward recipes were found for the character's current profession skills and level.
+                </div>
+            }
+            else if (professionView == "Quest rewards")
+            {
+                <div class="row g-2 mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label" for="quest-recipe-profession">Profession</label>
+                        <select id="quest-recipe-profession" class="form-select" @bind="questRecipeProfession">
+                            <option>All</option>
+                            @foreach (var professionName in missingQuestRecipes
+                                .Select(recipe => recipe.ProfessionName).Distinct().OrderBy(name => name))
+                            {
+                                <option value="@professionName">@professionName</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-8">
+                        <label class="form-label" for="quest-recipe-search">Recipe or quest</label>
+                        <input id="quest-recipe-search" class="form-control" @bind="questRecipeSearch"
+                               @bind:event="oninput" placeholder="Search recipes and quests" />
+                    </div>
+                </div>
+
+                var filteredQuestRecipes = FilteredQuestRecipes.ToArray();
+                <p class="text-muted">
+                    Showing @filteredQuestRecipes.Length of @missingQuestRecipes.Count missing quest recipe(s).
+                </p>
+                @if (filteredQuestRecipes.Length == 0)
+                {
+                    <div class="alert alert-info mb-0" role="status">No recipes match the current filters.</div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-striped align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Profession</th>
+                                    <th>Recipe</th>
+                                    <th>Required skill</th>
+                                    <th>Quest</th>
+                                    <th>Reward</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var recipe in filteredQuestRecipes)
+                                {
+                                    <tr>
+                                        <td>@recipe.ProfessionName</td>
+                                        <td>
+                                            @(recipe.RecipeName ?? recipe.ItemName)
+                                            <div class="small text-muted">@recipe.ItemName · Item @recipe.ItemId</div>
+                                        </td>
+                                        <td>@recipe.RequiredSkillRank</td>
+                                        <td>
+                                            @recipe.QuestTitle
+                                            <div class="small text-muted">
+                                                Quest @recipe.QuestId · Minimum level @recipe.MinimumLevel
+                                            </div>
+                                        </td>
+                                        <td>@recipe.RewardKind</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            }
+            else if (otherRecipesAreLoading)
+            {
+                <p><em>Checking loot and unclassified recipes...</em></p>
+            }
+            else if (otherRecipesErrorMessage is not null)
+            {
+                <div class="alert alert-danger mb-0" role="alert">@otherRecipesErrorMessage</div>
+            }
+            else
+            {
+                <h2 class="h5">Creature and game-object drops</h2>
+                @if (missingLootRecipes.Count == 0)
+                {
+                    <p>No missing loot recipes were found for the character's current profession skills.</p>
+                }
+                else
+                {
+                    <div class="table-responsive mb-4">
+                        <table class="table table-striped align-middle mb-0">
+                            <thead><tr><th>Profession</th><th>Recipe</th><th>Skill</th><th>Source</th><th>Chance</th></tr></thead>
+                            <tbody>
+                                @foreach (var recipe in missingLootRecipes)
+                                {
+                                    <tr>
+                                        <td>@recipe.ProfessionName</td>
+                                        <td>@(recipe.RecipeName ?? recipe.ItemName)<div class="small text-muted">@recipe.ItemName · Item @recipe.ItemId</div></td>
+                                        <td>@recipe.RequiredSkillRank</td>
+                                        <td>@recipe.SourceNames<div class="small text-muted">@recipe.SourceType</div></td>
+                                        <td>@(recipe.DropChance.HasValue ? $"{recipe.DropChance.Value:0.##}%" : "Variable")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+
+                <h2 class="h5">Unclassified recipe items</h2>
+                <p class="text-muted">These recipe items have no trainer, vendor, quest-reward, or supported loot source in the current world data.</p>
+                @if (unclassifiedRecipes.Count == 0)
+                {
+                    <p class="mb-0">No unclassified missing recipes were found.</p>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-striped align-middle mb-0">
+                            <thead><tr><th>Profession</th><th>Recipe</th><th>Required skill</th><th>Item</th></tr></thead>
+                            <tbody>
+                                @foreach (var recipe in unclassifiedRecipes)
+                                {
+                                    <tr>
+                                        <td>@recipe.ProfessionName</td>
+                                        <td>@(recipe.RecipeName ?? recipe.ItemName)</td>
+                                        <td>@recipe.RequiredSkillRank</td>
+                                        <td>@recipe.ItemName · @recipe.ItemId</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            }
+        }
+        else if (activeTab == "Training")
+        {
+            <ul class="nav nav-pills mb-3">
+                <li class="nav-item">
+                    <button class="nav-link @(trainingView == "Class abilities" ? "active" : null)"
+                            type="button" @onclick="ShowClassTraining">
+                        Class abilities
+                        @if (missingClassSpells.Count > 0)
+                        {
+                            <span class="badge text-bg-warning ms-1">@missingClassSpells.Count</span>
+                        }
+                    </button>
+                </li>
+                <li class="nav-item">
+                    <button class="nav-link @(trainingView == "Profession recipes" ? "active" : null)"
+                            type="button" @onclick="ShowProfessionTraining">
+                        Profession recipes
+                        @if (missingProfessionSpells.Count > 0)
+                        {
+                            <span class="badge text-bg-warning ms-1">@missingProfessionSpells.Count</span>
+                        }
+                    </button>
+                </li>
+            </ul>
+
+            @if (trainingIsLoading)
+            {
+                <p><em>Checking trainer abilities...</em></p>
+            }
+            else if (trainingErrorMessage is not null)
+            {
+                <div class="alert alert-danger mb-0" role="alert">@trainingErrorMessage</div>
+            }
+            else if (trainingView == "Class abilities" && missingClassSpells.Count == 0)
+            {
+                <div class="alert alert-success mb-0" role="status">
+                    No missing class trainer abilities were found for this level.
+                </div>
+            }
+            else if (trainingView == "Class abilities")
+            {
+                <p class="text-muted">
+                    @missingClassSpells.Count class trainer ability/abilities available to learn.
+                </p>
+                <div class="table-responsive">
+                    <table class="table table-striped align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Ability</th>
+                                <th>Rank</th>
+                                <th>Required level</th>
+                                <th>Training cost</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var spell in missingClassSpells)
+                            {
+                                <tr>
+                                    <td>
+                                        @(spell.Name ?? $"Spell {spell.SpellId}")
+                                        <div class="small text-muted">Spell ID @spell.SpellId</div>
+                                    </td>
+                                    <td>@(spell.Rank ?? "—")</td>
+                                    <td>@spell.RequiredLevel</td>
+                                    <td><MoneyDisplay Copper="spell.TrainingCost" /></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            else if (missingProfessionSpells.Count == 0)
+            {
+                <div class="alert alert-success mb-0" role="status">
+                    No missing profession trainer recipes were found for the character's current skills.
+                </div>
+            }
+            else
+            {
+                <p class="text-muted">
+                    @missingProfessionSpells.Count profession trainer recipe(s) available to learn.
+                </p>
+                <div class="table-responsive">
+                    <table class="table table-striped align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Profession</th>
+                                <th>Recipe or rank</th>
+                                <th>Rank</th>
+                                <th>Required skill</th>
+                                <th>Training cost</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var spell in missingProfessionSpells)
+                            {
+                                <tr>
+                                    <td>@spell.ProfessionName</td>
+                                    <td>
+                                        @(spell.Name ?? $"Spell {spell.SpellId}")
+                                        <div class="small text-muted">Spell ID @spell.SpellId</div>
+                                    </td>
+                                    <td>@(spell.Rank ?? "—")</td>
+                                    <td>@spell.RequiredSkillRank</td>
+                                    <td><MoneyDisplay Copper="spell.TrainingCost" /></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        }
+        else
+        {
+            <p class="text-muted mb-0">@activeTab data will be added in a later read-only slice.</p>
+        }
+    </div>
+}

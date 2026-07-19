@@ -1,0 +1,20 @@
+.money {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.amount {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.12rem;
+}
+
+.amount img {
+    width: 0.95rem;
+    height: 0.95rem;
+    vertical-align: -0.1rem;
+    filter: drop-shadow(0 1px 1px rgb(0 0 0 / 35%));
+}

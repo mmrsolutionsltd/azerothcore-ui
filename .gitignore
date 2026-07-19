@@ -1,0 +1,17 @@
+# Visual Studio user state
+.vs/
+*.user
+*.suo
+
+# .NET build output
+**/bin/
+**/obj/
+
+# Local secrets and environment overrides
+secrets.json
+appsettings.Local.json
+appsettings.*.Local.json
+
+# Operating-system files
+.DS_Store
+Thumbs.db
