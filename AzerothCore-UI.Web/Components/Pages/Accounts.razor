@@ -8,6 +8,7 @@
 
 <h1>Accounts</h1>
 <p class="text-muted">Search and select an account to view its characters.</p>
+@if (gmMessage is not null) { <div class="alert @(gmSucceeded ? "alert-success" : "alert-danger")">@gmMessage</div> }
 
 <form class="row g-2 align-items-end mb-4" @onsubmit="ApplyFilters" @onsubmit:preventDefault>
     <div class="col-md-4">
@@ -77,6 +78,7 @@ else
                     <th>Characters</th>
                     <th>Online</th>
                     <th>Last login</th>
+                    <th>Access</th>
                 </tr>
             </thead>
             <tbody>
@@ -89,6 +91,15 @@ else
                         <td>@account.CharacterCount</td>
                         <td>@account.OnlineCharacterCount</td>
                         <td>@FormatLastLogin(account.LastLogin)</td>
+                        <td>
+                            <button class="btn btn-sm @(account.GmLevel >= 2 ? "btn-outline-danger" : "btn-outline-primary")"
+                                    disabled="@(isChangingGm || account.GmLevel >= 3)" @onclick="() => ToggleGmAsync(account)">
+                                @(account.GmLevel >= 3 ? "Administrator" : pendingGmAccountId == account.AccountId
+                                    ? account.GmLevel >= 2 ? "Confirm remove GM" : "Confirm enable GM"
+                                    : account.GmLevel >= 2 ? "Remove GM" : "Enable GM")
+                            </button>
+                            @if (account.GmLevel > 0) { <span class="badge text-bg-warning ms-1">Level @account.GmLevel</span> }
+                        </td>
                     </tr>
                 }
             </tbody>

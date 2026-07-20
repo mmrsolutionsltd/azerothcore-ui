@@ -1,0 +1,38 @@
+@page "/collectibles"
+@rendermode InteractiveServer
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@using AzerothCore_UI.Web.Models
+@inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
+
+<PageTitle>Collectibles</PageTitle>
+<h1>Mounts and companions</h1>
+<p class="text-muted">Track a character's collection and deliver missing collectible items.</p>
+@if (message is not null) { <div class="alert @(succeeded ? "alert-success" : "alert-danger")">@message</div> }
+@if (isLoadingPage) { <p><em>Loading characters...</em></p> }
+else
+{
+    <datalist id="collectible-players">@foreach (var player in OrderedPlayers) { <option value="@player.Name">@player.PickerLabel</option> }</datalist>
+    <div class="card mb-4"><div class="card-body"><div class="row g-2 align-items-end">
+        <div class="col-md-9"><label class="form-label" for="collection-character">Character</label><input id="collection-character" class="form-control" list="collectible-players" @bind="playerName" placeholder="Choose a character before browsing" autocomplete="off" /></div>
+        <div class="col-md-3"><button class="btn btn-primary w-100" disabled="@string.IsNullOrWhiteSpace(playerName)" @onclick="LoadCollectionAsync">Load collection</button></div>
+    </div></div></div>
+
+    @if (collectionLoaded)
+    {
+        <div class="row g-3 mb-3"><div class="col-sm-6"><div class="card"><div class="card-body"><span class="text-muted">Known</span><div class="display-6">@results.KnownCount</div></div></div></div>
+        <div class="col-sm-6"><div class="card"><div class="card-body"><span class="text-muted">Missing</span><div class="display-6">@results.MissingCount</div></div></div></div></div>
+        <div class="row g-4"><div class="col-xl-9"><div class="card"><div class="card-body">
+            <div class="row g-2 mb-3"><div class="col-lg-6"><input class="form-control" value="@search" @oninput="SearchChangedAsync" placeholder="Start typing a mount or companion name..." /></div>
+            <div class="col-sm-6 col-lg-3"><select class="form-select" @bind="type" @bind:after="ReloadAsync"><option value="all">All collectibles</option><option value="mount">Mounts</option><option value="companion">Companions</option></select></div>
+            <div class="col-sm-6 col-lg-3"><div class="form-check form-switch pt-2"><input id="missing-only" class="form-check-input" type="checkbox" @bind="missingOnly" @bind:after="ReloadAsync" /><label class="form-check-label" for="missing-only">Missing only</label></div></div></div>
+            @if (isSearching) { <p><em>Checking collection...</em></p> }
+            else if (results.Items.Count == 0) { <div class="alert alert-secondary">No matching collectibles found.</div> }
+            else { <div class="table-responsive"><table class="table table-sm table-hover align-middle"><thead><tr><th></th><th>Name</th><th>Type</th><th>Status</th><th>Level</th><th></th></tr></thead><tbody>
+                @foreach (var item in results.Items) { <tr class="@(selected?.ItemId == item.ItemId ? "table-primary" : null)"><td><input class="form-check-input" type="checkbox" disabled="@item.Known" checked="@bulkSelection.Contains(item.ItemId)" @onchange="args => ToggleBulk(item, args)" /></td><td class="fw-semibold">@item.Name</td><td>@item.Type</td><td><span class="badge @(item.Known ? "text-bg-success" : "text-bg-secondary")">@(item.Known ? "Known" : "Missing")</span></td><td><span class="@(item.MeetsLevelRequirement ? null : "text-danger")">@(item.MeetsLevelRequirement ? $"Ready ({item.RequiredLevel})" : $"Requires {item.RequiredLevel}")</span></td><td class="text-end"><button class="btn btn-sm btn-outline-primary" disabled="@item.Known" @onclick="() => SelectItem(item)">Select</button></td></tr> }
+            </tbody></table></div><div class="d-flex justify-content-between"><span>@results.TotalCount results</span><div><button class="btn btn-sm btn-outline-secondary me-2" disabled="@(results.Page <= 1)" @onclick="() => LoadAsync(results.Page - 1)">Previous</button><span class="me-2">Page @results.Page of @Math.Max(1, results.TotalPages)</span><button class="btn btn-sm btn-outline-secondary" disabled="@(results.Page >= results.TotalPages)" @onclick="() => LoadAsync(results.Page + 1)">Next</button></div></div> }
+        </div></div></div>
+        <div class="col-xl-3"><div class="card mb-3"><div class="card-body"><h2 class="h5">Deliver one</h2>
+            @if (selected is null) { <p class="text-muted">Select a missing collectible.</p> } else { <p><strong>@selected.Name</strong><br /><span class="small text-muted">Teaches spell @selected.LearnSpellId</span></p><div class="form-check mb-3"><input id="confirm-one" class="form-check-input" type="checkbox" @bind="confirmSingle" /><label class="form-check-label" for="confirm-one">Confirm delivery</label></div><button class="btn btn-primary" disabled="@(isWorking || !confirmSingle)" @onclick="DeliverSingleAsync">Send by mail</button> }
+        </div></div><div class="card"><div class="card-body"><h2 class="h5">Bulk delivery</h2><p class="text-muted small">Select up to ten missing collectibles from the current results.</p><p><strong>@bulkSelection.Count / 10 selected</strong></p><div class="form-check mb-3"><input id="confirm-bulk" class="form-check-input" type="checkbox" @bind="confirmBulk" /><label class="form-check-label" for="confirm-bulk">Confirm all selected mail</label></div><button class="btn btn-warning" disabled="@(isWorking || !confirmBulk || bulkSelection.Count == 0)" @onclick="DeliverBulkAsync">Send selected</button></div></div></div></div>
+    }
+}

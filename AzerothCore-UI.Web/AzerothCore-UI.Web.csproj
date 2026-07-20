@@ -7,6 +7,7 @@
     <RootNamespace>AzerothCore_UI.Web</RootNamespace>
     <AssemblyName>$(AssemblyName.Replace(' ', '_'))</AssemblyName>
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+    <UserSecretsId>azerothcore-ui-web-administration</UserSecretsId>
   </PropertyGroup>
 
 </Project>

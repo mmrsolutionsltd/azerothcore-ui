@@ -1,0 +1,100 @@
+@page "/creatures"
+@rendermode InteractiveServer
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@using AzerothCore_UI.Web.Models
+@inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
+
+<PageTitle>Creature spawner</PageTitle>
+
+<h1>Creature spawner</h1>
+<p class="text-muted">Find a creature and temporarily spawn it beside an online player.</p>
+
+@if (isLoadingPage)
+{
+    <p><em>Loading creature spawner...</em></p>
+}
+else
+{
+    @if (message is not null)
+    {
+        <div class="alert @(operationSucceeded ? "alert-success" : "alert-danger")">@message</div>
+    }
+    @if (!CanSpawn)
+    {
+        <div class="alert alert-warning">The worldserver and SOAP administration connection must be available before spawning.</div>
+    }
+    <div class="alert alert-info">Spawns are temporary runtime creatures. Nothing is inserted into the AzerothCore world database.</div>
+
+    <datalist id="creature-anchor-players">
+        @foreach (var player in OrderedOnlinePlayers)
+        {
+            <option value="@player.Name">@player.PickerLabel</option>
+        }
+    </datalist>
+
+    <div class="row g-4">
+        <div class="col-xl-8">
+            <div class="card"><div class="card-body">
+                <h2 class="h5">Find a creature</h2>
+                <div class="row g-2 mb-3">
+                    <div class="col-md-8"><input class="form-control" value="@creatureSearch" @oninput="OnCreatureSearchAsync" placeholder="Start typing a creature name..." autocomplete="off" /></div>
+                    <div class="col-md-4"><select class="form-select" @bind="creatureFilter" @bind:after="ReloadAsync">
+                        <option value="tameable">Tameable beasts</option><option value="exotic">Exotic beasts</option><option value="all">All safe templates</option>
+                    </select></div>
+                </div>
+                <div class="row g-2 mb-3">
+                    <div class="col-md-4"><label class="form-label" for="creature-family">Family</label>
+                        <select id="creature-family" class="form-select" @bind="creatureFamily" @bind:after="ReloadAsync">
+                            <option value="0">All families</option>
+                            @foreach (var family in CreatureFamilies) { <option value="@family">@CreatureFamilyName(family)</option> }
+                        </select>
+                    </div>
+                    <div class="col-6 col-md-2"><label class="form-label" for="creature-min-level">Min level</label><input id="creature-min-level" class="form-control" type="number" min="1" max="83" @bind="creatureMinimumLevel" @bind:after="ReloadAsync" /></div>
+                    <div class="col-6 col-md-2"><label class="form-label" for="creature-max-level">Max level</label><input id="creature-max-level" class="form-control" type="number" min="1" max="83" @bind="creatureMaximumLevel" @bind:after="ReloadAsync" /></div>
+                    <div class="col-md-4"><label class="form-label" for="creature-sort">Sort</label>
+                        <select id="creature-sort" class="form-select" @bind="creatureSort" @bind:after="ReloadAsync">
+                            <option value="name">Name A-Z</option><option value="level-asc">Level low-high</option><option value="level-desc">Level high-low</option>
+                        </select>
+                    </div>
+                </div>
+
+                @if (isLoadingCreatures) { <p><em>Searching creatures...</em></p> }
+                else if (creatureResults.Creatures.Count == 0) { <div class="alert alert-secondary">No matching creatures were found.</div> }
+                else
+                {
+                    <div class="table-responsive"><table class="table table-sm table-hover align-middle">
+                        <thead><tr><th>Name</th><th>ID</th><th>Type</th><th>Family</th><th>Levels</th><th>Pet</th><th></th></tr></thead><tbody>
+                        @foreach (var creature in creatureResults.Creatures)
+                        {
+                            <tr class="@(selectedCreature?.CreatureId == creature.CreatureId ? "table-primary" : null)">
+                                <td class="fw-semibold">@creature.Name</td><td>@creature.CreatureId</td><td>@CreatureTypeName(creature.CreatureType)</td><td>@CreatureFamilyName(creature.Family)</td>
+                                <td>@creature.MinimumLevel&ndash;@creature.MaximumLevel</td><td>@(creature.Exotic ? "Exotic" : creature.Tameable ? "Tameable" : "No")</td>
+                                <td class="text-end"><button class="btn btn-sm btn-outline-primary" @onclick="() => SelectCreature(creature)">Select</button></td>
+                            </tr>
+                        }
+                        </tbody></table></div>
+                    <div class="d-flex justify-content-between align-items-center"><span class="text-muted">@creatureResults.TotalCount matching creatures</span><div>
+                        <button class="btn btn-sm btn-outline-secondary me-2" disabled="@(isLoadingCreatures || creatureResults.Page <= 1)" @onclick="() => LoadCreaturesAsync(creatureResults.Page - 1)">Previous</button>
+                        <span class="me-2">Page @creatureResults.Page of @Math.Max(1, creatureResults.TotalPages)</span>
+                        <button class="btn btn-sm btn-outline-secondary" disabled="@(isLoadingCreatures || creatureResults.Page >= creatureResults.TotalPages)" @onclick="() => LoadCreaturesAsync(creatureResults.Page + 1)">Next</button>
+                    </div></div>
+                }
+            </div></div>
+        </div>
+        <div class="col-xl-4"><div class="card"><div class="card-body">
+            <h2 class="h5">Spawn beside player</h2>
+            @if (selectedCreature is null) { <div class="alert alert-secondary">Select a creature first.</div> }
+            else
+            {
+                <p><strong>@selectedCreature.Name</strong> <span class="badge text-bg-secondary">ID @selectedCreature.CreatureId</span> @if (selectedCreature.Exotic) { <span class="badge text-bg-purple">Exotic</span> }</p>
+                <label class="form-label" for="creature-anchor">Online anchor player</label><input id="creature-anchor" class="form-control mb-3" list="creature-anchor-players" @bind="creatureAnchor" autocomplete="off" />
+                <label class="form-label" for="creature-level">Spawn level</label><input id="creature-level" class="form-control mb-2" type="number" min="1" max="83" @bind="creatureLevel" />
+                <p class="small text-muted">Natural template range: @selectedCreature.MinimumLevel&ndash;@selectedCreature.MaximumLevel. Override allowed from level 1 to 83.</p>
+                @if (creatureLevel < selectedCreature.MinimumLevel || creatureLevel > selectedCreature.MaximumLevel) { <div class="alert alert-warning py-2 small">This level is outside the creature's natural range. AzerothCore will recalculate its stats.</div> }
+                <label class="form-label" for="creature-despawn">Despawn after</label><div class="input-group mb-3"><input id="creature-despawn" class="form-control" type="number" min="1" max="30" @bind="creatureDespawnMinutes" /><span class="input-group-text">minutes</span></div>
+                <div class="form-check mb-3"><input id="confirm-creature-spawn" class="form-check-input" type="checkbox" @bind="confirmCreatureSpawn" /><label class="form-check-label" for="confirm-creature-spawn">Confirm temporary spawn near @creatureAnchor</label></div>
+                <button class="btn btn-success" disabled="@(!CanSpawn || !confirmCreatureSpawn || string.IsNullOrWhiteSpace(creatureAnchor))" @onclick="SpawnCreatureAsync">Spawn creature</button>
+            }
+        </div></div></div>
+    </div>
+}

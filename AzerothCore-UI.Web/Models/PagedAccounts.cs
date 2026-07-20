@@ -13,4 +13,5 @@ public sealed record AccountSummary(
     string Classification,
     DateTime? LastLogin,
     long CharacterCount,
-    long OnlineCharacterCount);
+    long OnlineCharacterCount,
+    byte GmLevel);

@@ -1,0 +1,109 @@
+@page "/modules"
+@rendermode InteractiveServer
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@using AzerothCore_UI.Web.Models
+@inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
+
+<PageTitle>Modules</PageTitle>
+<h1>Module settings</h1>
+<p class="text-muted">Family-server controls for the optional modules installed with AzerothCore.</p>
+
+@if (loading) { <p><em>Loading module configuration...</em></p> }
+else
+{
+    @if (message is not null) { <div class="alert @(succeeded ? "alert-success" : "alert-danger")">@message</div> }
+    <div class="alert alert-warning">Saved changes take effect after the worldserver is restarted. A backup is created before each changed file.</div>
+
+    <div class="accordion" id="module-settings">
+        <div class="accordion-item">
+            <h2 class="accordion-header"><button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#ahbot">Auction House Bot</button></h2>
+            <div id="ahbot" class="accordion-collapse collapse show"><div class="accordion-body">
+                <EditForm Model="ah" OnValidSubmit="SaveAuctionHouseAsync">
+                    <div class="row g-3">
+                        <Check Label="Sell items into the auction house" @bind-Value="ah.EnableSeller" />
+                        <Check Label="Buy auctions from players" @bind-Value="ah.EnableBuyer" />
+                        <Check Label="Use market pricing" @bind-Value="ah.UseMarketPrice" />
+                        <Check Label="Use divisible stack sizes" @bind-Value="ah.DivisibleStacks" />
+                        <Check Label="Include vendor items" @bind-Value="ah.IncludeVendorItems" />
+                        <Check Label="Include loot items" @bind-Value="ah.IncludeLootItems" />
+                        <Check Label="Include profession items" @bind-Value="ah.IncludeProfessionItems" />
+                        <Number Label="Items processed per cycle" @bind-Value="ah.ItemsPerCycle" Min="1" Max="10000" />
+                        <Number Label="Maximum duplicate stacks (0 = unlimited)" @bind-Value="ah.DuplicatesCount" Min="0" Max="1000" />
+                    </div><SaveButton Busy="saving" />
+                </EditForm>
+            </div></div>
+        </div>
+
+        <div class="accordion-item">
+            <h2 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#autobalance">AutoBalance</button></h2>
+            <div id="autobalance" class="accordion-collapse collapse"><div class="accordion-body">
+                <EditForm Model="balance" OnValidSubmit="SaveAutoBalanceAsync">
+                    <div class="row g-3">
+                        <Check Label="Enable AutoBalance" @bind-Value="balance.Enabled" />
+                        <Check Label="Scale creature levels" @bind-Value="balance.LevelScaling" />
+                        <Check Label="Scale experience rewards" @bind-Value="balance.ScaleXp" />
+                        <Check Label="Scale money rewards" @bind-Value="balance.ScaleMoney" />
+                        <Check Label="Announce AutoBalance in instances" @bind-Value="balance.Announce" />
+                        <Number Label="Minimum dungeon players" @bind-Value="balance.MinimumPlayers" Min="1" Max="40" />
+                        <Number Label="Minimum heroic players" @bind-Value="balance.MinimumHeroicPlayers" Min="1" Max="40" />
+                        <Number Label="Minimum raid players" @bind-Value="balance.MinimumRaidPlayers" Min="1" Max="40" />
+                        <DecimalNumber Label="Health multiplier" @bind-Value="balance.HealthMultiplier" Min="@(0.01m)" Max="@(10m)" />
+                        <DecimalNumber Label="Damage multiplier" @bind-Value="balance.DamageMultiplier" Min="@(0.01m)" Max="@(10m)" />
+                    </div><SaveButton Busy="saving" />
+                </EditForm>
+            </div></div>
+        </div>
+
+        <div class="accordion-item">
+            <h2 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#transmog">Transmog</button></h2>
+            <div id="transmog" class="accordion-collapse collapse"><div class="accordion-body">
+                <EditForm Model="transmog" OnValidSubmit="SaveTransmogAsync">
+                    <div class="row g-3">
+                        <Check Label="Enable transmog" @bind-Value="transmog.Enabled" />
+                        <Check Label="Use appearance collection" @bind-Value="transmog.CollectionSystem" />
+                        <Check Label="Enable portable transmog" @bind-Value="transmog.Portable" />
+                        <Check Label="Allow poor-quality appearances" @bind-Value="transmog.AllowPoor" />
+                        <Check Label="Allow common appearances" @bind-Value="transmog.AllowCommon" />
+                        <Check Label="Allow legendary appearances" @bind-Value="transmog.AllowLegendary" />
+                        <Check Label="Allow heirloom appearances" @bind-Value="transmog.AllowHeirloom" />
+                        <Check Label="Allow mixed armour types" @bind-Value="transmog.MixedArmorTypes" />
+                        <Check Label="Ignore class requirements" @bind-Value="transmog.IgnoreClass" />
+                        <Check Label="Ignore level requirements" @bind-Value="transmog.IgnoreLevel" />
+                        <Check Label="Enable saved sets" @bind-Value="transmog.EnableSets" />
+                        <DecimalNumber Label="Cost multiplier" @bind-Value="transmog.CostMultiplier" Min="0" Max="100" />
+                        <Number Label="Additional cost (copper)" @bind-Value="transmog.CopperCost" Min="0" Max="100000000" />
+                        <Number Label="Saved sets (maximum 25)" @bind-Value="transmog.MaximumSets" Min="0" Max="25" />
+                        <div class="col-md-6"><label class="form-label">Mixed weapon rules</label><InputSelect class="form-select" @bind-Value="transmog.MixedWeaponTypes"><option value="0">Strict</option><option value="1">Modern weapon groups</option><option value="2">Any weapon type</option></InputSelect></div>
+                    </div><SaveButton Busy="saving" />
+                </EditForm>
+            </div></div>
+        </div>
+
+        <div class="accordion-item">
+            <h2 class="accordion-header"><button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#aoeloot">AoE Loot</button></h2>
+            <div id="aoeloot" class="accordion-collapse collapse"><div class="accordion-body">
+                <EditForm Model="loot" OnValidSubmit="SaveAoeLootAsync">
+                    <div class="row g-3">
+                        <Check Label="Enable area loot" @bind-Value="loot.Enabled" />
+                        <Check Label="Show area-loot messages" @bind-Value="loot.ShowMessage" />
+                        <Check Label="Allow area loot while grouped" @bind-Value="loot.AllowInGroups" />
+                        <DecimalNumber Label="Loot range in yards" @bind-Value="loot.Range" Min="5" Max="100" />
+                    </div><SaveButton Busy="saving" />
+                </EditForm>
+            </div></div>
+        </div>
+    </div>
+}
+
+@code {
+    private AuctionHouseBotSettings ah = new(); private AutoBalanceSettings balance = new();
+    private TransmogSettings transmog = new(); private AoeLootSettings loot = new();
+    private bool loading = true, saving, succeeded; private string? message;
+    protected override async Task OnInitializedAsync() { try { await LoadAsync(); } catch (Exception ex) { message = ex.Message; } finally { loading = false; } }
+    private async Task LoadAsync() { ah = await AccountsClient.GetAuctionHouseBotSettingsAsync() ?? new(); balance = await AccountsClient.GetAutoBalanceSettingsAsync() ?? new(); transmog = await AccountsClient.GetTransmogSettingsAsync() ?? new(); loot = await AccountsClient.GetAoeLootSettingsAsync() ?? new(); }
+    private Task SaveAuctionHouseAsync() => SaveAsync(async () => { ah = await AccountsClient.UpdateAuctionHouseBotSettingsAsync(ah) ?? ah; }, "Auction House Bot");
+    private Task SaveAutoBalanceAsync() => SaveAsync(async () => { balance = await AccountsClient.UpdateAutoBalanceSettingsAsync(balance) ?? balance; }, "AutoBalance");
+    private Task SaveTransmogAsync() => SaveAsync(async () => { transmog = await AccountsClient.UpdateTransmogSettingsAsync(transmog) ?? transmog; }, "Transmog");
+    private Task SaveAoeLootAsync() => SaveAsync(async () => { loot = await AccountsClient.UpdateAoeLootSettingsAsync(loot) ?? loot; }, "AoE Loot");
+    private async Task SaveAsync(Func<Task> save, string name) { if (saving) return; saving = true; message = null; try { await save(); succeeded = true; message = $"{name} settings saved. Restart the worldserver to apply them."; } catch (Exception ex) { succeeded = false; message = ex.Message; } finally { saving = false; } }
+}

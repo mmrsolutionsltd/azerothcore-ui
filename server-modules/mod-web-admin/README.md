@@ -1,0 +1,37 @@
+# AzerothCore Web Admin module
+
+Adds the console/SOAP-safe administrator command:
+
+```text
+webadmin move <movingPlayer> <anchorPlayer>
+webadmin speed <onlinePlayer> <0.5-10>
+webadmin weapon inspect <onlinePlayer>
+webadmin weapon learn <onlinePlayer> <weaponKey>
+```
+
+Both characters must be online. The command rejects battleground/arena destinations,
+cross-instance movement, transports, self-movement, and characters already teleporting.
+
+Dungeon-party commands:
+
+```text
+webadmin group inspect <leader>
+webadmin group add <leader> <bot>
+webadmin group remove <leader> <bot>
+webadmin group clear <leader>
+webadmin group fill <leader>
+webadmin group launch <leader> <dungeonId>
+webadmin dungeon list
+webadmin creature spawn <anchorPlayer> <creatureId> <level> <despawnMinutes>
+```
+
+The leader must be a real online player. Eligible bots are online random PlayerBots that
+are ungrouped, on the same faction, and within five levels. Parties are capped at five;
+raid, LFG, battleground, and battlefield groups are not modified.
+
+Creature spawns are runtime-only temporary summons. Service NPCs, world bosses, instances,
+battlegrounds, transports, combat, flight, and levels outside 1-83 are rejected. An administrator
+may override a template's natural level range; the spawned creature's stats are recalculated.
+
+The module source is copied into the AzerothCore `modules/mod-web-admin` directory and
+requires CMake regeneration plus a worldserver rebuild.

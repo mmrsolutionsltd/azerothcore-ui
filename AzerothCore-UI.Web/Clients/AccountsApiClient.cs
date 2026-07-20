@@ -5,6 +5,143 @@ namespace AzerothCore_UI.Web.Clients;
 
 public sealed class AccountsApiClient(HttpClient httpClient)
 {
+    public async Task<ServerStatus?> GetServerStatusAsync() =>
+        await httpClient.GetFromJsonAsync<ServerStatus>("api/server-administration/status");
+    public async Task<IReadOnlyList<AdministrationPlayer>> GetAdministrationPlayersAsync() =>
+        await httpClient.GetFromJsonAsync<AdministrationPlayer[]>("api/server-administration/players") ?? [];
+    public async Task<AdministrationItemSearchResult> GetAdministrationItemsAsync(
+        string? search, string category, int page, CancellationToken cancellationToken = default)
+    {
+        var uri = $"api/server-administration/items?search={Uri.EscapeDataString(search ?? "")}&category={Uri.EscapeDataString(category)}&page={page}&pageSize=30";
+        return await httpClient.GetFromJsonAsync<AdministrationItemSearchResult>(uri, cancellationToken)
+            ?? new AdministrationItemSearchResult([], page, 30, 0, 0);
+    }
+    public async Task<TeleportLocationSearchResult> GetTeleportLocationsAsync(
+        string? search, int page, CancellationToken cancellationToken = default)
+    {
+        var uri = $"api/server-administration/teleport-locations?search={Uri.EscapeDataString(search ?? "")}&page={page}&pageSize=30";
+        return await httpClient.GetFromJsonAsync<TeleportLocationSearchResult>(uri, cancellationToken)
+            ?? new TeleportLocationSearchResult([], page, 30, 0, 0);
+    }
+    public async Task<AdministrationCreatureSearchResult> GetAdministrationCreaturesAsync(
+        string? search, string filter, uint family, int? minimumLevel, int? maximumLevel,
+        string sort, bool descending, int page, CancellationToken cancellationToken = default)
+    {
+        var uri = $"api/server-administration/creatures?search={Uri.EscapeDataString(search ?? "")}" +
+                  $"&filter={Uri.EscapeDataString(filter)}&family={family}&minimumLevel={minimumLevel}" +
+                  $"&maximumLevel={maximumLevel}&sort={Uri.EscapeDataString(sort)}&descending={descending.ToString().ToLowerInvariant()}&page={page}&pageSize=30";
+        return await httpClient.GetFromJsonAsync<AdministrationCreatureSearchResult>(uri, cancellationToken)
+            ?? new AdministrationCreatureSearchResult([], page, 30, 0, 0);
+    }
+    public async Task<CollectibleSearchResult> GetCollectiblesAsync(string? search, string type, int page)
+    {
+        var uri = $"api/server-administration/collectibles?search={Uri.EscapeDataString(search ?? "")}&type={Uri.EscapeDataString(type)}&page={page}&pageSize=30";
+        return await httpClient.GetFromJsonAsync<CollectibleSearchResult>(uri) ?? new CollectibleSearchResult([], page, 30, 0, 0);
+    }
+    public async Task<CharacterCollectibleSearchResult> GetCharacterCollectiblesAsync(
+        string characterName, string? search, string type, bool missingOnly, int page)
+    {
+        var uri = $"api/server-administration/collectibles/collection?characterName={Uri.EscapeDataString(characterName)}" +
+                  $"&search={Uri.EscapeDataString(search ?? "")}&type={Uri.EscapeDataString(type)}" +
+                  $"&missingOnly={missingOnly.ToString().ToLowerInvariant()}&page={page}&pageSize=30";
+        return await GetAdministrationAsync<CharacterCollectibleSearchResult>(uri)
+            ?? new CharacterCollectibleSearchResult([], page, 30, 0, 0, 0, 0);
+    }
+    public async Task<PlayerBotSettings?> GetPlayerBotSettingsAsync() =>
+        await httpClient.GetFromJsonAsync<PlayerBotSettings>("api/server-administration/settings/playerbots");
+    public async Task<PlayerBotSettings?> UpdatePlayerBotSettingsAsync(PlayerBotSettings settings)
+    {
+        using var response = await httpClient.PutAsJsonAsync("api/server-administration/settings/playerbots", settings);
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<AdministrationResult>();
+            throw new HttpRequestException(error?.Message ?? "Could not save PlayerBots settings.", null, response.StatusCode);
+        }
+        return await response.Content.ReadFromJsonAsync<PlayerBotSettings>();
+    }
+    public async Task<GameplayRateSettings?> GetGameplayRateSettingsAsync() =>
+        await httpClient.GetFromJsonAsync<GameplayRateSettings>("api/server-administration/settings/rates");
+    public async Task<GameplayRateSettings?> UpdateGameplayRateSettingsAsync(GameplayRateSettings settings)
+    {
+        using var response = await httpClient.PutAsJsonAsync("api/server-administration/settings/rates", settings);
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<AdministrationResult>();
+            throw new HttpRequestException(error?.Message ?? "Could not save gameplay rates.", null, response.StatusCode);
+        }
+        return await response.Content.ReadFromJsonAsync<GameplayRateSettings>();
+    }
+
+    public Task<AuctionHouseBotSettings?> GetAuctionHouseBotSettingsAsync() => GetAdministrationAsync<AuctionHouseBotSettings>("api/server-administration/settings/auction-house-bot");
+    public Task<AutoBalanceSettings?> GetAutoBalanceSettingsAsync() => GetAdministrationAsync<AutoBalanceSettings>("api/server-administration/settings/autobalance");
+    public Task<TransmogSettings?> GetTransmogSettingsAsync() => GetAdministrationAsync<TransmogSettings>("api/server-administration/settings/transmog");
+    public Task<AoeLootSettings?> GetAoeLootSettingsAsync() => GetAdministrationAsync<AoeLootSettings>("api/server-administration/settings/aoe-loot");
+    public Task<AuctionHouseBotSettings?> UpdateAuctionHouseBotSettingsAsync(AuctionHouseBotSettings settings) => PutSettingsAsync("auction-house-bot", settings);
+    public Task<AutoBalanceSettings?> UpdateAutoBalanceSettingsAsync(AutoBalanceSettings settings) => PutSettingsAsync("autobalance", settings);
+    public Task<TransmogSettings?> UpdateTransmogSettingsAsync(TransmogSettings settings) => PutSettingsAsync("transmog", settings);
+    public Task<AoeLootSettings?> UpdateAoeLootSettingsAsync(AoeLootSettings settings) => PutSettingsAsync("aoe-loot", settings);
+
+    private async Task<T?> PutSettingsAsync<T>(string module, T settings)
+    {
+        using var response = await httpClient.PutAsJsonAsync($"api/server-administration/settings/{module}", settings);
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<AdministrationResult>();
+            throw new HttpRequestException(error?.Message ?? "Could not save module settings.", null, response.StatusCode);
+        }
+        return await response.Content.ReadFromJsonAsync<T>();
+    }
+
+    public Task<AdministrationResult?> StartServersAsync() => PostAsync("api/server-administration/start", new { });
+    public Task<AdministrationResult?> StopServersAsync(bool force) => PostAsync($"api/server-administration/stop?force={force.ToString().ToLowerInvariant()}", new { });
+    public Task<AdministrationResult?> RestartServersAsync(bool force) => PostAsync($"api/server-administration/restart?force={force.ToString().ToLowerInvariant()}", new { });
+    public Task<AdministrationResult?> GiveItemAsync(GiveItemRequest request) => PostAsync("api/server-administration/items/give", request);
+    public Task<AdministrationResult?> MailItemAsync(MailItemRequest request) => PostAsync("api/server-administration/items/mail", request);
+    public Task<AdministrationResult?> GiveMoneyAsync(GiveMoneyRequest request) => PostAsync("api/server-administration/money/give", request);
+    public Task<AdministrationResult?> TeleportAsync(TeleportPlayerRequest request) => PostAsync("api/server-administration/players/teleport", request);
+    public Task<AdministrationResult?> TeleportToPlayerAsync(PlayerRelativeTeleportRequest request) => PostAsync("api/server-administration/players/teleport-to-player", request);
+    public Task<PartySnapshot?> GetPartyAsync(string leaderName) =>
+        GetAdministrationAsync<PartySnapshot>($"api/server-administration/parties/{Uri.EscapeDataString(leaderName)}");
+    public Task<AdministrationResult?> AddPartyBotAsync(PartyBotRequest request) => PostAsync("api/server-administration/parties/bots/add", request);
+    public Task<AdministrationResult?> RemovePartyBotAsync(PartyBotRequest request) => PostAsync("api/server-administration/parties/bots/remove", request);
+    public Task<AdministrationResult?> ClearPartyBotsAsync(PartyLeaderRequest request) => PostAsync("api/server-administration/parties/bots/clear", request);
+    public Task<AdministrationResult?> FillPartyWithBotsAsync(PartyLeaderRequest request) => PostAsync("api/server-administration/parties/bots/fill", request);
+    public async Task<IReadOnlyList<DungeonDestination>> GetDungeonsAsync() =>
+        await GetAdministrationAsync<DungeonDestination[]>("api/server-administration/dungeons") ?? [];
+    public Task<AdministrationResult?> LaunchPartyAsync(LaunchDungeonRequest request) =>
+        PostAsync("api/server-administration/parties/launch", request);
+    public Task<AdministrationResult?> SpawnCreatureAsync(SpawnCreatureRequest request) =>
+        PostAsync("api/server-administration/creatures/spawn", request);
+    public Task<AdministrationResult?> SetAccountGmAsync(SetAccountGmRequest request) =>
+        PostAsync("api/server-administration/accounts/gm", request);
+    public Task<AdministrationResult?> SetPlayerSpeedAsync(SetPlayerSpeedRequest request) =>
+        PostAsync("api/server-administration/players/speed", request);
+    public Task<AdministrationResult?> ApplyCharacterServiceAsync(CharacterServiceRequest request) =>
+        PostAsync("api/server-administration/characters/service", request);
+    public Task<WeaponTrainingStatus[]?> GetWeaponTrainingAsync(string playerName) =>
+        GetAdministrationAsync<WeaponTrainingStatus[]>($"api/server-administration/players/{Uri.EscapeDataString(playerName)}/weapon-training");
+    public Task<AdministrationResult?> GrantWeaponTrainingAsync(GrantWeaponTrainingRequest request) =>
+        PostAsync("api/server-administration/players/weapon-training", request);
+
+    private async Task<AdministrationResult?> PostAsync<T>(string uri, T request)
+    {
+        using var response = await httpClient.PostAsJsonAsync(uri, request);
+        var result = await response.Content.ReadFromJsonAsync<AdministrationResult>();
+        if (!response.IsSuccessStatusCode) throw new HttpRequestException(result?.Message ?? "Administration command failed.", null, response.StatusCode);
+        return result;
+    }
+
+    private async Task<T?> GetAdministrationAsync<T>(string uri)
+    {
+        using var response = await httpClient.GetAsync(uri);
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<AdministrationResult>();
+            throw new HttpRequestException(error?.Message ?? "Administration request failed.", null, response.StatusCode);
+        }
+        return await response.Content.ReadFromJsonAsync<T>();
+    }
+
     public async Task<PagedAccounts> GetAccountsAsync(
         string? search,
         string type,

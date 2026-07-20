@@ -1,0 +1,104 @@
+@page "/weapon-training"
+@rendermode InteractiveServer
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@using AzerothCore_UI.Web.Models
+@inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
+
+<PageTitle>Weapon training</PageTitle>
+
+<h1>Weapon training</h1>
+<p class="text-muted">Inspect and grant weapon proficiencies to an online character.</p>
+
+@if (isLoadingPage)
+{
+    <p><em>Loading online characters...</em></p>
+}
+else
+{
+    @if (message is not null)
+    {
+        <div class="alert @(operationSucceeded ? "alert-success" : "alert-danger")">@message</div>
+    }
+
+    @if (!CanUseWeaponTraining)
+    {
+        <div class="alert alert-warning">Weapon training requires the worldserver and its SOAP administration connection.</div>
+    }
+
+    <datalist id="weapon-training-players">
+        @foreach (var player in OrderedOnlinePlayers)
+        {
+            <option value="@player.Name">@player.PickerLabel</option>
+        }
+    </datalist>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <label class="form-label" for="weapon-training-player">Online character</label>
+            <div class="input-group">
+                <input id="weapon-training-player" class="form-control" list="weapon-training-players"
+                       placeholder="Start typing a character name" autocomplete="off" @bind="playerName" />
+                <button class="btn btn-primary" disabled="@(!CanLoad)" @onclick="LoadTrainingAsync">Load training</button>
+            </div>
+            <div class="form-text">Online players are listed first, with human players ahead of PlayerBots.</div>
+        </div>
+    </div>
+
+    @if (isLoadingTraining)
+    {
+        <p><em>Inspecting weapon training...</em></p>
+    }
+    else if (training.Count > 0)
+    {
+        <div class="alert alert-info">
+            This is an administrative override. It can grant a proficiency that the character would not normally
+            receive from its class trainer.
+        </div>
+        <div class="table-responsive">
+            <table class="table table-striped align-middle">
+                <thead>
+                    <tr><th>Weapon type</th><th>Status</th><th>Skill</th><th class="text-end">Action</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in training)
+                    {
+                        <tr>
+                            <td>@item.Name</td>
+                            <td>
+                                <span class="badge @(item.Learned ? "text-bg-success" : "text-bg-secondary")">
+                                    @(item.Learned ? "Learned" : "Not learned")
+                                </span>
+                            </td>
+                            <td>@(item.Learned ? $"{item.CurrentSkill} / {item.MaximumSkill}" : "—")</td>
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-outline-primary" disabled="@(item.Learned || !CanUseWeaponTraining)"
+                                        @onclick="() => SelectTraining(item)">Grant</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    @if (pendingTraining is not null)
+    {
+        <div class="modal d-block" tabindex="-1" role="dialog" aria-modal="true">
+            <div class="modal-dialog"><div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title h5">Confirm weapon training</h2>
+                    <button class="btn-close" aria-label="Close" @onclick="CancelTraining"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Grant <strong>@pendingTraining.Name</strong> proficiency to <strong>@loadedPlayerName</strong>?</p>
+                    <p class="text-muted mb-0">The command is audited and sent to the worldserver through SOAP.</p>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline-secondary" @onclick="CancelTraining">Cancel</button>
+                    <button class="btn btn-primary" disabled="@isWorking" @onclick="GrantTrainingAsync">Confirm and grant</button>
+                </div>
+            </div></div>
+        </div>
+        <div class="modal-backdrop show"></div>
+    }
+}

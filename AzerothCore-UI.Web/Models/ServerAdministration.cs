@@ -1,0 +1,136 @@
+namespace AzerothCore_UI.Web.Models;
+
+public sealed record ManagedProcessStatus(string Name, bool IsRunning, int? ProcessId,
+    DateTime? StartedAt, long? WorkingSetBytes);
+public sealed record ServerStatus(ManagedProcessStatus WorldServer, ManagedProcessStatus AuthServer,
+    bool SoapConfigured, bool SoapReachable, string? WorldStatus, IReadOnlyList<ServerLogEntry> RecentLogs,
+    ServerPopulation Population, int PlayerLimit);
+public sealed record ServerPopulation(int HumanPlayers, int PlayerBots, int Total);
+public sealed class PlayerBotSettings
+{
+    public string Version { get; set; } = "";
+    public bool Enabled { get; set; }
+    public bool RandomBotAutologin { get; set; }
+    public int MinRandomBots { get; set; }
+    public int MaxRandomBots { get; set; }
+    public int MinLevel { get; set; }
+    public int MaxLevel { get; set; }
+    public bool JoinLfg { get; set; }
+    public bool JoinBattlegrounds { get; set; }
+    public bool EnableTrading { get; set; }
+}
+public sealed class GameplayRateSettings
+{
+    public string Version { get; set; } = "";
+    public decimal KillXp { get; set; }
+    public decimal QuestXp { get; set; }
+    public decimal ExplorationXp { get; set; }
+    public decimal Reputation { get; set; }
+    public decimal MoneyDrops { get; set; }
+    public decimal QuestMoney { get; set; }
+    public decimal Honor { get; set; }
+    public decimal RepairCost { get; set; }
+}
+public sealed class AuctionHouseBotSettings
+{
+    public string Version { get; set; } = ""; public bool EnableSeller { get; set; } public bool EnableBuyer { get; set; }
+    public bool UseMarketPrice { get; set; } public int ItemsPerCycle { get; set; } public int DuplicatesCount { get; set; }
+    public bool DivisibleStacks { get; set; } public bool IncludeVendorItems { get; set; }
+    public bool IncludeLootItems { get; set; } public bool IncludeProfessionItems { get; set; }
+}
+public sealed class AutoBalanceSettings
+{
+    public string Version { get; set; } = ""; public bool Enabled { get; set; } public int MinimumPlayers { get; set; }
+    public int MinimumHeroicPlayers { get; set; } public int MinimumRaidPlayers { get; set; }
+    public decimal HealthMultiplier { get; set; } public decimal DamageMultiplier { get; set; }
+    public bool LevelScaling { get; set; } public bool ScaleXp { get; set; } public bool ScaleMoney { get; set; }
+    public bool Announce { get; set; }
+}
+public sealed class TransmogSettings
+{
+    public string Version { get; set; } = ""; public bool Enabled { get; set; } public bool CollectionSystem { get; set; }
+    public bool Portable { get; set; } public decimal CostMultiplier { get; set; } public int CopperCost { get; set; }
+    public bool AllowPoor { get; set; } public bool AllowCommon { get; set; } public bool AllowLegendary { get; set; }
+    public bool AllowHeirloom { get; set; } public bool MixedArmorTypes { get; set; } public int MixedWeaponTypes { get; set; }
+    public bool IgnoreClass { get; set; } public bool IgnoreLevel { get; set; } public bool EnableSets { get; set; }
+    public int MaximumSets { get; set; }
+}
+public sealed class AoeLootSettings
+{
+    public string Version { get; set; } = ""; public bool Enabled { get; set; } public bool ShowMessage { get; set; }
+    public decimal Range { get; set; } public bool AllowInGroups { get; set; }
+}
+public sealed class AdministrationPlayer
+{
+    public string Name { get; set; } = "";
+    public string Username { get; set; } = "";
+    public bool Online { get; set; }
+    public string Classification { get; set; } = "";
+    public bool IsPlayerBot => Classification.Equals("PlayerBot", StringComparison.OrdinalIgnoreCase);
+    public int PickerOrder => (Online ? 0 : 2) + (IsPlayerBot ? 1 : 0);
+    public string PickerLabel => $"[{(Online ? "ONLINE" : "OFFLINE")}] [{(IsPlayerBot ? "BOT" : "PLAYER")}] Account: {Username}";
+}
+public sealed class AdministrationItem
+{
+    public uint ItemId { get; set; }
+    public string Name { get; set; } = "";
+    public byte ItemClass { get; set; }
+    public byte ItemSubclass { get; set; }
+    public byte Quality { get; set; }
+    public ushort ItemLevel { get; set; }
+    public byte RequiredLevel { get; set; }
+}
+public sealed record AdministrationItemSearchResult(
+    IReadOnlyList<AdministrationItem> Items, int Page, int PageSize, int TotalCount, int TotalPages);
+public sealed class AdministrationCreature
+{
+    public uint CreatureId { get; set; }
+    public string Name { get; set; } = "";
+    public byte MinimumLevel { get; set; }
+    public byte MaximumLevel { get; set; }
+    public byte CreatureType { get; set; }
+    public uint Family { get; set; }
+    public bool Tameable { get; set; }
+    public bool Exotic { get; set; }
+}
+public sealed record AdministrationCreatureSearchResult(
+    IReadOnlyList<AdministrationCreature> Creatures, int Page, int PageSize, int TotalCount, int TotalPages);
+public sealed class TeleportLocation
+{
+    public uint Id { get; set; }
+    public string Name { get; set; } = "";
+    public ushort MapId { get; set; }
+    public float PositionX { get; set; }
+    public float PositionY { get; set; }
+    public float PositionZ { get; set; }
+}
+public sealed record TeleportLocationSearchResult(
+    IReadOnlyList<TeleportLocation> Locations, int Page, int PageSize, int TotalCount, int TotalPages);
+public sealed record ServerLogEntry(string Source, string Message);
+public sealed record GiveItemRequest(string PlayerName, uint ItemId, int Quantity);
+public sealed record MailItemRequest(string PlayerName, uint ItemId, int Quantity, string Subject, string Message);
+public sealed record GiveMoneyRequest(string PlayerName, int Gold, int Silver, int Copper);
+public sealed record TeleportPlayerRequest(string PlayerName, string Location);
+public sealed record PlayerRelativeTeleportRequest(string PlayerName, string AnchorPlayerName);
+public sealed record PartyBotRequest(string LeaderName, string BotName);
+public sealed record PartyLeaderRequest(string LeaderName);
+public sealed record PartyMember(string Name, int Level, string Role, bool IsPlayerBot);
+public sealed record PartyBotCandidate(string Name, int Level, string Role, int CharacterClass);
+public sealed record PartySnapshot(string LeaderName, int MemberCount,
+    IReadOnlyList<PartyMember> Members, IReadOnlyList<PartyBotCandidate> Candidates);
+public sealed record DungeonDestination(uint DungeonId, string Name, int MinimumLevel,
+    int MaximumLevel, uint MapId, string Difficulty);
+public sealed record LaunchDungeonRequest(string LeaderName, uint DungeonId, bool Confirmed);
+public sealed record SpawnCreatureRequest(string AnchorPlayerName, uint CreatureId, int Level, int DespawnMinutes, bool Confirmed);
+public sealed record SetAccountGmRequest(string Username, bool Enabled, bool Confirmed);
+public sealed record SetPlayerSpeedRequest(string PlayerName, decimal Speed);
+public sealed record CharacterServiceRequest(string PlayerName, string Service, int? Level, bool Confirmed);
+public sealed record CollectibleItem(uint ItemId, string Name, string Type, int LearnSpellId, byte RequiredLevel, byte Quality);
+public sealed record CollectibleSearchResult(IReadOnlyList<CollectibleItem> Items, int Page, int PageSize, int TotalCount, int TotalPages);
+public sealed record CharacterCollectibleItem(uint ItemId, string Name, string Type, int LearnSpellId,
+    byte RequiredLevel, byte Quality, bool Known, bool MeetsLevelRequirement);
+public sealed record CharacterCollectibleSearchResult(IReadOnlyList<CharacterCollectibleItem> Items, int Page,
+    int PageSize, int TotalCount, int TotalPages, int KnownCount, int MissingCount);
+public sealed record WeaponTrainingStatus(string Key, string Name, bool Learned, int CurrentSkill, int MaximumSkill);
+public sealed record GrantWeaponTrainingRequest(string PlayerName, string WeaponKey, bool Confirmed);
+public sealed record AdministrationResult(bool Success, string Message, string? Output = null);

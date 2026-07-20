@@ -1,0 +1,507 @@
+@page "/server"
+@rendermode InteractiveServer
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@using AzerothCore_UI.Web.Models
+@inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
+
+<PageTitle>@PageHeading</PageTitle>
+
+<h1>@PageHeading</h1>
+<p class="text-muted">@PageDescription</p>
+
+@if (isLoading)
+{
+    <p><em>Checking server status...</em></p>
+}
+else if (status is null)
+{
+    <div class="alert alert-danger">@errorMessage</div>
+}
+else
+{
+    @if (errorMessage is not null)
+    {
+        <div class="alert alert-warning">@errorMessage</div>
+    }
+    @if (resultMessage is not null)
+    {
+        <div class="alert @(operationSucceeded ? "alert-success" : "alert-danger")">@resultMessage</div>
+    }
+
+    @if (!PlayerActionsOnly && !DungeonAssistantOnly)
+    {
+    <div class="row g-3 mb-4">
+        @foreach (var process in new[] { status.WorldServer, status.AuthServer })
+        {
+            <div class="col-md-6">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between"><h2 class="h5">@process.Name</h2>
+                            <span class="badge @(process.IsRunning ? "text-bg-success" : "text-bg-secondary")">@(process.IsRunning ? "Running" : "Stopped")</span>
+                        </div>
+                        <div>PID: @(process.ProcessId?.ToString() ?? "—")</div>
+                        <div>Started: @(process.StartedAt?.ToLocalTime().ToString("g") ?? "—")</div>
+                        <div>Memory: @FormatBytes(process.WorkingSetBytes)</div>
+                    </div>
+                </div>
+            </div>
+        }
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h2 class="h5 mb-0">Online population</h2>
+                        <strong>@status.Population.Total / @status.PlayerLimit</strong>
+                    </div>
+                    <div class="progress mb-2" role="progressbar" aria-label="Online population" aria-valuenow="@PopulationPercent" aria-valuemin="0" aria-valuemax="100">
+                        <div class="progress-bar" style="width: @PopulationPercent%"></div>
+                    </div>
+                    <span class="me-3">Humans: <strong>@status.Population.HumanPlayers</strong></span>
+                    <span>PlayerBots: <strong>@status.Population.PlayerBots</strong></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="d-flex flex-wrap gap-2 mb-4">
+        <button class="btn btn-success" disabled="@isWorking" @onclick="StartAsync">Start</button>
+        <button class="btn btn-warning" disabled="@(!CanStop)" @onclick="RestartAsync">Restart</button>
+        <button class="btn btn-danger" disabled="@(!CanStop)" @onclick="StopAsync">Stop</button>
+        <button class="btn btn-outline-secondary" disabled="@isWorking" @onclick="RefreshAsync">Refresh</button>
+        <div class="form-check align-self-center ms-2">
+            <input id="force-stop" class="form-check-input" type="checkbox" @bind="forceStop" />
+            <label class="form-check-label" for="force-stop">Allow forced stop if graceful shutdown fails</label>
+        </div>
+    </div>
+
+    <div class="alert @(status.SoapReachable || (status.SoapConfigured && !status.WorldServer.IsRunning) ? "alert-success" : "alert-warning")">
+        SOAP: @(status.SoapReachable
+            ? "Connected"
+            : !status.SoapConfigured
+                ? "Credentials not configured"
+                : !status.WorldServer.IsRunning
+                    ? "Configured; available when worldserver is running"
+                    : "Configured but unavailable")
+    </div>
+
+    <ul class="nav nav-tabs mb-3">
+        <li class="nav-item"><button class="nav-link @(activeView == "PlayerBots" ? "active" : null)" @onclick='() => activeView = "PlayerBots"'>PlayerBots settings</button></li>
+        <li class="nav-item"><button class="nav-link @(activeView == "Rates" ? "active" : null)" @onclick='() => activeView = "Rates"'>Gameplay rates</button></li>
+        <li class="nav-item"><button class="nav-link @(activeView == "Logs" ? "active" : null)" @onclick='() => activeView = "Logs"'>Recent logs</button></li>
+    </ul>
+    }
+
+    @if (PlayerActionsOnly || DungeonAssistantOnly)
+    {
+        @if (!CanUseSoap)
+        {
+            <div class="alert alert-warning">These tools require the worldserver and SOAP administration connection to be available.</div>
+        }
+        <datalist id="administration-players">
+            @foreach (var player in OrderedAdministrationPlayers)
+            {
+                <option value="@player.Name">@player.PickerLabel</option>
+            }
+        </datalist>
+        @if (PlayerActionsOnly)
+        {
+        <div class="row g-4">
+            <div class="col-lg-6">
+                <h2 class="h5">Give item</h2>
+                <input class="form-control mb-2" list="administration-players" placeholder="Type a character name" autocomplete="off" @bind="playerName" />
+                <div class="input-group mb-2">
+                    <input class="form-control" value="@(itemId == 0 ? "No item selected" : $"{selectedItemName} (ID {itemId})")" readonly />
+                    <button class="btn btn-outline-secondary" type="button" @onclick="OpenItemPickerAsync">Choose item…</button>
+                </div>
+                <input class="form-control mb-2" type="number" min="1" max="1000" @bind="quantity" />
+                <button class="btn btn-primary" disabled="@(!CanUseSoap)" @onclick="GiveItemAsync">Give item</button>
+                <button class="btn btn-outline-primary ms-2" disabled="@(!CanUseSoap)" @onclick="MailItemAsync">Mail item</button>
+            </div>
+            <div class="col-lg-6">
+                <h2 class="h5">Give money</h2>
+                <input class="form-control mb-2" list="administration-players" placeholder="Type a character name" autocomplete="off" @bind="moneyPlayer" />
+                <div class="row g-2 mb-2">
+                    <div class="col-4">
+                        <label class="form-label" for="money-gold">Gold</label>
+                        <div class="input-group"><input id="money-gold" class="form-control" type="number" min="0" @bind="moneyGold" /><span class="input-group-text"><img class="money-input-coin" src="images/coins/gold.svg" alt="gold" /></span></div>
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label" for="money-silver">Silver</label>
+                        <div class="input-group"><input id="money-silver" class="form-control" type="number" min="0" max="99" @bind="moneySilver" /><span class="input-group-text"><img class="money-input-coin" src="images/coins/silver.svg" alt="silver" /></span></div>
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label" for="money-copper">Copper</label>
+                        <div class="input-group"><input id="money-copper" class="form-control" type="number" min="0" max="99" @bind="moneyCopper" /><span class="input-group-text"><img class="money-input-coin" src="images/coins/copper.svg" alt="copper" /></span></div>
+                    </div>
+                </div>
+                <button class="btn btn-primary" disabled="@(!CanUseSoap)" @onclick="GiveMoneyAsync">Send money</button>
+                <p class="small text-muted mt-2">Delivered through in-game mail, including to an offline character.</p>
+            </div>
+            <div class="col-lg-6">
+                <h2 class="h5">Teleport to saved location</h2>
+                <input class="form-control mb-2" list="administration-players" placeholder="Type a character name" autocomplete="off" @bind="teleportPlayer" />
+                <div class="input-group mb-2">
+                    <input class="form-control" value="@(string.IsNullOrWhiteSpace(teleportLocation) ? "No location selected" : teleportLocation)" readonly />
+                    <button class="btn btn-outline-secondary" type="button" @onclick="OpenLocationPickerAsync">Choose location…</button>
+                </div>
+                <button class="btn btn-primary" disabled="@(!CanUseSoap)" @onclick="TeleportAsync">Teleport</button>
+            </div>
+            <div class="col-lg-6">
+                <h2 class="h5">Player-relative movement</h2>
+                <input class="form-control mb-2" list="administration-players" placeholder="Player to move" autocomplete="off" @bind="relativePlayer" />
+                <input class="form-control mb-2" list="administration-players" placeholder="Anchor player" autocomplete="off" @bind="anchorPlayer" />
+                <button class="btn btn-primary" disabled="@(!CanUseSoap)" @onclick="MoveToPlayerAsync">Move to anchor</button>
+                <p class="small text-muted mt-2">Both characters must be online. Battleground, arena, transport, and unsafe cross-instance movement is rejected.</p>
+            </div>
+            <div class="col-lg-6">
+                <h2 class="h5">Movement speed</h2>
+                <input class="form-control mb-2" list="administration-players" placeholder="Online player" autocomplete="off" @bind="speedPlayer" />
+                <label class="form-label" for="player-speed">Speed multiplier</label>
+                <div class="input-group mb-2"><input id="player-speed" class="form-control" type="number" min="0.5" max="10" step="0.25" @bind="playerSpeed" /><span class="input-group-text">x</span></div>
+                <div class="d-flex flex-wrap gap-2 mb-2">
+                    @foreach (var speed in new decimal[] { 0.5m, 1m, 1.5m, 2m, 3m, 5m })
+                    {
+                        <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="() => playerSpeed = speed">@speed.ToString("0.#")x</button>
+                    }
+                </div>
+                <button class="btn btn-primary" disabled="@(!CanUseSoap || string.IsNullOrWhiteSpace(speedPlayer))" @onclick="SetPlayerSpeedAsync">Apply speed</button>
+                <p class="small text-muted mt-2">Changes walk, run, swim, and flight speed for the current online session. Use 1x to restore normal speed.</p>
+            </div>
+        </div>
+        }
+        @if (DungeonAssistantOnly)
+        {
+        <div class="card mt-4">
+            <div class="card-body">
+                <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-3">
+                    <div class="flex-grow-1">
+                        <h2 class="h5">Dungeon party assistance</h2>
+                        <label class="form-label" for="party-leader">Online real-player leader</label>
+                        <input id="party-leader" class="form-control" list="administration-players" placeholder="Type the party leader's character name" autocomplete="off" @bind="partyLeader" />
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-outline-secondary" disabled="@(!CanUseSoap || isLoadingParty)" @onclick="LoadPartyAsync">Inspect party</button>
+                        <button class="btn btn-primary" disabled="@(!CanUseSoap || party is null || party.MemberCount >= 5)" @onclick="FillPartyWithBotsAsync">Auto-fill roles</button>
+                        <button class="btn btn-outline-danger" disabled="@(!CanUseSoap || party is null || !party.Members.Any(member => member.IsPlayerBot))" @onclick="ClearPartyBotsAsync">Remove all bots</button>
+                    </div>
+                </div>
+                @if (isLoadingParty)
+                {
+                    <p><em>Inspecting the live party…</em></p>
+                }
+                else if (party is not null)
+                {
+                    <div class="row g-4">
+                        <div class="col-lg-5">
+                            <h3 class="h6">Current party (@party.MemberCount / 5)</h3>
+                            <div class="table-responsive"><table class="table table-sm align-middle">
+                                <thead><tr><th>Name</th><th>Level</th><th>Role</th><th></th></tr></thead><tbody>
+                                @foreach (var member in party.Members)
+                                {
+                                    <tr><td>@member.Name @(member.IsPlayerBot ? "(Bot)" : "")</td><td>@member.Level</td><td>@member.Role</td>
+                                        <td class="text-end">@if (member.IsPlayerBot) { <button class="btn btn-sm btn-outline-danger" disabled="@(!CanUseSoap)" @onclick="() => RemovePartyBotAsync(member.Name)">Remove</button> }</td></tr>
+                                }
+                                </tbody></table></div>
+                        </div>
+                        <div class="col-lg-7">
+                            <h3 class="h6">Eligible online PlayerBots</h3>
+                            <p class="small text-muted">Ungrouped, same faction, and within five levels of the leader.</p>
+                            @if (party.Candidates.Count == 0)
+                            {
+                                <div class="alert alert-secondary">No eligible online bots are currently available.</div>
+                            }
+                            else
+                            {
+                                <div class="table-responsive party-candidates"><table class="table table-sm table-hover align-middle">
+                                    <thead><tr><th>Name</th><th>Class</th><th>Level</th><th>Role</th><th></th></tr></thead><tbody>
+                                    @foreach (var bot in party.Candidates)
+                                    {
+                                        <tr><td>@bot.Name</td><td>@CharacterClassName(bot.CharacterClass)</td><td>@bot.Level</td><td>@bot.Role</td>
+                                            <td class="text-end"><button class="btn btn-sm btn-primary" disabled="@(!CanUseSoap || party.MemberCount >= 5)" @onclick="() => AddPartyBotAsync(bot.Name)">Add</button></td></tr>
+                                    }
+                                    </tbody></table></div>
+                            }
+                        </div>
+                    </div>
+                    <hr class="my-4" />
+                    <div class="row g-4">
+                        <div class="col-lg-7">
+                            <h3 class="h6">Choose a dungeon</h3>
+                            <input class="form-control mb-2" placeholder="Start typing a dungeon name" autocomplete="off"
+                                   @bind="dungeonSearch" @bind:event="oninput" />
+                            @if (dungeons.Count == 0)
+                            {
+                                <div class="alert alert-secondary">No launchable dungeon entrances were reported by the worldserver.</div>
+                            }
+                            else if (!FilteredDungeons.Any())
+                            {
+                                <div class="alert alert-secondary">No dungeon names match that search.</div>
+                            }
+                            else
+                            {
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-hover align-middle">
+                                        <thead><tr><th>Dungeon</th><th>Difficulty</th><th>Levels</th><th></th></tr></thead>
+                                        <tbody>
+                                        @foreach (var dungeon in FilteredDungeons)
+                                        {
+                                            <tr class="@(dungeon.DungeonId == selectedDungeonId ? "table-primary" : null)">
+                                                <td>@dungeon.Name</td>
+                                                <td>@dungeon.Difficulty</td>
+                                                <td>@dungeon.MinimumLevel&ndash;@dungeon.MaximumLevel</td>
+                                                <td class="text-end">
+                                                    <button class="btn btn-sm @(dungeon.DungeonId == selectedDungeonId ? "btn-primary" : "btn-outline-primary")"
+                                                            type="button" @onclick="() => SelectDungeon(dungeon.DungeonId)">
+                                                        @(dungeon.DungeonId == selectedDungeonId ? "Selected" : "Select")
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+                        </div>
+                        <div class="col-lg-5">
+                            <h3 class="h6">Launch party</h3>
+                            @if (SelectedDungeon is null)
+                            {
+                                <div class="alert alert-secondary">Select a dungeon to review the launch.</div>
+                            }
+                            else
+                            {
+                                <dl class="row small mb-3">
+                                    <dt class="col-5">Destination</dt><dd class="col-7">@SelectedDungeon.Name</dd>
+                                    <dt class="col-5">Difficulty</dt><dd class="col-7">@SelectedDungeon.Difficulty</dd>
+                                    <dt class="col-5">Level range</dt><dd class="col-7">@SelectedDungeon.MinimumLevel&ndash;@SelectedDungeon.MaximumLevel</dd>
+                                    <dt class="col-5">Map</dt><dd class="col-7">@SelectedDungeon.MapId</dd>
+                                </dl>
+                                @if (PartyHasLevelWarning)
+                                {
+                                    <div class="alert alert-warning small">
+                                        At least one party member is outside this dungeon's recommended level range.
+                                    </div>
+                                }
+                                <p class="small text-muted">
+                                    All @party.MemberCount current party members must be online and in a safe state. The worldserver checks the complete party before moving it.
+                                </p>
+                                <div class="form-check mb-3">
+                                    <input id="confirm-dungeon-launch" class="form-check-input" type="checkbox" @bind="confirmDungeonLaunch" />
+                                    <label class="form-check-label" for="confirm-dungeon-launch">
+                                        Confirm moving the whole party to @SelectedDungeon.Name
+                                    </label>
+                                </div>
+                                <button class="btn btn-success" type="button"
+                                        disabled="@(!CanUseSoap || !confirmDungeonLaunch)" @onclick="LaunchPartyAsync">
+                                    Launch party
+                                </button>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+        }
+    }
+    else if (activeView == "PlayerBots")
+    {
+        @if (playerBotSettings is null)
+        {
+            <div class="alert alert-warning">PlayerBots configuration could not be loaded.</div>
+        }
+        else
+        {
+            <div class="alert alert-info">
+                Changes are validated by the API and backed up before saving. A worldserver restart is required to apply them.
+            </div>
+            <div class="card">
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <div class="form-check form-switch mb-3">
+                                <input id="bots-enabled" class="form-check-input" type="checkbox" @bind="playerBotSettings.Enabled" />
+                                <label class="form-check-label" for="bots-enabled">Enable PlayerBots</label>
+                            </div>
+                            <div class="form-check form-switch mb-3">
+                                <input id="bots-autologin" class="form-check-input" type="checkbox" @bind="playerBotSettings.RandomBotAutologin" />
+                                <label class="form-check-label" for="bots-autologin">Automatically log in random bots</label>
+                            </div>
+                            <label class="form-label" for="min-bots">Minimum random bots</label>
+                            <input id="min-bots" class="form-control mb-3" type="number" min="0" max="1000" @bind="playerBotSettings.MinRandomBots" />
+                            <label class="form-label" for="max-bots">Maximum random bots</label>
+                            <input id="max-bots" class="form-control" type="number" min="0" max="1000" @bind="playerBotSettings.MaxRandomBots" />
+                        </div>
+                        <div class="col-md-6">
+                            <div class="row g-2 mb-3">
+                                <div class="col-6"><label class="form-label" for="min-level">Minimum level</label><input id="min-level" class="form-control" type="number" min="1" max="80" @bind="playerBotSettings.MinLevel" /></div>
+                                <div class="col-6"><label class="form-label" for="max-level">Maximum level</label><input id="max-level" class="form-control" type="number" min="1" max="80" @bind="playerBotSettings.MaxLevel" /></div>
+                            </div>
+                            <div class="form-check form-switch mb-3"><input id="bots-lfg" class="form-check-input" type="checkbox" @bind="playerBotSettings.JoinLfg" /><label class="form-check-label" for="bots-lfg">Participate in dungeon finder</label></div>
+                            <div class="form-check form-switch mb-3"><input id="bots-bg" class="form-check-input" type="checkbox" @bind="playerBotSettings.JoinBattlegrounds" /><label class="form-check-label" for="bots-bg">Participate in battlegrounds</label></div>
+                            <div class="form-check form-switch"><input id="bots-trading" class="form-check-input" type="checkbox" @bind="playerBotSettings.EnableTrading" /><label class="form-check-label" for="bots-trading">Allow random-bot trading</label></div>
+                        </div>
+                    </div>
+                    <hr />
+                    <button class="btn btn-primary" disabled="@isWorking" @onclick="SavePlayerBotSettingsAsync">Save settings</button>
+                </div>
+            </div>
+        }
+    }
+    else if (activeView == "Rates")
+    {
+        @if (gameplayRates is null)
+        {
+            <div class="alert alert-warning">Gameplay rates could not be loaded.</div>
+        }
+        else
+        {
+            <div class="alert alert-info">
+                Values are multipliers: <strong>1</strong> is the normal rate and <strong>2</strong> is double. Changes require a worldserver restart.
+            </div>
+            <div class="card">
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-sm-6 col-lg-3"><label class="form-label" for="rate-kill-xp">Kill XP</label><div class="input-group"><input id="rate-kill-xp" class="form-control" type="number" min="0" max="100" step="0.1" @bind="gameplayRates.KillXp" /><span class="input-group-text">×</span></div></div>
+                        <div class="col-sm-6 col-lg-3"><label class="form-label" for="rate-quest-xp">Quest XP</label><div class="input-group"><input id="rate-quest-xp" class="form-control" type="number" min="0" max="100" step="0.1" @bind="gameplayRates.QuestXp" /><span class="input-group-text">×</span></div></div>
+                        <div class="col-sm-6 col-lg-3"><label class="form-label" for="rate-explore-xp">Exploration XP</label><div class="input-group"><input id="rate-explore-xp" class="form-control" type="number" min="0" max="100" step="0.1" @bind="gameplayRates.ExplorationXp" /><span class="input-group-text">×</span></div></div>
+                        <div class="col-sm-6 col-lg-3"><label class="form-label" for="rate-reputation">Reputation</label><div class="input-group"><input id="rate-reputation" class="form-control" type="number" min="0" max="100" step="0.1" @bind="gameplayRates.Reputation" /><span class="input-group-text">×</span></div></div>
+                        <div class="col-sm-6 col-lg-3"><label class="form-label" for="rate-drop-money">Money drops</label><div class="input-group"><input id="rate-drop-money" class="form-control" type="number" min="0" max="100" step="0.1" @bind="gameplayRates.MoneyDrops" /><span class="input-group-text">×</span></div></div>
+                        <div class="col-sm-6 col-lg-3"><label class="form-label" for="rate-quest-money">Quest money</label><div class="input-group"><input id="rate-quest-money" class="form-control" type="number" min="0" max="100" step="0.1" @bind="gameplayRates.QuestMoney" /><span class="input-group-text">×</span></div></div>
+                        <div class="col-sm-6 col-lg-3"><label class="form-label" for="rate-honor">Honor</label><div class="input-group"><input id="rate-honor" class="form-control" type="number" min="0" max="100" step="0.1" @bind="gameplayRates.Honor" /><span class="input-group-text">×</span></div></div>
+                        <div class="col-sm-6 col-lg-3"><label class="form-label" for="rate-repair">Repair cost</label><div class="input-group"><input id="rate-repair" class="form-control" type="number" min="0" max="100" step="0.1" @bind="gameplayRates.RepairCost" /><span class="input-group-text">×</span></div></div>
+                    </div>
+                    <hr />
+                    <button class="btn btn-primary" disabled="@isWorking" @onclick="SaveGameplayRatesAsync">Save rates</button>
+                </div>
+            </div>
+        }
+    }
+    else
+    {
+        <div class="table-responsive"><table class="table table-sm table-striped"><thead><tr><th>Source</th><th>Message</th></tr></thead><tbody>
+        @foreach (var entry in status.RecentLogs) { <tr><td>@entry.Source</td><td class="text-break">@entry.Message</td></tr> }
+        </tbody></table></div>
+    }
+
+    @if (showItemPicker)
+    {
+        <div class="modal d-block" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="item-picker-title">
+            <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2 class="modal-title h5" id="item-picker-title">Choose an item</h2>
+                        <button type="button" class="btn-close" aria-label="Close" @onclick="() => showItemPicker = false"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row g-2 mb-3">
+                            <div class="col-md-7">
+                                <label class="form-label" for="item-search">Item name</label>
+                                <input id="item-search" class="form-control" value="@itemSearch" @oninput="OnItemSearchAsync" placeholder="Start typing an item name…" autocomplete="off" autofocus />
+                            </div>
+                            <div class="col-md-5">
+                                <label class="form-label" for="item-category">Category</label>
+                                <select id="item-category" class="form-select" @bind="itemCategory" @bind:after="OnItemCategoryChangedAsync">
+                                    <option value="all">All items</option><option value="weapons">Weapons</option><option value="armor">Armor</option>
+                                    <option value="potions">Potions</option><option value="elixirs">Elixirs</option><option value="flasks">Flasks</option>
+                                    <option value="scrolls">Scrolls</option><option value="food">Food &amp; drink</option><option value="bags">Bags</option>
+                                    <option value="gems">Gems</option><option value="reagents">Reagents</option><option value="trade-goods">Trade goods</option>
+                                    <option value="recipes">Recipes</option><option value="quest">Quest items</option><option value="glyphs">Glyphs</option>
+                                    <option value="miscellaneous">Miscellaneous</option>
+                                </select>
+                            </div>
+                        </div>
+                        @if (isLoadingItems)
+                        {
+                            <p><em>Searching items…</em></p>
+                        }
+                        else if (itemResults.Items.Count == 0)
+                        {
+                            <div class="alert alert-secondary">No matching items were found.</div>
+                        }
+                        else
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle">
+                                    <thead><tr><th>Name</th><th>ID</th><th>Quality</th><th>Item level</th><th>Required level</th><th></th></tr></thead>
+                                    <tbody>
+                                    @foreach (var item in itemResults.Items)
+                                    {
+                                        <tr>
+                                            <td class="fw-semibold @ItemQualityClass(item.Quality)">@item.Name</td>
+                                            <td>@item.ItemId</td><td>@ItemQualityName(item.Quality)</td><td>@item.ItemLevel</td><td>@item.RequiredLevel</td>
+                                            <td class="text-end"><button class="btn btn-sm btn-primary" @onclick="() => SelectItem(item)">Select</button></td>
+                                        </tr>
+                                    }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                    <div class="modal-footer justify-content-between">
+                        <span class="text-muted">@itemResults.TotalCount matching items</span>
+                        <div>
+                            <button class="btn btn-outline-secondary me-2" disabled="@(isLoadingItems || itemResults.Page <= 1)" @onclick="() => LoadItemsAsync(itemResults.Page - 1)">Previous</button>
+                            <span class="me-2">Page @itemResults.Page of @Math.Max(1, itemResults.TotalPages)</span>
+                            <button class="btn btn-outline-secondary" disabled="@(isLoadingItems || itemResults.Page >= itemResults.TotalPages)" @onclick="() => LoadItemsAsync(itemResults.Page + 1)">Next</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-backdrop show"></div>
+    }
+
+    @if (showLocationPicker)
+    {
+        <div class="modal d-block" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="location-picker-title">
+            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2 class="modal-title h5" id="location-picker-title">Choose a teleport location</h2>
+                        <button type="button" class="btn-close" aria-label="Close" @onclick="() => showLocationPicker = false"></button>
+                    </div>
+                    <div class="modal-body">
+                        <label class="form-label" for="location-search">Location name</label>
+                        <input id="location-search" class="form-control mb-3" value="@locationSearch" @oninput="OnLocationSearchAsync" placeholder="Start typing a location name…" autocomplete="off" autofocus />
+                        @if (isLoadingLocations)
+                        {
+                            <p><em>Searching locations…</em></p>
+                        }
+                        else if (locationResults.Locations.Count == 0)
+                        {
+                            <div class="alert alert-secondary">No matching teleport locations were found.</div>
+                        }
+                        else
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle">
+                                    <thead><tr><th>Location</th><th>Map</th><th>Coordinates</th><th></th></tr></thead>
+                                    <tbody>
+                                    @foreach (var location in locationResults.Locations)
+                                    {
+                                        <tr>
+                                            <td class="fw-semibold">@location.Name</td>
+                                            <td>@MapName(location.MapId)</td>
+                                            <td class="small text-muted">@location.PositionX.ToString("0.0"), @location.PositionY.ToString("0.0"), @location.PositionZ.ToString("0.0")</td>
+                                            <td class="text-end"><button class="btn btn-sm btn-primary" @onclick="() => SelectLocation(location)">Select</button></td>
+                                        </tr>
+                                    }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                    <div class="modal-footer justify-content-between">
+                        <span class="text-muted">@locationResults.TotalCount matching locations</span>
+                        <div>
+                            <button class="btn btn-outline-secondary me-2" disabled="@(isLoadingLocations || locationResults.Page <= 1)" @onclick="() => LoadLocationsAsync(locationResults.Page - 1)">Previous</button>
+                            <span class="me-2">Page @locationResults.Page of @Math.Max(1, locationResults.TotalPages)</span>
+                            <button class="btn btn-outline-secondary" disabled="@(isLoadingLocations || locationResults.Page >= locationResults.TotalPages)" @onclick="() => LoadLocationsAsync(locationResults.Page + 1)">Next</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-backdrop show"></div>
+    }
+}

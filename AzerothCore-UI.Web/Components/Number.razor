@@ -1,0 +1,2 @@
+<div class="col-md-6"><label class="form-label">@Label</label><InputNumber class="form-control" Value="Value" ValueChanged="ValueChanged" ValueExpression="ValueExpression" min="@Min" max="@Max" /></div>
+@code { [Parameter] public string Label { get; set; } = ""; [Parameter] public int Value { get; set; } [Parameter] public EventCallback<int> ValueChanged { get; set; } [Parameter] public Expression<Func<int>>? ValueExpression { get; set; } [Parameter] public int Min { get; set; } [Parameter] public int Max { get; set; } }

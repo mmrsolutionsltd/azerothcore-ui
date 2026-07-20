@@ -1,0 +1,16 @@
+.text-purple {
+    color: #a335ee !important;
+}
+
+.modal {
+    background: rgb(0 0 0 / 20%);
+}
+
+.money-input-coin {
+    width: 1rem;
+    height: 1rem;
+}
+
+.party-candidates {
+    max-height: 22rem;
+}

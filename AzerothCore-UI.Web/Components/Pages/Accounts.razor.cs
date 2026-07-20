@@ -32,6 +32,9 @@ public partial class Accounts
     private string directionInput = "ascending";
     private bool isLoading = true;
     private string? errorMessage;
+    private string? gmMessage;
+    private uint? pendingGmAccountId;
+    private bool isChangingGm, gmSucceeded;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -118,4 +121,28 @@ public partial class Accounts
 
     private static string FormatLastLogin(DateTime? lastLogin) =>
         lastLogin?.ToString("dd MMM yyyy HH:mm") ?? "Never";
+
+    private async Task ToggleGmAsync(AccountSummary account)
+    {
+        if (pendingGmAccountId != account.AccountId)
+        {
+            pendingGmAccountId = account.AccountId;
+            gmMessage = $"Click again to confirm changing GM access for {account.Username}.";
+            gmSucceeded = false;
+            return;
+        }
+
+        isChangingGm = true;
+        try
+        {
+            var enabled = account.GmLevel < 2;
+            var response = await AccountsClient.SetAccountGmAsync(new(account.Username, enabled, true));
+            gmSucceeded = response?.Success == true;
+            gmMessage = response?.Message;
+            result = result with { Items = result.Items.Select(item => item.AccountId == account.AccountId
+                ? item with { GmLevel = enabled ? (byte)2 : (byte)0 } : item).ToArray() };
+        }
+        catch (Exception exception) { gmSucceeded = false; gmMessage = exception.Message; }
+        finally { pendingGmAccountId = null; isChangingGm = false; }
+    }
 }

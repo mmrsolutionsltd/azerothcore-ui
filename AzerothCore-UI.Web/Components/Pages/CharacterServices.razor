@@ -1,0 +1,44 @@
+@page "/character-services"
+@rendermode InteractiveServer
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@using AzerothCore_UI.Web.Models
+@inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
+
+<PageTitle>Character services</PageTitle>
+<h1>Character services</h1>
+<p class="text-muted">Apply safe AzerothCore character maintenance and at-login services.</p>
+
+@if (isLoading) { <p><em>Loading characters...</em></p> }
+else
+{
+    @if (message is not null) { <div class="alert @(operationSucceeded ? "alert-success" : "alert-danger")">@message</div> }
+    @if (!CanApply) { <div class="alert alert-warning">Character services require the worldserver and SOAP administration connection.</div> }
+    <datalist id="service-players">
+        @foreach (var player in OrderedPlayers) { <option value="@player.Name">@player.PickerLabel</option> }
+    </datalist>
+    <div class="card mb-4"><div class="card-body">
+        <label class="form-label" for="service-player">Character</label>
+        <input id="service-player" class="form-control" list="service-players" placeholder="Start typing a character name" autocomplete="off" @bind="playerName" />
+    </div></div>
+    <div class="row g-3">
+        @foreach (var service in Services)
+        {
+            <div class="col-md-6 col-xl-4"><div class="card h-100"><div class="card-body d-flex flex-column">
+                <h2 class="h5">@service.Title</h2><p class="text-muted flex-grow-1">@service.Description</p>
+                @if (service.Key == "level")
+                {
+                    <label class="form-label" for="service-level">New level</label><input id="service-level" class="form-control mb-3" type="number" min="1" max="80" @bind="newLevel" />
+                }
+                <button class="btn @(service.Dangerous ? "btn-outline-danger" : "btn-outline-primary")" disabled="@(!CanApply || string.IsNullOrWhiteSpace(playerName))" @onclick="() => SelectService(service.Key)">@service.Button</button>
+            </div></div></div>
+        }
+    </div>
+    @if (pendingService is not null)
+    {
+        <div class="modal d-block" tabindex="-1" role="dialog" aria-modal="true"><div class="modal-dialog"><div class="modal-content">
+            <div class="modal-header"><h2 class="modal-title h5">Confirm character service</h2><button class="btn-close" @onclick="CancelService"></button></div>
+            <div class="modal-body"><p>Apply <strong>@ServiceTitle(pendingService)</strong> to <strong>@playerName</strong>?</p><p class="text-muted mb-0">This command is audited and sent to the worldserver through SOAP.</p></div>
+            <div class="modal-footer"><button class="btn btn-outline-secondary" @onclick="CancelService">Cancel</button><button class="btn btn-danger" disabled="@isWorking" @onclick="ApplyServiceAsync">Confirm and apply</button></div>
+        </div></div></div><div class="modal-backdrop show"></div>
+    }
+}

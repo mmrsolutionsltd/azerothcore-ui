@@ -1,0 +1,2 @@
+<div class="mt-4"><button class="btn btn-primary" type="submit" disabled="@Busy">@(Busy ? "Saving..." : "Save settings")</button></div>
+@code { [Parameter] public bool Busy { get; set; } }

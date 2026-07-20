@@ -14,10 +14,61 @@
             </NavLink>
         </div>
         <div class="nav-item px-3">
+            <NavLink class="nav-link" href="server">
+                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Server
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="player-actions">
+                <span class="bi bi-person-fill-nav-menu" aria-hidden="true"></span> Player actions
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="dungeon-assistant">
+                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Dungeon assistant
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="character-services">
+                <span class="bi bi-person-fill-nav-menu" aria-hidden="true"></span> Character services
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="weapon-training">
+                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Weapon training
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="collectibles">
+                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Collectibles
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="creatures">
+                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Creature spawner
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
             <NavLink class="nav-link" href="training">
                 <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Training
             </NavLink>
         </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="modules">
+                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Modules
+            </NavLink>
+        </div>
+        <AuthorizeView>
+            <Authorized>
+                <div class="nav-item px-3 mt-3">
+                    <form method="post" action="/admin/logout">
+                        <button class="nav-link border-0 bg-transparent w-100 text-start" type="submit">
+                            <span class="bi bi-person-fill-nav-menu" aria-hidden="true"></span> Sign out
+                        </button>
+                    </form>
+                </div>
+            </Authorized>
+        </AuthorizeView>
     </nav>
 </div>
 

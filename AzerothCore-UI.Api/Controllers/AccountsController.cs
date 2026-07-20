@@ -87,6 +87,7 @@ public sealed class AccountsController(AzerothCoreConnectionFactory connectionFa
                     ELSE 'Human'
                 END AS Classification,
                 a.last_login AS LastLogin,
+                COALESCE((SELECT MAX(access.gmlevel) FROM acore_auth.account_access access WHERE access.id = a.id), 0) AS GmLevel,
                 COUNT(c.guid) AS CharacterCount,
                 COALESCE(SUM(CASE WHEN c.online <> 0 THEN 1 ELSE 0 END), 0) AS OnlineCharacterCount
             FROM acore_auth.account AS a
@@ -119,7 +120,8 @@ public sealed class AccountsController(AzerothCoreConnectionFactory connectionFa
             row.Classification,
             row.LastLogin,
             row.CharacterCount,
-            row.OnlineCharacterCount)).ToArray();
+            row.OnlineCharacterCount,
+            row.GmLevel)).ToArray();
 
         return Ok(new PagedAccounts(items, page, pageSize, totalItems, totalPages));
     }
@@ -196,5 +198,6 @@ public sealed class AccountsController(AzerothCoreConnectionFactory connectionFa
         public DateTime? LastLogin { get; init; }
         public long CharacterCount { get; init; }
         public long OnlineCharacterCount { get; init; }
+        public byte GmLevel { get; init; }
     }
 }
