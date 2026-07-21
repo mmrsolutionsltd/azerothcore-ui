@@ -5,6 +5,7 @@ namespace AzerothCore_UI.Web.Components.Pages;
 
 public partial class ServerAdministration
 {
+    private const int MaximumRandomBotCount = 5000;
     [Parameter] public bool PlayerActionsOnly { get; set; }
     [Parameter] public bool DungeonAssistantOnly { get; set; }
     private string PageHeading => DungeonAssistantOnly ? "Dungeon assistant" : PlayerActionsOnly ? "Player actions" : "Server administration";
@@ -52,6 +53,15 @@ public partial class ServerAdministration
     private bool CanStop => !isWorking && (status?.WorldServer.IsRunning != true || status.SoapReachable || forceStop);
     private int PopulationPercent => status is null || status.PlayerLimit <= 0 ? 0
         : Math.Min(100, (int)Math.Round(status.Population.Total * 100d / status.PlayerLimit));
+    private string? PlayerBotValidationMessage => playerBotSettings switch
+    {
+        { MinRandomBots: < 0 or > MaximumRandomBotCount } or { MaxRandomBots: < 0 or > MaximumRandomBotCount }
+            => $"Bot counts must be between 0 and {MaximumRandomBotCount:N0}.",
+        { } settings when settings.MinRandomBots > settings.MaxRandomBots
+            => "Minimum random bots cannot exceed maximum random bots.",
+        _ => null
+    };
+    private bool PlayerBotSettingsValid => PlayerBotValidationMessage is null;
 
     protected override Task OnInitializedAsync() => RefreshAsync();
 
@@ -63,8 +73,7 @@ public partial class ServerAdministration
             status = await AccountsClient.GetServerStatusAsync();
             if (PlayerActionsOnly || DungeonAssistantOnly)
             {
-                if (administrationPlayers.Count == 0)
-                    administrationPlayers = await AccountsClient.GetAdministrationPlayersAsync();
+                administrationPlayers = await AccountsClient.GetAdministrationPlayersAsync();
             }
             else
             {
@@ -232,6 +241,12 @@ public partial class ServerAdministration
     private async Task SavePlayerBotSettingsAsync()
     {
         if (playerBotSettings is null) return;
+        if (!PlayerBotSettingsValid)
+        {
+            operationSucceeded = false;
+            resultMessage = PlayerBotValidationMessage;
+            return;
+        }
         isWorking = true;
         try
         {

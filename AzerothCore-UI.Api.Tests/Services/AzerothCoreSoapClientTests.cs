@@ -36,6 +36,14 @@ public sealed class AzerothCoreSoapClientTests
         else Assert.Throws<ArgumentException>(() => AzerothCoreSoapClient.RequireLocation(value));
     }
 
+    [Fact]
+    public void BuildTeleportCommand_UsesPlayerBotsConsoleSyntax()
+    {
+        var command = AzerothCoreSoapClient.BuildTeleportCommand("Hundead", "SunstriderIsle");
+
+        Assert.Equal("teleport name Hundead SunstriderIsle", command);
+    }
+
     [Theory]
     [InlineData("Admin123")]
     [InlineData("ab", false)]

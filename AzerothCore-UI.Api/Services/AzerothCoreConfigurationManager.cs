@@ -8,6 +8,7 @@ namespace AzerothCore_UI.Api.Services;
 
 public sealed partial class AzerothCoreConfigurationManager(IConfiguration configuration)
 {
+    private const int MaximumRandomBotCount = 5000;
     private readonly string rootPath = Path.GetFullPath(configuration["AzerothCore:Server:RootPath"]
         ?? @"C:\AzerothServer-PlayerBots");
     private readonly SemaphoreSlim writeLock = new(1, 1);
@@ -214,8 +215,8 @@ public sealed partial class AzerothCoreConfigurationManager(IConfiguration confi
 
     private static void Validate(UpdatePlayerBotSettingsRequest value)
     {
-        if (value.MinRandomBots is < 0 or > 1000 || value.MaxRandomBots is < 0 or > 1000 || value.MinRandomBots > value.MaxRandomBots)
-            throw new ArgumentException("Bot counts must be between 0 and 1000, with minimum no greater than maximum.");
+        if (value.MinRandomBots is < 0 or > MaximumRandomBotCount || value.MaxRandomBots is < 0 or > MaximumRandomBotCount || value.MinRandomBots > value.MaxRandomBots)
+            throw new ArgumentException($"Bot counts must be between 0 and {MaximumRandomBotCount:N0}, with minimum no greater than maximum.");
         if (value.MinLevel is < 1 or > 80 || value.MaxLevel is < 1 or > 80 || value.MinLevel > value.MaxLevel)
             throw new ArgumentException("Bot levels must be between 1 and 80, with minimum no greater than maximum.");
         if (string.IsNullOrWhiteSpace(value.Version)) throw new ArgumentException("Configuration version is required.");

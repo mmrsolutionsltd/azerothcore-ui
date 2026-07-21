@@ -465,7 +465,7 @@ public sealed class ServerAdministrationController(
         var player = AzerothCoreSoapClient.RequirePlayerName(request.PlayerName);
         var location = AzerothCoreSoapClient.RequireLocation(request.Location);
         var output = await soapClient.ExecuteAsync(
-            $"teleport name {player} {location}", cancellationToken);
+            AzerothCoreSoapClient.BuildTeleportCommand(player, location), cancellationToken);
         Audit("Teleport", player, $"Location={location}");
         return Ok(new AdministrationResult(true, "Teleport command completed.", output));
     }

@@ -327,9 +327,14 @@ else
                                 <label class="form-check-label" for="bots-autologin">Automatically log in random bots</label>
                             </div>
                             <label class="form-label" for="min-bots">Minimum random bots</label>
-                            <input id="min-bots" class="form-control mb-3" type="number" min="0" max="1000" @bind="playerBotSettings.MinRandomBots" />
+                            <input id="min-bots" class="form-control mb-3" type="number" min="0" max="5000" @bind="playerBotSettings.MinRandomBots" />
                             <label class="form-label" for="max-bots">Maximum random bots</label>
-                            <input id="max-bots" class="form-control" type="number" min="0" max="1000" @bind="playerBotSettings.MaxRandomBots" />
+                            <input id="max-bots" class="form-control" type="number" min="0" max="5000" @bind="playerBotSettings.MaxRandomBots" />
+                            <div class="form-text">Supported range: 0&ndash;5,000. Large bot populations can use substantial CPU and memory.</div>
+                            @if (PlayerBotValidationMessage is not null)
+                            {
+                                <div class="invalid-feedback d-block">@PlayerBotValidationMessage</div>
+                            }
                         </div>
                         <div class="col-md-6">
                             <div class="row g-2 mb-3">
@@ -342,7 +347,7 @@ else
                         </div>
                     </div>
                     <hr />
-                    <button class="btn btn-primary" disabled="@isWorking" @onclick="SavePlayerBotSettingsAsync">Save settings</button>
+                    <button class="btn btn-primary" disabled="@(isWorking || !PlayerBotSettingsValid)" @onclick="SavePlayerBotSettingsAsync">Save settings</button>
                 </div>
             </div>
         }

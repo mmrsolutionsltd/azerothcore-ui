@@ -71,6 +71,9 @@ public sealed class AzerothCoreSoapClient(IConfiguration configuration, IHttpCli
         Regex.IsMatch(value, "^[A-Za-z0-9 _'-]{1,64}$")
             ? value : throw new ArgumentException("The teleport location contains unsupported characters.");
 
+    public static string BuildTeleportCommand(string playerName, string location) =>
+        $"teleport name {RequirePlayerName(playerName)} {RequireLocation(location)}";
+
     public static string RequireAccountName(string value) =>
         Regex.IsMatch(value, "^[A-Za-z0-9]{3,32}$")
             ? value : throw new ArgumentException("Account names must contain 3 to 32 letters or numbers.");

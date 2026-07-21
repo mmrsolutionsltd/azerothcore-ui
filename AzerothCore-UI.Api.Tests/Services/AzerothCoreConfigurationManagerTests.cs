@@ -61,7 +61,17 @@ public sealed class AzerothCoreConfigurationManagerTests : IDisposable
             AOELoot.Group = 1
             """);
         File.WriteAllText(Path.Combine(root, "configs", "worldserver.conf"), "PlayerLimit = 10");
-        File.WriteAllText(Path.Combine(root, "configs", "modules", "playerbots.conf"), "");
+        Write("playerbots.conf", """
+            AiPlayerbot.Enabled = 1
+            AiPlayerbot.RandomBotAutologin = 1
+            AiPlayerbot.MinRandomBots = 100
+            AiPlayerbot.MaxRandomBots = 250
+            AiPlayerbot.RandomBotMinLevel = 1
+            AiPlayerbot.RandomBotMaxLevel = 80
+            AiPlayerbot.RandomBotJoinLfg = 1
+            AiPlayerbot.RandomBotJoinBG = 1
+            AiPlayerbot.EnableRandomBotTrading = 0
+            """);
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         { ["AzerothCore:Server:RootPath"] = root }).Build();
         manager = new(configuration);
@@ -110,6 +120,33 @@ public sealed class AzerothCoreConfigurationManagerTests : IDisposable
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => manager.UpdateTransmogSettingsAsync(
             current with { Portable = false }, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task UpdatePlayerBotSettings_AcceptsCountsAbovePreviousLimit()
+    {
+        var current = manager.GetPlayerBotSettings();
+        var request = new UpdatePlayerBotSettingsRequest(current.Version, current.Enabled, current.RandomBotAutologin,
+            1500, 2000, current.MinLevel, current.MaxLevel, current.JoinLfg, current.JoinBattlegrounds, current.EnableTrading);
+
+        var updated = await manager.UpdatePlayerBotSettingsAsync(request, CancellationToken.None);
+
+        var text = File.ReadAllText(ModulePath("playerbots.conf"));
+        Assert.Equal(1500, updated.MinRandomBots);
+        Assert.Equal(2000, updated.MaxRandomBots);
+        Assert.Contains("AiPlayerbot.MinRandomBots = 1500", text);
+        Assert.Contains("AiPlayerbot.MaxRandomBots = 2000", text);
+    }
+
+    [Fact]
+    public async Task UpdatePlayerBotSettings_RejectsCountsAboveSafetyLimit()
+    {
+        var current = manager.GetPlayerBotSettings();
+        var request = new UpdatePlayerBotSettingsRequest(current.Version, current.Enabled, current.RandomBotAutologin,
+            5001, 5001, current.MinLevel, current.MaxLevel, current.JoinLfg, current.JoinBattlegrounds, current.EnableTrading);
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            manager.UpdatePlayerBotSettingsAsync(request, CancellationToken.None));
     }
 
     public void Dispose()
