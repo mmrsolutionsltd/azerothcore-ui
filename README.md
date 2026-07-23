@@ -97,6 +97,18 @@ Each module configuration is validated, concurrency-checked, and backed up befor
 - Give items directly to online characters and mail items to offline characters; starting money is always delivered through safe in-game mail.
 - Recheck ownership and live status when the confirmed preset is applied, with per-action and per-character results.
 
+### Server health and diagnostics
+
+- Check authserver/worldserver process state, start time, memory, executable metadata, SOAP configuration, and SOAP reachability.
+- Verify MySQL connectivity, all three AzerothCore databases, their update history, pending-update state, and core/database revisions.
+- Check installed module source directories and required deployed configuration files.
+- Verify the mod-arac client `Patch-A.MPQ`, its three server DBC files, and the compatible `player_totem_model` schema.
+- Compare the newest C++ source timestamp with the deployed `worldserver.exe` and clearly report when a rebuild is required.
+- Report missing configuration files, invalid PlayerBots ranges, and configuration changes made after the running worldserver started.
+- Show the newest SQL/configuration backups and warn about missing or stale database backups.
+- Group recent error, failure, and exception lines from the local server logs.
+- Generate a downloadable plain-text diagnostic report with connection credentials, passwords, secrets, and tokens redacted.
+
 ### Character services
 
 Run confirmed, allowlisted AzerothCore services for a named character:

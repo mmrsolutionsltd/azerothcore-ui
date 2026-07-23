@@ -1,0 +1,82 @@
+@page "/diagnostics"
+@rendermode InteractiveServer
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@using AzerothCore_UI.Web.Models
+@inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
+
+<PageTitle>Server health</PageTitle>
+
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+    <div>
+        <h1 class="mb-1">Server health and diagnostics</h1>
+        <p class="text-muted mb-0">Read-only checks across processes, databases, builds, modules, configuration, backups, logs, client files and mod-arac.</p>
+    </div>
+    <button class="btn btn-outline-primary" disabled="@isLoading" @onclick="LoadAsync">Run checks again</button>
+</div>
+
+@if (message is not null)
+{
+    <div class="alert alert-danger">@message</div>
+}
+@if (isLoading)
+{
+    <p><em>Running diagnostics...</em></p>
+}
+else if (dashboard is not null)
+{
+    <div class="row g-3 mb-4">
+        <div class="col-sm-6 col-xl-3"><div class="card h-100 border-success"><div class="card-body"><div class="text-muted">Healthy</div><div class="display-6">@Count("Healthy")</div></div></div></div>
+        <div class="col-sm-6 col-xl-3"><div class="card h-100 border-warning"><div class="card-body"><div class="text-muted">Warnings</div><div class="display-6">@Count("Warning")</div></div></div></div>
+        <div class="col-sm-6 col-xl-3"><div class="card h-100 border-danger"><div class="card-body"><div class="text-muted">Errors</div><div class="display-6">@Count("Error")</div></div></div></div>
+        <div class="col-sm-6 col-xl-3"><div class="card h-100"><div class="card-body"><div class="text-muted">Generated</div><div class="h5 mt-2">@dashboard.GeneratedAtUtc.ToLocalTime().ToString("dd MMM HH:mm:ss")</div></div></div></div>
+    </div>
+
+    <div class="card mb-4"><div class="card-body">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-5"><label class="form-label" for="diagnostic-category">Category</label><select id="diagnostic-category" class="form-select" @bind="category"><option value="all">All categories</option>@foreach (var item in Categories) { <option value="@item">@item</option> }</select></div>
+            <div class="col-md-4"><label class="form-label" for="diagnostic-status">Status</label><select id="diagnostic-status" class="form-select" @bind="statusFilter"><option value="all">All statuses</option><option value="Error">Errors</option><option value="Warning">Warnings</option><option value="Healthy">Healthy</option><option value="Info">Information</option></select></div>
+            <div class="col-md-3"><button class="btn btn-outline-secondary w-100" @onclick="GenerateReportAsync" disabled="@isGeneratingReport">@(isGeneratingReport ? "Generating..." : "Generate redacted report")</button></div>
+        </div>
+        @if (reportDataUri is not null)
+        {
+            <a class="btn btn-success mt-3" href="@reportDataUri" download="@reportFileName">Download diagnostic report</a>
+        }
+    </div></div>
+
+    @foreach (var group in FilteredChecks.GroupBy(check => check.Category))
+    {
+        <div class="card mb-3"><div class="card-body">
+            <h2 class="h5">@group.Key</h2>
+            <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+                <thead><tr><th style="width:8rem">Status</th><th>Check</th><th>Result</th><th>Timestamp</th></tr></thead>
+                <tbody>
+                @foreach (var check in group)
+                {
+                    <tr>
+                        <td><span class="badge @StatusBadge(check.Status)">@check.Status</span></td>
+                        <td class="fw-semibold">@check.Name</td>
+                        <td>@check.Summary @if (!string.IsNullOrWhiteSpace(check.Detail)) { <details class="small text-muted"><summary>Details</summary>@check.Detail</details> }</td>
+                        <td class="small text-muted">@(check.Timestamp?.ToLocalTime().ToString("dd MMM yyyy HH:mm") ?? "—")</td>
+                    </tr>
+                }
+                </tbody>
+            </table></div>
+        </div></div>
+    }
+
+    <div class="card"><div class="card-body">
+        <h2 class="h5">Recent error groups</h2>
+        <p class="text-muted">Grouped from the final 2,000 lines of each local server log; secrets are redacted.</p>
+        @if (dashboard.RecentErrors.Count == 0)
+        {
+            <div class="alert alert-success mb-0">No matching error, failure, or exception lines were found.</div>
+        }
+        else
+        {
+            <div class="table-responsive"><table class="table table-sm">
+                <thead><tr><th>Log</th><th>Category</th><th>Count</th><th>Latest sample</th></tr></thead>
+                <tbody>@foreach (var item in dashboard.RecentErrors) { <tr><td>@item.Source</td><td>@item.Category</td><td>@item.Count</td><td class="small">@item.LatestSample</td></tr> }</tbody>
+            </table></div>
+        }
+    </div></div>
+}

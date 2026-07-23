@@ -5,6 +5,14 @@ namespace AzerothCore_UI.Web.Clients;
 
 public sealed class AccountsApiClient(HttpClient httpClient)
 {
+    public async Task<DiagnosticsDashboard?> GetDiagnosticsAsync(
+        CancellationToken cancellationToken = default) =>
+        await httpClient.GetFromJsonAsync<DiagnosticsDashboard>("api/diagnostics", cancellationToken);
+
+    public async Task<string> GetDiagnosticsReportAsync(
+        CancellationToken cancellationToken = default) =>
+        await httpClient.GetStringAsync("api/diagnostics/report", cancellationToken);
+
     public async Task<StarterPresetPreview?> PreviewStarterPresetAsync(StarterPresetRequest request)
     {
         using var response = await httpClient.PostAsJsonAsync("api/starter-presets/preview", request);
