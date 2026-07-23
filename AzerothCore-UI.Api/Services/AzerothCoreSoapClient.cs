@@ -80,6 +80,12 @@ public sealed class AzerothCoreSoapClient(IConfiguration configuration, IHttpCli
         return $"teleport name npc guid {RequirePlayerName(playerName)} {spawnId}";
     }
 
+    public static string BuildQuestCommand(string playerName, uint questId, bool add)
+    {
+        if (questId == 0) throw new ArgumentOutOfRangeException(nameof(questId), "Quest ID is required.");
+        return $"quest {(add ? "add" : "remove")} {questId} {RequirePlayerName(playerName)}";
+    }
+
     public static string RequireAccountName(string value) =>
         Regex.IsMatch(value, "^[A-Za-z0-9]{3,32}$")
             ? value : throw new ArgumentException("Account names must contain 3 to 32 letters or numbers.");

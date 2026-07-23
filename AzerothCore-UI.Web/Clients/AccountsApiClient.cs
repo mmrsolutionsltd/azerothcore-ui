@@ -5,6 +5,29 @@ namespace AzerothCore_UI.Web.Clients;
 
 public sealed class AccountsApiClient(HttpClient httpClient)
 {
+    public async Task<QuestHelperDashboard?> GetQuestHelperAsync(
+        uint guid, CancellationToken cancellationToken = default) =>
+        await httpClient.GetFromJsonAsync<QuestHelperDashboard>(
+            $"api/quest-helper/{guid}", cancellationToken);
+
+    public Task<AdministrationResult?> AddQuestAsync(QuestAdminRequest request) =>
+        PostQuestHelperAsync("add", request);
+
+    public Task<AdministrationResult?> RemoveQuestAsync(QuestAdminRequest request) =>
+        PostQuestHelperAsync("remove", request);
+
+    public Task<AdministrationResult?> TeleportToQuestGiverAsync(QuestGiverTeleportRequest request) =>
+        PostQuestHelperAsync("teleport", request);
+
+    private async Task<AdministrationResult?> PostQuestHelperAsync<T>(string action, T request)
+    {
+        using var response = await httpClient.PostAsJsonAsync($"api/quest-helper/{action}", request);
+        var result = await response.Content.ReadFromJsonAsync<AdministrationResult>();
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException(result?.Message ?? "The quest operation failed.", null, response.StatusCode);
+        return result;
+    }
+
     public async Task<ServerStatus?> GetServerStatusAsync() =>
         await httpClient.GetFromJsonAsync<ServerStatus>("api/server-administration/status");
     public async Task<IReadOnlyList<AdministrationPlayer>> GetAdministrationPlayersAsync() =>

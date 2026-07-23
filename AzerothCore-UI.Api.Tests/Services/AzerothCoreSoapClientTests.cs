@@ -58,6 +58,17 @@ public sealed class AzerothCoreSoapClientTests
             () => AzerothCoreSoapClient.BuildTrainerTeleportCommand("Hundead", 0));
 
     [Theory]
+    [InlineData(true, "quest add 9617 Hundead")]
+    [InlineData(false, "quest remove 9617 Hundead")]
+    public void BuildQuestCommand_UsesConsolePlayerTargetSyntax(bool add, string expected) =>
+        Assert.Equal(expected, AzerothCoreSoapClient.BuildQuestCommand("Hundead", 9617, add));
+
+    [Fact]
+    public void BuildQuestCommand_RejectsMissingQuest() =>
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => AzerothCoreSoapClient.BuildQuestCommand("Hundead", 0, true));
+
+    [Theory]
     [InlineData("Admin123")]
     [InlineData("ab", false)]
     [InlineData("admin-name", false)]

@@ -1,0 +1,168 @@
+@page "/quest-helper"
+@rendermode InteractiveServer
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@using AzerothCore_UI.Web.Models
+@inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
+
+<PageTitle>Quest helper</PageTitle>
+
+<h1>Quest helper</h1>
+<p class="text-muted">Review quest progress, find suitable nearby quest givers, and repair a broken quest log when necessary.</p>
+
+@if (message is not null)
+{
+    <div class="alert @(operationSucceeded ? "alert-success" : "alert-danger")">@message</div>
+}
+
+<div class="card mb-4"><div class="card-body">
+    <label class="form-label" for="quest-character">Character</label>
+    <select id="quest-character" class="form-select" @bind="selectedGuid" @bind:after="LoadDashboardAsync">
+        <option value="0">Select a real-player character</option>
+        @foreach (var character in characters.OrderByDescending(item => item.Online).ThenBy(item => item.Name))
+        {
+            <option value="@character.Guid">@character.Name — level @character.Level @CharacterDisplayNames.Class(character.Class) @(character.Online ? "(online)" : "(offline)")</option>
+        }
+    </select>
+</div></div>
+
+@if (isLoading)
+{
+    <p><em>Loading quest information...</em></p>
+}
+else if (dashboard is not null)
+{
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+        <div>
+            <h2 class="h4 mb-1">@dashboard.Character.Name</h2>
+            <span class="text-muted">Level @dashboard.Character.Level @CharacterDisplayNames.Race(dashboard.Character.Race) @CharacterDisplayNames.Class(dashboard.Character.Class) · @dashboard.Character.LocationName</span>
+        </div>
+        <a class="btn btn-outline-secondary" href="/characters/@dashboard.Character.Guid?tab=Quests">Full quest history</a>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-xl-5">
+            <div class="card h-100"><div class="card-body">
+                <h2 class="h5">Active quests</h2>
+                <p class="text-muted">@ReadyCount ready to turn in · @dashboard.ActiveQuests.Count total</p>
+                @if (dashboard.ActiveQuests.Count == 0)
+                {
+                    <div class="alert alert-secondary">This character has no active quests.</div>
+                }
+                else
+                {
+                    <div class="table-responsive"><table class="table table-sm align-middle">
+                        <thead><tr><th>Quest</th><th>Status</th><th></th></tr></thead>
+                        <tbody>
+                        @foreach (var quest in dashboard.ActiveQuests)
+                        {
+                            <tr class="@(quest.Status == 1 ? "table-success" : quest.Status == 5 ? "table-danger" : null)">
+                                <td>
+                                    <span class="fw-semibold">@quest.Title</span>
+                                    <div class="small text-muted">#@quest.QuestId · level @FormatQuestLevel(quest.QuestLevel)</div>
+                                    <div class="small">@quest.ObjectiveSummary</div>
+                                </td>
+                                <td>@quest.StatusName</td>
+                                <td><button class="btn btn-sm btn-outline-danger" @onclick="() => SelectOperation(quest.QuestId, quest.Title, false)">Remove</button></td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table></div>
+                }
+            </div></div>
+        </div>
+
+        <div class="col-xl-7">
+            <div class="card"><div class="card-body">
+                <h2 class="h5">Eligible quests</h2>
+                <p class="text-muted">Not active or completed, compatible with this character's race, class, level, and direct prerequisite.</p>
+                <div class="row g-2 mb-3">
+                    <div class="col-md-7"><input class="form-control" placeholder="Search quest or quest giver" @bind="search" @bind:event="oninput" /></div>
+                    <div class="col-md-5 form-check mt-md-3 pt-md-2">
+                        <input id="nearby-only" class="form-check-input" type="checkbox" @bind="nearbyOnly" />
+                        <label class="form-check-label" for="nearby-only">Current map only</label>
+                    </div>
+                </div>
+                @if (FilteredRecommendations.Count == 0)
+                {
+                    <div class="alert alert-secondary">No matching eligible quests were found.</div>
+                }
+                else
+                {
+                    <div class="table-responsive"><table class="table table-sm table-hover align-middle">
+                        <thead><tr><th>Quest</th><th>Quest giver</th><th>Location</th><th></th></tr></thead>
+                        <tbody>
+                        @foreach (var quest in FilteredRecommendations.Take(40))
+                        {
+                            <tr>
+                                <td>
+                                    <span class="fw-semibold">@quest.Title</span>
+                                    <div class="small text-muted">#@quest.QuestId · level @FormatQuestLevel(quest.QuestLevel) · minimum @quest.MinimumLevel</div>
+                                    @if (quest.PreviousQuestId != 0)
+                                    {
+                                        <div class="small text-muted">After: @(quest.PreviousQuestTitle ?? $"quest {Math.Abs(quest.PreviousQuestId)}")</div>
+                                    }
+                                </td>
+                                <td>@quest.QuestGiver</td>
+                                <td>
+                                    @LocationText(quest)
+                                    @if (quest.Distance is not null)
+                                    {
+                                        <div class="small text-muted">@Math.Round(quest.Distance.Value):N0 yards away</div>
+                                    }
+                                </td>
+                                <td class="text-end">
+                                    <button class="btn btn-sm btn-outline-primary mb-1" @onclick="() => SelectOperation(quest.QuestId, quest.Title, true)">Add</button>
+                                    @if (quest.QuestGiverSpawnId is not null)
+                                    {
+                                        <button class="btn btn-sm btn-outline-success mb-1" @onclick="() => SelectTeleport(quest)">Teleport</button>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table></div>
+                    @if (FilteredRecommendations.Count > 40)
+                    {
+                        <p class="small text-muted mb-0">Showing the first 40 of @FilteredRecommendations.Count matches. Refine the search to narrow the list.</p>
+                    }
+                }
+            </div></div>
+        </div>
+    </div>
+
+    @if (pendingOperation is not null)
+    {
+        <div class="card border-warning mt-4"><div class="card-body">
+            <h2 class="h5">Confirm administrative action</h2>
+            <p class="mb-2">
+                @(pendingOperation.Add ? "Add" : "Remove") <strong>@pendingOperation.Title</strong>
+                (#@pendingOperation.QuestId) @(pendingOperation.Add ? "to" : "from") @dashboard.Character.Name?
+            </p>
+            @if (!pendingOperation.Add)
+            {
+                <div class="alert alert-warning">Removing a quest can also remove its quest items and rewarded state. Use this only to repair progression.</div>
+            }
+            <div class="form-check mb-3">
+                <input id="confirm-quest-change" class="form-check-input" type="checkbox" @bind="confirmed" />
+                <label class="form-check-label" for="confirm-quest-change">I understand and confirm this quest change</label>
+            </div>
+            <button class="btn @(pendingOperation.Add ? "btn-primary" : "btn-danger")" disabled="@(!confirmed || isWorking)" @onclick="ChangeQuestAsync">
+                Confirm @(pendingOperation.Add ? "add" : "remove")
+            </button>
+            <button class="btn btn-link" disabled="@isWorking" @onclick="CancelOperation">Cancel</button>
+        </div></div>
+    }
+    else if (pendingTeleport is not null)
+    {
+        <div class="card border-warning mt-4"><div class="card-body">
+            <h2 class="h5">Confirm teleport</h2>
+            <p>Teleport @dashboard.Character.Name to <strong>@pendingTeleport.QuestGiver</strong> for @pendingTeleport.Title?</p>
+            <div class="form-check mb-3">
+                <input id="confirm-quest-teleport" class="form-check-input" type="checkbox" @bind="confirmed" />
+                <label class="form-check-label" for="confirm-quest-teleport">Confirm quest-giver teleport</label>
+            </div>
+            <button class="btn btn-success" disabled="@(!confirmed || isWorking)" @onclick="TeleportAsync">Teleport character</button>
+            <button class="btn btn-link" disabled="@isWorking" @onclick="CancelOperation">Cancel</button>
+        </div></div>
+    }
+}

@@ -106,6 +106,14 @@ Character pickers throughout the administration UI list real-player characters o
 - Search trainer names and disciplines, then teleport to the exact selected NPC spawn.
 - Support immediate online teleporting and next-login positioning for offline characters.
 
+### Quest helper
+
+- Show active quests, objective progress, failed quests, and quests ready to turn in for a selected real-player character.
+- Recommend uncompleted quests in an appropriate level band while checking race, class, and direct prerequisite compatibility.
+- Search eligible quests and prioritize quest givers on the character's current map by distance.
+- Teleport an online or offline character to the exact selected quest-giver spawn.
+- Add a missing quest or remove a broken quest through confirmed, validated, and logged SOAP commands.
+
 ### Mounts and companions
 
 - Search collectible mounts and companion pets.
