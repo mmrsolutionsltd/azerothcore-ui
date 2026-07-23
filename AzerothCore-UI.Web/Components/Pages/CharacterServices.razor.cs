@@ -12,7 +12,7 @@ public partial class CharacterServices
         new("race", "Race change", "Enables the normal race-change screen at next login.", "Enable race change", true),
         new("faction", "Faction change", "Enables the normal faction-change screen at next login.", "Enable faction change", true),
         new("talents", "Reset talents", "Resets character talents and all pet talents.", "Reset talents", true),
-        new("spells", "Reset spells", "Rebuilds the character's learned spells using AzerothCore's reset command.", "Reset spells", true),
+        new("spells", "Reset spells", "Rebuilds an online character's learned spells using AzerothCore's reset command.", "Reset spells", true),
         new("revive", "Revive", "Resurrects an online or offline dead character.", "Revive character"),
         new("unstuck", "Return to home inn", "Moves an online or offline character to their bound inn.", "Move to inn"),
         new("level", "Set level", "Changes the character level and lets AzerothCore update level-dependent data.", "Set level", true)
@@ -25,6 +25,11 @@ public partial class CharacterServices
     private int newLevel = 80;
     private bool isLoading = true, isWorking, operationSucceeded;
     private bool CanApply => status is { WorldServer.IsRunning: true, SoapConfigured: true } && !isWorking;
+    private AdministrationPlayer? SelectedPlayer => players.FirstOrDefault(
+        player => player.Name.Equals(playerName.Trim(), StringComparison.OrdinalIgnoreCase));
+    private bool CanSelectService(ServiceOption service) =>
+        CanApply && SelectedPlayer is not null && (service.Key != "spells" || SelectedPlayer.Online)
+        && (service.Key != "level" || newLevel is >= 1 and <= 80);
 
     protected override async Task OnInitializedAsync()
     {
@@ -32,7 +37,11 @@ public partial class CharacterServices
         catch (Exception exception) { message = exception.Message; }
         finally { isLoading = false; }
     }
-    private void SelectService(string service) => pendingService = service;
+    private void SelectService(string service)
+    {
+        message = null;
+        pendingService = service;
+    }
     private void CancelService() => pendingService = null;
     private static string ServiceTitle(string key) => Services.First(option => option.Key == key).Title;
     private async Task ApplyServiceAsync()

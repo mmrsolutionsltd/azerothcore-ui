@@ -19,6 +19,10 @@ else
     <div class="card mb-4"><div class="card-body">
         <label class="form-label" for="service-player">Character</label>
         <input id="service-player" class="form-control" list="service-players" placeholder="Start typing a character name" autocomplete="off" @bind="playerName" />
+        @if (!string.IsNullOrWhiteSpace(playerName) && SelectedPlayer is null)
+        {
+            <div class="form-text text-danger">Select an existing character from the list.</div>
+        }
     </div></div>
     <div class="row g-3">
         @foreach (var service in Services)
@@ -29,7 +33,11 @@ else
                 {
                     <label class="form-label" for="service-level">New level</label><input id="service-level" class="form-control mb-3" type="number" min="1" max="80" @bind="newLevel" />
                 }
-                <button class="btn @(service.Dangerous ? "btn-outline-danger" : "btn-outline-primary")" disabled="@(!CanApply || string.IsNullOrWhiteSpace(playerName))" @onclick="() => SelectService(service.Key)">@service.Button</button>
+                <button class="btn @(service.Dangerous ? "btn-outline-danger" : "btn-outline-primary")" disabled="@(!CanSelectService(service))" @onclick="() => SelectService(service.Key)">@service.Button</button>
+                @if (service.Key == "spells" && SelectedPlayer is { Online: false })
+                {
+                    <div class="form-text">Log this character in before resetting spells.</div>
+                }
             </div></div></div>
         }
     </div>

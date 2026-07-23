@@ -18,4 +18,8 @@
     <EmbeddedResource Include="Data\SpellMetadata\spell-metadata.json" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="AzerothCore-UI.Api.Tests" />
+  </ItemGroup>
+
 </Project>

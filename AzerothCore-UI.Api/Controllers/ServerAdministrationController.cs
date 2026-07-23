@@ -173,10 +173,9 @@ public sealed class ServerAdministrationController(
             FROM acore_characters.characters WHERE name = @CharacterName LIMIT 1;
             """, new { CharacterName = character }, cancellationToken: cancellationToken));
         if (context is null) return NotFound(new AdministrationResult(false, "That character does not exist."));
-        var learned = (await connection.QueryAsync<int>(new CommandDefinition("""
-            SELECT spell FROM acore_characters.character_spell
-            WHERE guid = @CharacterGuid AND active <> 0 AND disabled = 0;
-            """, new { context.CharacterGuid }, cancellationToken: cancellationToken))).ToHashSet();
+        var learned = (await connection.QueryAsync<int>(new CommandDefinition(
+            AzerothCoreQueries.CharacterLearnedSpells,
+            new { context.CharacterGuid }, cancellationToken: cancellationToken))).ToHashSet();
         var rawItems = (await connection.QueryAsync<CollectibleItem>(new CommandDefinition(
             sql, new { Search = normalizedSearch }, cancellationToken: cancellationToken))).AsList();
         var allItems = rawItems.Select(item =>
@@ -550,29 +549,32 @@ public sealed class ServerAdministrationController(
         if (!request.Confirmed)
             return BadRequest(new AdministrationResult(false, "Confirm the character service first."));
         var player = AzerothCoreSoapClient.RequirePlayerName(request.PlayerName);
-        string command;
-        string message;
-        switch (request.Service.ToLowerInvariant())
+        CharacterServiceCommand service;
+        try
         {
-            case "rename": command = $"character rename {player}"; message = "Rename required at next login."; break;
-            case "customize": command = $"character customize {player}"; message = "Appearance customization enabled for next login."; break;
-            case "race": command = $"character changerace {player}"; message = "Race change enabled for next login."; break;
-            case "faction": command = $"character changefaction {player}"; message = "Faction change enabled for next login."; break;
-            case "talents": command = $"reset talents {player}"; message = "Character and pet talents reset."; break;
-            case "spells": command = $"reset spells {player}"; message = "Character spells reset."; break;
-            case "revive": command = $"revive {player}"; message = "Character revived."; break;
-            case "unstuck": command = $"unstuck {player} inn"; message = "Character moved to their home inn."; break;
-            case "level":
-                if (request.Level is < 1 or > 80)
-                    return BadRequest(new AdministrationResult(false, "Character level must be between 1 and 80."));
-                command = $"character level {player} {request.Level}";
-                message = $"Character level changed to {request.Level}.";
-                break;
-            default: return BadRequest(new AdministrationResult(false, "Unknown character service."));
+            service = CharacterServiceCommandBuilder.Build(player, request.Service, request.Level);
         }
-        var output = await soapClient.ExecuteAsync(command, cancellationToken);
+        catch (ArgumentException exception)
+        {
+            return BadRequest(new AdministrationResult(false, exception.Message));
+        }
+
+        await using (var connection = connectionFactory.CreateConnection())
+        {
+            var characterOnline = await connection.QuerySingleOrDefaultAsync<byte?>(new CommandDefinition("""
+                SELECT online FROM acore_characters.characters
+                WHERE name = @CharacterName LIMIT 1;
+                """, new { CharacterName = player }, cancellationToken: cancellationToken));
+            if (characterOnline is null)
+                return NotFound(new AdministrationResult(false, "That character does not exist."));
+            if (service.RequiresOnlineCharacter && characterOnline == 0)
+                return Conflict(new AdministrationResult(false,
+                    "Reset spells requires the character to be online on this PlayerBots server revision."));
+        }
+
+        var output = await soapClient.ExecuteAsync(service.Command, cancellationToken);
         Audit("CharacterService", player, $"Service={request.Service};Level={request.Level}");
-        return Ok(new AdministrationResult(true, message, output));
+        return Ok(new AdministrationResult(true, service.Message, output));
     }
 
     [HttpGet("players/{playerName}/weapon-training")]
