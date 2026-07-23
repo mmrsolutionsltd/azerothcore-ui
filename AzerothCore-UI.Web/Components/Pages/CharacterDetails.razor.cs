@@ -9,7 +9,7 @@ namespace AzerothCore_UI.Web.Components.Pages
         [SupplyParameterFromQuery(Name = "tab")]
         public string? InitialTab { get; set; }
 
-        private static readonly string[] tabs = ["Inventory", "Quests", "Professions", "Training", "Reputation"];
+        private static readonly string[] tabs = ["Inventory", "Quests", "Professions", "Training"];
         private AzerothCore_UI.Web.Models.CharacterDetails? character;
         private IReadOnlyList<EquippedItem> equippedItems = [];
         private IReadOnlyList<BagItem> bagItems = [];

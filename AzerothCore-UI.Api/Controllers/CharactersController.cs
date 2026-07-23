@@ -26,6 +26,46 @@ public sealed class CharactersController(
             [11] = 33  // Druid
         };
 
+    [HttpGet]
+    public async Task<ActionResult<IReadOnlyList<CharacterOverviewSummary>>> GetCharacterOverview(
+        CancellationToken cancellationToken)
+    {
+        var professionSkillIds = ProfessionSkills.Keys.ToArray();
+        const string sql = """
+            SELECT characters.guid AS Guid, account.username AS Username,
+                   characters.name AS Name, characters.level AS Level,
+                   characters.race AS Race, characters.class AS Class,
+                   characters.online AS OnlineValue, characters.money AS Money,
+                   characters.totaltime AS TotalTime, characters.map AS Map,
+                   characters.zone AS Zone,
+                   NULLIF(area.AreaName_Lang_enUS, '') AS DatabaseLocationName,
+                   (SELECT COUNT(*) FROM acore_characters.character_queststatus quest
+                    WHERE quest.guid = characters.guid) AS ActiveQuestCount,
+                   (SELECT COUNT(*) FROM acore_characters.character_skills skill
+                    WHERE skill.guid = characters.guid AND skill.skill IN @ProfessionSkillIds) AS ProfessionCount,
+                   (SELECT pet.name FROM acore_characters.character_pet pet
+                    WHERE pet.owner = characters.guid ORDER BY pet.slot, pet.id LIMIT 1) AS PetName,
+                   homebind.mapId AS HomebindMap, homebind.zoneId AS HomebindZone
+            FROM acore_characters.characters characters
+            INNER JOIN acore_auth.account account ON account.id = characters.account
+            LEFT JOIN acore_world.areatable_dbc area ON area.ID = characters.zone
+            LEFT JOIN acore_characters.character_homebind homebind ON homebind.guid = characters.guid
+            WHERE account.username NOT LIKE 'rndbot%'
+              AND account.username <> 'AHBOT'
+            ORDER BY characters.online DESC, characters.name;
+            """;
+
+        await using var connection = connectionFactory.CreateConnection();
+        var rows = await connection.QueryAsync<CharacterOverviewRow>(new CommandDefinition(
+            sql, new { ProfessionSkillIds = professionSkillIds }, cancellationToken: cancellationToken));
+        return Ok(rows.Select(row => new CharacterOverviewSummary(
+            row.Guid, row.Username, row.Name, row.Level, row.Race, row.Class,
+            row.OnlineValue != 0, row.Money, row.TotalTime, row.Map, row.Zone,
+            AreaNameResolver.Resolve(row.Zone, row.DatabaseLocationName),
+            row.ActiveQuestCount, row.ProfessionCount, row.PetName,
+            row.HomebindMap, row.HomebindZone)).ToArray());
+    }
+
     [HttpGet("{guid:long}/training/class")]
     public async Task<ActionResult<IReadOnlyList<MissingClassSpell>>> GetMissingClassSpells(
         long guid,
@@ -830,6 +870,27 @@ public sealed class CharactersController(
         public ushort Map { get; init; }
         public ushort Zone { get; init; }
         public string? DatabaseLocationName { get; init; }
+    }
+
+    private sealed class CharacterOverviewRow
+    {
+        public uint Guid { get; init; }
+        public string Username { get; init; } = "";
+        public string Name { get; init; } = "";
+        public byte Level { get; init; }
+        public byte Race { get; init; }
+        public byte Class { get; init; }
+        public byte OnlineValue { get; init; }
+        public uint Money { get; init; }
+        public uint TotalTime { get; init; }
+        public ushort Map { get; init; }
+        public ushort Zone { get; init; }
+        public string? DatabaseLocationName { get; init; }
+        public int ActiveQuestCount { get; init; }
+        public int ProfessionCount { get; init; }
+        public string? PetName { get; init; }
+        public ushort? HomebindMap { get; init; }
+        public ushort? HomebindZone { get; init; }
     }
 
     private sealed class CompletedCharacterQuestRow

@@ -17,6 +17,8 @@ The solution targets .NET 10 and contains:
 - See character counts, online counts, last-login information, and GM access level.
 - Enable or remove GM access with confirmation safeguards.
 - Browse account characters and open a detailed character view.
+- Open a real-player character dashboard with live status, class/status filters, current location, money, played time, quest and profession counts, active pet, and hearthstone destination.
+- Jump directly from the dashboard to a character's inventory, quests, professions, or available training, or open the related administration tools.
 - See character identity, level, race, class, money, played time, location, and live online status.
 - Inspect equipped gear, durability, backpack contents, and equipped bags.
 - Browse active and completed quests.

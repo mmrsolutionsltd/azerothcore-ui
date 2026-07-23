@@ -200,6 +200,11 @@ public sealed class AccountsApiClient(HttpClient httpClient)
             cancellationToken);
     }
 
+    public async Task<IReadOnlyList<CharacterOverviewSummary>> GetCharacterOverviewAsync(
+        CancellationToken cancellationToken = default) =>
+        await httpClient.GetFromJsonAsync<CharacterOverviewSummary[]>(
+            "api/characters", cancellationToken) ?? [];
+
     public async Task<IReadOnlyList<CharacterQuest>> GetCharacterQuestsAsync(
         uint guid,
         CancellationToken cancellationToken = default)
