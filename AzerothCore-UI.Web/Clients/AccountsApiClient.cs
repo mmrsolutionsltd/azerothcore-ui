@@ -5,6 +5,29 @@ namespace AzerothCore_UI.Web.Clients;
 
 public sealed class AccountsApiClient(HttpClient httpClient)
 {
+    public async Task<AuctionHouseDashboard> GetAuctionHouseDashboardAsync(
+        string? search, int houseId, int category, int quality, string sort,
+        bool descending, int page, CancellationToken cancellationToken = default)
+    {
+        var uri = $"api/auction-house?search={Uri.EscapeDataString(search ?? "")}" +
+                  $"&houseId={houseId}&category={category}&quality={quality}" +
+                  $"&sort={Uri.EscapeDataString(sort)}&descending={descending.ToString().ToLowerInvariant()}" +
+                  $"&page={page}&pageSize=30";
+        return await httpClient.GetFromJsonAsync<AuctionHouseDashboard>(uri, cancellationToken)
+            ?? new AuctionHouseDashboard(
+                new(0, 0, 0, 0, [], [], []), [], page, 30, 0, 0);
+    }
+
+    public async Task<AdministrationResult?> EnableAuctionHouseRestockingAsync(bool confirmed)
+    {
+        using var response = await httpClient.PostAsJsonAsync(
+            "api/auction-house/restock", new AuctionHouseRestockRequest(confirmed));
+        var result = await response.Content.ReadFromJsonAsync<AdministrationResult>();
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException(result?.Message ?? "Could not enable AHBot restocking.", null, response.StatusCode);
+        return result;
+    }
+
     public async Task<QuestHelperDashboard?> GetQuestHelperAsync(
         uint guid, CancellationToken cancellationToken = default) =>
         await httpClient.GetFromJsonAsync<QuestHelperDashboard>(

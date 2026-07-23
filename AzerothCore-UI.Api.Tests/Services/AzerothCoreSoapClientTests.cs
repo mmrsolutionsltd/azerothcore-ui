@@ -69,6 +69,12 @@ public sealed class AzerothCoreSoapClientTests
             () => AzerothCoreSoapClient.BuildQuestCommand("Hundead", 0, true));
 
     [Theory]
+    [InlineData(true, "ahbotoptions seller 1")]
+    [InlineData(false, "ahbotoptions seller 0")]
+    public void BuildAuctionHouseSellerCommand_UsesInstalledModuleSyntax(bool enabled, string expected) =>
+        Assert.Equal(expected, AzerothCoreSoapClient.BuildAuctionHouseSellerCommand(enabled));
+
+    [Theory]
     [InlineData("Admin123")]
     [InlineData("ab", false)]
     [InlineData("admin-name", false)]

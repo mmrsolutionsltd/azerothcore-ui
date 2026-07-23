@@ -78,6 +78,15 @@ The UI supports the installed family-server modules below:
 
 Each module configuration is validated, concurrency-checked, and backed up before a changed file is saved. A worldserver restart is required.
 
+### Auction House dashboard
+
+- Show live Alliance, Horde, and neutral auction totals, including AHBot/player ownership and auctions expiring within an hour.
+- Inspect stock distribution by item category and quality, with low or empty category warnings.
+- Search and filter live listings by item, house, category, and quality, and sort by expiry, price, stack, seller, or item.
+- Review stack size, current bid, buyout, seller, AHBot status, and time remaining without directly editing auction tables.
+- Display the active AHBot configuration and link to its managed settings.
+- Safely enable or resume the AHBot seller through its installed worldserver command; the bot then stocks during normal update cycles.
+
 ### Character services
 
 Run confirmed, allowlisted AzerothCore services for a named character:

@@ -86,6 +86,9 @@ public sealed class AzerothCoreSoapClient(IConfiguration configuration, IHttpCli
         return $"quest {(add ? "add" : "remove")} {questId} {RequirePlayerName(playerName)}";
     }
 
+    public static string BuildAuctionHouseSellerCommand(bool enabled) =>
+        $"ahbotoptions seller {(enabled ? 1 : 0)}";
+
     public static string RequireAccountName(string value) =>
         Regex.IsMatch(value, "^[A-Za-z0-9]{3,32}$")
             ? value : throw new ArgumentException("Account names must contain 3 to 32 letters or numbers.");

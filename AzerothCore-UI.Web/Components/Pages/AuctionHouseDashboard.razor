@@ -1,0 +1,156 @@
+@page "/auction-house"
+@rendermode InteractiveServer
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@using AzerothCore_UI.Web.Models
+@inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
+
+<PageTitle>Auction House</PageTitle>
+
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+    <div>
+        <h1 class="mb-1">Auction House</h1>
+        <p class="text-muted mb-0">Live auction stock, pricing, expiry and Auction House Bot health.</p>
+    </div>
+    <button class="btn btn-outline-primary" disabled="@isLoading" @onclick="() => LoadAsync(page)">Refresh</button>
+</div>
+
+@if (message is not null)
+{
+    <div class="alert @(operationSucceeded ? "alert-success" : "alert-danger")">@message</div>
+}
+
+@if (isLoadingPage)
+{
+    <p><em>Loading Auction House dashboard...</em></p>
+}
+else
+{
+    <div class="row g-3 mb-4">
+        <div class="col-sm-6 col-xl-3"><div class="card h-100"><div class="card-body">
+            <div class="text-muted">Total auctions</div><div class="display-6">@result.Summary.TotalAuctions</div>
+            <small>@result.Summary.BotAuctions bot · @result.Summary.PlayerAuctions player</small>
+        </div></div></div>
+        @foreach (var house in result.Summary.Houses)
+        {
+            <div class="col-sm-6 col-xl-3"><div class="card h-100"><div class="card-body">
+                <div class="text-muted">@house.Name house</div><div class="display-6">@house.Count</div>
+                <small>@Percentage(house.Count)% of live auctions</small>
+            </div></div></div>
+        }
+    </div>
+
+    <div class="row g-4 mb-4">
+        <div class="col-xl-8">
+            <div class="card h-100"><div class="card-body">
+                <h2 class="h5">AHBot status and configuration</h2>
+                @if (settings is null)
+                {
+                    <div class="alert alert-warning">The Auction House Bot configuration could not be loaded.</div>
+                }
+                else
+                {
+                    <div class="row g-3">
+                        <div class="col-sm-4"><strong>Seller</strong><br /><span class="badge @(settings.EnableSeller ? "text-bg-success" : "text-bg-danger")">@(settings.EnableSeller ? "Enabled" : "Disabled")</span></div>
+                        <div class="col-sm-4"><strong>Buyer</strong><br /><span class="badge @(settings.EnableBuyer ? "text-bg-success" : "text-bg-secondary")">@(settings.EnableBuyer ? "Enabled" : "Disabled")</span></div>
+                        <div class="col-sm-4"><strong>Items per cycle</strong><br />@settings.ItemsPerCycle</div>
+                        <div class="col-sm-4"><strong>Duplicate limit</strong><br />@settings.DuplicatesCount</div>
+                        <div class="col-sm-4"><strong>Market pricing</strong><br />@(settings.UseMarketPrice ? "Enabled" : "Disabled")</div>
+                        <div class="col-sm-4"><strong>Item sources</strong><br />@ItemSources</div>
+                    </div>
+                    <div class="mt-3">
+                        <a class="btn btn-sm btn-outline-secondary me-2" href="/modules">Edit AHBot settings</a>
+                        <span class="small text-muted">Saved configuration changes require a worldserver restart.</span>
+                    </div>
+                }
+            </div></div>
+        </div>
+        <div class="col-xl-4">
+            <div class="card h-100"><div class="card-body">
+                <h2 class="h5">Restocking</h2>
+                <p>Enable the AHBot seller in the running worldserver. Stock is added during normal AHBot update cycles.</p>
+                @if (status is not { WorldServer.IsRunning: true, SoapConfigured: true })
+                {
+                    <div class="alert alert-warning">The worldserver and SOAP connection must be available.</div>
+                }
+                <div class="form-check mb-3">
+                    <input id="confirm-ah-restock" class="form-check-input" type="checkbox" @bind="restockConfirmed" />
+                    <label class="form-check-label" for="confirm-ah-restock">Confirm enabling/resuming AHBot selling</label>
+                </div>
+                <button class="btn btn-success" disabled="@(!CanEnableRestocking)" @onclick="EnableRestockingAsync">Enable/resume restocking</button>
+                <div class="small text-muted mt-2">This does not edit auction database rows or force an immediate cycle.</div>
+            </div></div>
+        </div>
+    </div>
+
+    <div class="row g-4 mb-4">
+        <div class="col-lg-6"><div class="card h-100"><div class="card-body">
+            <h2 class="h5">Stock by category</h2>
+            <div class="d-flex flex-wrap gap-2">
+                @foreach (var item in result.Summary.Categories.Where(item => item.Count > 0).OrderByDescending(item => item.Count))
+                {
+                    <span class="badge @(item.Count < 10 ? "text-bg-warning" : "text-bg-secondary")">@item.Name: @item.Count</span>
+                }
+            </div>
+            @if (LowStockCategories.Count > 0)
+            {
+                <p class="small text-warning-emphasis mt-3 mb-0">Low/empty: @string.Join(", ", LowStockCategories)</p>
+            }
+        </div></div></div>
+        <div class="col-lg-6"><div class="card h-100"><div class="card-body">
+            <h2 class="h5">Stock by quality</h2>
+            <div class="d-flex flex-wrap gap-2">
+                @foreach (var item in result.Summary.Qualities)
+                {
+                    <span class="badge @QualityBadge(item.Id)">@item.Name: @item.Count</span>
+                }
+            </div>
+            <p class="mt-3 mb-0"><strong>@result.Summary.ExpiringWithinHour</strong> auction(s) expire within one hour.</p>
+        </div></div></div>
+    </div>
+
+    <div class="card"><div class="card-body">
+        <h2 class="h5">Live listings</h2>
+        <form class="row g-2 align-items-end mb-3" @onsubmit="ApplyFiltersAsync" @onsubmit:preventDefault>
+            <div class="col-lg-3"><label class="form-label" for="auction-search">Search</label><input id="auction-search" class="form-control" placeholder="Item name or ID" @bind="search" /></div>
+            <div class="col-sm-6 col-lg-2"><label class="form-label" for="auction-house-filter">House</label><select id="auction-house-filter" class="form-select" @bind="houseId"><option value="0">All</option><option value="2">Alliance</option><option value="6">Horde</option><option value="7">Neutral</option></select></div>
+            <div class="col-sm-6 col-lg-2"><label class="form-label" for="auction-category">Category</label><select id="auction-category" class="form-select" @bind="category"><option value="-1">All</option>@foreach (var item in result.Summary.Categories) { <option value="@item.Id">@item.Name</option> }</select></div>
+            <div class="col-sm-6 col-lg-2"><label class="form-label" for="auction-quality">Quality</label><select id="auction-quality" class="form-select" @bind="quality"><option value="-1">All</option>@foreach (var item in result.Summary.Qualities) { <option value="@item.Id">@item.Name</option> }</select></div>
+            <div class="col-sm-6 col-lg-2"><label class="form-label" for="auction-sort">Sort</label><select id="auction-sort" class="form-select" @bind="sort"><option value="expiry">Expiry</option><option value="item">Item</option><option value="house">House</option><option value="seller">Seller</option><option value="stack">Stack</option><option value="buyout">Buyout</option></select></div>
+            <div class="col-lg-1"><button class="btn btn-primary w-100" disabled="@isLoading">Apply</button></div>
+        </form>
+        <div class="form-check mb-3"><input id="auction-desc" class="form-check-input" type="checkbox" @bind="descending" /><label for="auction-desc" class="form-check-label">Descending sort</label></div>
+
+        @if (isLoading)
+        {
+            <p><em>Loading listings...</em></p>
+        }
+        else if (result.Auctions.Count == 0)
+        {
+            <div class="alert alert-secondary">No matching live auctions.</div>
+        }
+        else
+        {
+            <div class="table-responsive"><table class="table table-sm table-hover align-middle">
+                <thead><tr><th>Item</th><th>House</th><th>Seller</th><th>Stack</th><th>Current bid</th><th>Buyout</th><th>Expires</th></tr></thead>
+                <tbody>
+                @foreach (var auction in result.Auctions)
+                {
+                    <tr>
+                        <td><span class="fw-semibold">@auction.ItemName</span><br /><span class="small text-muted">#@auction.ItemId · @auction.QualityName · @auction.CategoryName</span></td>
+                        <td>@auction.HouseName</td>
+                        <td>@auction.Seller @if (auction.IsBotAuction) { <span class="badge text-bg-info">AHBot</span> }</td>
+                        <td>@auction.StackSize</td>
+                        <td><MoneyDisplay Copper="@(auction.LastBid > 0 ? auction.LastBid : auction.StartBid)" /></td>
+                        <td>@if (auction.BuyoutPrice > 0) { <MoneyDisplay Copper="auction.BuyoutPrice" /> } else { <span>—</span> }</td>
+                        <td>@FormatExpiry(auction.ExpiresAtUtc)</td>
+                    </tr>
+                }
+                </tbody>
+            </table></div>
+            <div class="d-flex justify-content-between align-items-center">
+                <span class="text-muted">@result.TotalCount matching auctions</span>
+                <div><button class="btn btn-sm btn-outline-secondary me-2" disabled="@(page <= 1 || isLoading)" @onclick="() => LoadAsync(page - 1)">Previous</button><span class="me-2">Page @(page) of @Math.Max(1, result.TotalPages)</span><button class="btn btn-sm btn-outline-secondary" disabled="@(page >= result.TotalPages || isLoading)" @onclick="() => LoadAsync(page + 1)">Next</button></div>
+            </div>
+        }
+    </div></div>
+}
