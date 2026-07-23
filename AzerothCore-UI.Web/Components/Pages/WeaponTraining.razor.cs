@@ -7,7 +7,7 @@ public partial class WeaponTraining
     private IReadOnlyList<AdministrationPlayer> players = [];
     private IReadOnlyList<WeaponTrainingStatus> training = [];
     private IEnumerable<AdministrationPlayer> OrderedOnlinePlayers => players
-        .Where(player => player.Online)
+        .Where(player => player.Online && !player.IsPlayerBot)
         .OrderBy(player => player.PickerOrder)
         .ThenBy(player => player.Name);
 

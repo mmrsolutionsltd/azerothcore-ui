@@ -108,6 +108,122 @@ public sealed class ServerAdministrationController(
             total == 0 ? 0 : (int)Math.Ceiling(total / (double)pageSize)));
     }
 
+    [HttpGet("trainers")]
+    public async Task<ActionResult<TrainerSearchResult>> GetTrainers(
+        [FromQuery] string characterName, [FromQuery] string? search,
+        [FromQuery] string category = "all", [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 30, CancellationToken cancellationToken = default)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        var character = AzerothCoreSoapClient.RequirePlayerName(characterName);
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 10, 100);
+        var normalizedCategory = category.ToLowerInvariant();
+        if (normalizedCategory is not ("all" or "class" or "profession" or "weapon" or "riding" or "stable"))
+            return BadRequest(new AdministrationResult(false, "Unknown trainer category."));
+        var normalizedSearch = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
+
+        await using var connection = connectionFactory.CreateConnection();
+        var context = await connection.QuerySingleOrDefaultAsync<TrainerCharacterContext>(new CommandDefinition("""
+            SELECT class AS CharacterClass, map AS MapId, position_x AS PositionX, position_y AS PositionY
+            FROM acore_characters.characters
+            WHERE name = @CharacterName LIMIT 1;
+            """, new { CharacterName = character }, cancellationToken: cancellationToken));
+        if (context is null)
+            return NotFound(new AdministrationResult(false, "That character does not exist."));
+
+        var categoryFilter = normalizedCategory == "all" ? "" : "AND trainerSpawn.Category = @Category";
+        var sql = $"""
+            WITH trainer_spawns AS
+            (
+                SELECT creature.guid AS SpawnId, template.entry AS CreatureId,
+                       template.name AS Name, COALESCE(template.subname, '') AS Subname,
+                       CASE
+                           WHEN trainer.Type = 0 AND trainer.Requirement BETWEEN 1 AND 11 THEN 'class'
+                           WHEN template.subname REGEXP '^(Alchemy|Blacksmithing|Enchanting|Engineering|Herbalism|Inscription|Jewelcrafting|Leatherworking|Mining|Skinning|Tailoring|Cooking|First Aid|Fishing) Trainer' THEN 'profession'
+                           WHEN template.subname LIKE '%Weapon Master%' THEN 'weapon'
+                           WHEN template.subname LIKE '%Riding Trainer%' OR template.subname LIKE '%Riding Instructor%' THEN 'riding'
+                           WHEN template.subname LIKE '%Stable Master%' THEN 'stable'
+                           ELSE 'other'
+                       END AS Category,
+                       creature.map AS MapId, creature.zoneId AS ZoneId, creature.areaId AS AreaId,
+                       creature.map = @MapId AS SameMap,
+                       CASE WHEN creature.map = @MapId
+                           THEN SQRT(POW(creature.position_x - @PositionX, 2) + POW(creature.position_y - @PositionY, 2))
+                           ELSE NULL END AS Distance,
+                       trainer.Type AS TrainerType, trainer.Requirement AS TrainerRequirement
+                FROM acore_world.creature creature
+                INNER JOIN acore_world.creature_template template ON template.entry = creature.id
+                LEFT JOIN acore_world.creature_default_trainer defaultTrainer ON defaultTrainer.CreatureId = template.entry
+                LEFT JOIN acore_world.trainer trainer ON trainer.Id = defaultTrainer.TrainerId
+                WHERE template.name NOT LIKE '[UNUSED]%'
+            )
+            SELECT trainerSpawn.SpawnId, trainerSpawn.CreatureId, trainerSpawn.Name, trainerSpawn.Subname,
+                   trainerSpawn.Category, trainerSpawn.MapId, trainerSpawn.ZoneId, trainerSpawn.AreaId,
+                   trainerSpawn.SameMap, trainerSpawn.Distance
+            FROM trainer_spawns trainerSpawn
+            WHERE trainerSpawn.Category IN ('class', 'profession', 'weapon', 'riding', 'stable')
+              AND (trainerSpawn.Category <> 'class' OR trainerSpawn.TrainerRequirement = @CharacterClass)
+              AND (@Search IS NULL OR trainerSpawn.Name LIKE CONCAT('%', @Search, '%')
+                   OR trainerSpawn.Subname LIKE CONCAT('%', @Search, '%'))
+              {categoryFilter}
+            ORDER BY trainerSpawn.SameMap DESC, trainerSpawn.Distance IS NULL,
+                     trainerSpawn.Distance, trainerSpawn.Name, trainerSpawn.SpawnId;
+            """;
+        var parameters = new
+        {
+            Category = normalizedCategory, Search = normalizedSearch, context.CharacterClass,
+            context.MapId, context.PositionX, context.PositionY
+        };
+        var matchingTrainers = (await connection.QueryAsync<TrainerSpawn>(new CommandDefinition(
+            sql, parameters, cancellationToken: cancellationToken)));
+        var allTrainers = matchingTrainers.AsList();
+        var total = allTrainers.Count;
+        var trainers = allTrainers.Skip((page - 1) * pageSize).Take(pageSize).ToArray();
+        return Ok(new TrainerSearchResult(trainers, page, pageSize, total,
+            total == 0 ? 0 : (int)Math.Ceiling(total / (double)pageSize)));
+    }
+
+    [HttpPost("trainers/teleport")]
+    public async Task<ActionResult<AdministrationResult>> TeleportToTrainer(
+        TeleportToTrainerRequest request, CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        if (!request.Confirmed)
+            return BadRequest(new AdministrationResult(false, "Confirm the trainer teleport first."));
+        var player = AzerothCoreSoapClient.RequirePlayerName(request.PlayerName);
+        if (request.SpawnId == 0)
+            return BadRequest(new AdministrationResult(false, "Trainer spawn ID is required."));
+
+        await using (var connection = connectionFactory.CreateConnection())
+        {
+            var trainerName = await connection.QuerySingleOrDefaultAsync<string>(new CommandDefinition("""
+                SELECT template.name
+                FROM acore_world.creature creature
+                INNER JOIN acore_world.creature_template template ON template.entry = creature.id
+                LEFT JOIN acore_world.creature_default_trainer defaultTrainer ON defaultTrainer.CreatureId = template.entry
+                LEFT JOIN acore_world.trainer trainer ON trainer.Id = defaultTrainer.TrainerId
+                WHERE creature.guid = @SpawnId AND template.name NOT LIKE '[UNUSED]%'
+                  AND (
+                      (trainer.Type = 0 AND trainer.Requirement BETWEEN 1 AND 11)
+                      OR template.subname REGEXP '^(Alchemy|Blacksmithing|Enchanting|Engineering|Herbalism|Inscription|Jewelcrafting|Leatherworking|Mining|Skinning|Tailoring|Cooking|First Aid|Fishing) Trainer'
+                      OR template.subname LIKE '%Weapon Master%'
+                      OR template.subname LIKE '%Riding Trainer%'
+                      OR template.subname LIKE '%Riding Instructor%'
+                      OR template.subname LIKE '%Stable Master%'
+                  )
+                LIMIT 1;
+                """, new { request.SpawnId }, cancellationToken: cancellationToken));
+            if (trainerName is null)
+                return NotFound(new AdministrationResult(false, "That trainer spawn does not exist."));
+        }
+
+        var output = await soapClient.ExecuteAsync(
+            AzerothCoreSoapClient.BuildTrainerTeleportCommand(player, request.SpawnId), cancellationToken);
+        Audit("TeleportToTrainer", player, $"Spawn={request.SpawnId}");
+        return Ok(new AdministrationResult(true, $"{player} was teleported to the selected trainer.", output));
+    }
+
     [HttpGet("collectibles")]
     public async Task<ActionResult<CollectibleSearchResult>> GetCollectibles(
         [FromQuery] string? search, [FromQuery] string type = "all", [FromQuery] int page = 1,
@@ -713,6 +829,14 @@ public sealed class ServerAdministrationController(
     {
         public uint CharacterGuid { get; init; }
         public byte CharacterLevel { get; init; }
+    }
+
+    private sealed class TrainerCharacterContext
+    {
+        public byte CharacterClass { get; init; }
+        public ushort MapId { get; init; }
+        public float PositionX { get; init; }
+        public float PositionY { get; init; }
     }
 
     private bool IsLocalRequest() => HttpContext.Connection.RemoteIpAddress is { } address

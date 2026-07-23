@@ -6,7 +6,9 @@ public partial class Collectibles
 {
     private CharacterCollectibleSearchResult results = new([], 1, 30, 0, 0, 0, 0);
     private IReadOnlyList<AdministrationPlayer> players = [];
-    private IEnumerable<AdministrationPlayer> OrderedPlayers => players.OrderBy(p => p.PickerOrder).ThenBy(p => p.Name);
+    private IEnumerable<AdministrationPlayer> OrderedPlayers => players
+        .Where(player => !player.IsPlayerBot)
+        .OrderBy(player => player.PickerOrder).ThenBy(player => player.Name);
     private readonly HashSet<uint> bulkSelection = [];
     private readonly Dictionary<uint, CharacterCollectibleItem> selectedItems = [];
     private CancellationTokenSource? debounce;

@@ -33,6 +33,16 @@ public sealed class AccountsApiClient(HttpClient httpClient)
         return await httpClient.GetFromJsonAsync<AdministrationCreatureSearchResult>(uri, cancellationToken)
             ?? new AdministrationCreatureSearchResult([], page, 30, 0, 0);
     }
+    public async Task<TrainerSearchResult> GetTrainersAsync(
+        string characterName, string? search, string category, int page,
+        CancellationToken cancellationToken = default)
+    {
+        var uri = $"api/server-administration/trainers?characterName={Uri.EscapeDataString(characterName)}" +
+                  $"&search={Uri.EscapeDataString(search ?? "")}&category={Uri.EscapeDataString(category)}" +
+                  $"&page={page}&pageSize=30";
+        return await GetAdministrationAsync<TrainerSearchResult>(uri, cancellationToken)
+            ?? new TrainerSearchResult([], page, 30, 0, 0);
+    }
     public async Task<CollectibleSearchResult> GetCollectiblesAsync(string? search, string type, int page)
     {
         var uri = $"api/server-administration/collectibles?search={Uri.EscapeDataString(search ?? "")}&type={Uri.EscapeDataString(type)}&page={page}&pageSize=30";
@@ -118,6 +128,8 @@ public sealed class AccountsApiClient(HttpClient httpClient)
         PostAsync("api/server-administration/players/speed", request);
     public Task<AdministrationResult?> ApplyCharacterServiceAsync(CharacterServiceRequest request) =>
         PostAsync("api/server-administration/characters/service", request);
+    public Task<AdministrationResult?> TeleportToTrainerAsync(TeleportToTrainerRequest request) =>
+        PostAsync("api/server-administration/trainers/teleport", request);
     public Task<WeaponTrainingStatus[]?> GetWeaponTrainingAsync(string playerName) =>
         GetAdministrationAsync<WeaponTrainingStatus[]>($"api/server-administration/players/{Uri.EscapeDataString(playerName)}/weapon-training");
     public Task<AdministrationResult?> GrantWeaponTrainingAsync(GrantWeaponTrainingRequest request) =>
@@ -131,15 +143,15 @@ public sealed class AccountsApiClient(HttpClient httpClient)
         return result;
     }
 
-    private async Task<T?> GetAdministrationAsync<T>(string uri)
+    private async Task<T?> GetAdministrationAsync<T>(string uri, CancellationToken cancellationToken = default)
     {
-        using var response = await httpClient.GetAsync(uri);
+        using var response = await httpClient.GetAsync(uri, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            var error = await response.Content.ReadFromJsonAsync<AdministrationResult>();
+            var error = await response.Content.ReadFromJsonAsync<AdministrationResult>(cancellationToken);
             throw new HttpRequestException(error?.Message ?? "Administration request failed.", null, response.StatusCode);
         }
-        return await response.Content.ReadFromJsonAsync<T>();
+        return await response.Content.ReadFromJsonAsync<T>(cancellationToken);
     }
 
     public async Task<PagedAccounts> GetAccountsAsync(

@@ -18,18 +18,22 @@ public partial class CharacterServices
         new("level", "Set level", "Changes the character level and lets AzerothCore update level-dependent data.", "Set level", true)
     ];
     private IReadOnlyList<AdministrationPlayer> players = [];
-    private IEnumerable<AdministrationPlayer> OrderedPlayers => players.OrderBy(player => player.PickerOrder).ThenBy(player => player.Name);
+    private IEnumerable<AdministrationPlayer> OrderedPlayers => players
+        .Where(player => !player.IsPlayerBot)
+        .OrderBy(player => player.PickerOrder).ThenBy(player => player.Name);
     private ServerStatus? status;
-    private string playerName = "";
+    private readonly HashSet<string> selectedPlayerNames = new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<BatchServiceResult> batchResults = [];
     private string? pendingService, message;
     private int newLevel = 80;
     private bool isLoading = true, isWorking, operationSucceeded;
     private bool CanApply => status is { WorldServer.IsRunning: true, SoapConfigured: true } && !isWorking;
-    private AdministrationPlayer? SelectedPlayer => players.FirstOrDefault(
-        player => player.Name.Equals(playerName.Trim(), StringComparison.OrdinalIgnoreCase));
     private bool CanSelectService(ServiceOption service) =>
-        CanApply && SelectedPlayer is not null && (service.Key != "spells" || SelectedPlayer.Online)
+        CanApply && selectedPlayerNames.Count > 0
+        && (service.Key != "spells" || SelectedPlayers.All(player => player.Online))
         && (service.Key != "level" || newLevel is >= 1 and <= 80);
+    private IReadOnlyList<AdministrationPlayer> SelectedPlayers => OrderedPlayers
+        .Where(player => selectedPlayerNames.Contains(player.Name)).ToArray();
 
     protected override async Task OnInitializedAsync()
     {
@@ -40,6 +44,7 @@ public partial class CharacterServices
     private void SelectService(string service)
     {
         message = null;
+        batchResults = [];
         pendingService = service;
     }
     private void CancelService() => pendingService = null;
@@ -50,12 +55,46 @@ public partial class CharacterServices
         isWorking = true;
         try
         {
-            var result = await AccountsClient.ApplyCharacterServiceAsync(new(playerName, pendingService,
-                pendingService == "level" ? newLevel : null, true));
-            operationSucceeded = result?.Success == true; message = result?.Message;
-            if (operationSucceeded) pendingService = null;
+            var results = new List<BatchServiceResult>();
+            foreach (var player in SelectedPlayers)
+            {
+                try
+                {
+                    var result = await AccountsClient.ApplyCharacterServiceAsync(new(player.Name, pendingService,
+                        pendingService == "level" ? newLevel : null, true));
+                    results.Add(new(player.Name, result?.Success == true, result?.Message ?? "No response returned."));
+                }
+                catch (Exception exception)
+                {
+                    results.Add(new(player.Name, false, exception.Message));
+                }
+            }
+            batchResults = results;
+            var successCount = results.Count(result => result.Success);
+            operationSucceeded = successCount == results.Count;
+            message = operationSucceeded
+                ? $"{ServiceTitle(pendingService)} completed for all {successCount} selected characters."
+                : $"{successCount} of {results.Count} character services completed. Review the results below.";
+            pendingService = null;
         }
         catch (Exception exception) { operationSucceeded = false; message = exception.Message; }
         finally { isWorking = false; }
     }
+
+    private void TogglePlayer(string name, bool selected)
+    {
+        if (selected) selectedPlayerNames.Add(name);
+        else selectedPlayerNames.Remove(name);
+        batchResults = [];
+    }
+
+    private void SelectAllRealPlayers(bool selected)
+    {
+        selectedPlayerNames.Clear();
+        if (selected)
+            foreach (var player in OrderedPlayers) selectedPlayerNames.Add(player.Name);
+        batchResults = [];
+    }
+
+    private sealed record BatchServiceResult(string PlayerName, bool Success, string Message);
 }

@@ -1,5 +1,12 @@
 var builder = WebApplication.CreateBuilder(args);
 
+// The Windows Event Log provider can throw AccessDenied for an unprivileged
+// local admin process and mask the original API error. Console/debug logging is
+// sufficient for this locally hosted administration service.
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddDebug();
+
 // Add services to the container.
 
 builder.Services.AddControllers();

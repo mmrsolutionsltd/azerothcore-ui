@@ -105,21 +105,59 @@ else
         </datalist>
         @if (PlayerActionsOnly)
         {
+        <div class="card mb-4"><div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h2 class="h5 mb-0">Action targets</h2>
+                <div>
+                    <button class="btn btn-sm btn-outline-secondary me-2" type="button" @onclick="() => SelectAllActionPlayers(true)">Select all</button>
+                    <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="() => SelectAllActionPlayers(false)">Clear</button>
+                </div>
+            </div>
+            <div class="row g-2">
+                @foreach (var player in OrderedAdministrationPlayers)
+                {
+                    var checkboxId = $"action-player-{player.Name}";
+                    <div class="col-sm-6 col-lg-4"><div class="form-check border rounded p-2 ps-5">
+                        <input id="@checkboxId" class="form-check-input" type="checkbox"
+                               checked="@selectedActionPlayerNames.Contains(player.Name)"
+                               @onchange="args => ToggleActionPlayer(player.Name, (bool)(args.Value ?? false))" />
+                        <label class="form-check-label w-100" for="@checkboxId">
+                            <strong>@player.Name</strong>
+                            <span class="badge @(player.Online ? "text-bg-success" : "text-bg-secondary") ms-1">@(player.Online ? "Online" : "Offline")</span>
+                        </label>
+                    </div></div>
+                }
+            </div>
+            <div class="form-text mt-2">@selectedActionPlayerNames.Count selected. Applies to items, mail, money, saved-location teleport, move-to-anchor, and speed.</div>
+        </div></div>
+        @if (batchActionResults.Count > 0)
+        {
+            <div class="card mb-4"><div class="card-body">
+                <h2 class="h5">Batch results</h2>
+                <ul class="list-group list-group-flush">
+                    @foreach (var result in batchActionResults)
+                    {
+                        <li class="list-group-item px-0">
+                            <span class="badge @(result.Success ? "text-bg-success" : "text-bg-danger") me-2">@(result.Success ? "Success" : "Failed")</span>
+                            <strong>@result.PlayerName:</strong> @result.Message
+                        </li>
+                    }
+                </ul>
+            </div></div>
+        }
         <div class="row g-4">
             <div class="col-lg-6">
                 <h2 class="h5">Give item</h2>
-                <input class="form-control mb-2" list="administration-players" placeholder="Type a character name" autocomplete="off" @bind="playerName" />
                 <div class="input-group mb-2">
                     <input class="form-control" value="@(itemId == 0 ? "No item selected" : $"{selectedItemName} (ID {itemId})")" readonly />
                     <button class="btn btn-outline-secondary" type="button" @onclick="OpenItemPickerAsync">Choose item…</button>
                 </div>
                 <input class="form-control mb-2" type="number" min="1" max="1000" @bind="quantity" />
-                <button class="btn btn-primary" disabled="@(!CanUseSoap)" @onclick="GiveItemAsync">Give item</button>
-                <button class="btn btn-outline-primary ms-2" disabled="@(!CanUseSoap)" @onclick="MailItemAsync">Mail item</button>
+                <button class="btn btn-primary" disabled="@(!CanUseSoap || selectedActionPlayerNames.Count == 0)" @onclick="GiveItemAsync">Give item</button>
+                <button class="btn btn-outline-primary ms-2" disabled="@(!CanUseSoap || selectedActionPlayerNames.Count == 0)" @onclick="MailItemAsync">Mail item</button>
             </div>
             <div class="col-lg-6">
                 <h2 class="h5">Give money</h2>
-                <input class="form-control mb-2" list="administration-players" placeholder="Type a character name" autocomplete="off" @bind="moneyPlayer" />
                 <div class="row g-2 mb-2">
                     <div class="col-4">
                         <label class="form-label" for="money-gold">Gold</label>
@@ -134,28 +172,26 @@ else
                         <div class="input-group"><input id="money-copper" class="form-control" type="number" min="0" max="99" @bind="moneyCopper" /><span class="input-group-text"><img class="money-input-coin" src="images/coins/copper.svg" alt="copper" /></span></div>
                     </div>
                 </div>
-                <button class="btn btn-primary" disabled="@(!CanUseSoap)" @onclick="GiveMoneyAsync">Send money</button>
+                <button class="btn btn-primary" disabled="@(!CanUseSoap || selectedActionPlayerNames.Count == 0)" @onclick="GiveMoneyAsync">Send money</button>
                 <p class="small text-muted mt-2">Delivered through in-game mail, including to an offline character.</p>
             </div>
             <div class="col-lg-6">
                 <h2 class="h5">Teleport to saved location</h2>
-                <input class="form-control mb-2" list="administration-players" placeholder="Type a character name" autocomplete="off" @bind="teleportPlayer" />
                 <div class="input-group mb-2">
                     <input class="form-control" value="@(string.IsNullOrWhiteSpace(teleportLocation) ? "No location selected" : teleportLocation)" readonly />
                     <button class="btn btn-outline-secondary" type="button" @onclick="OpenLocationPickerAsync">Choose location…</button>
                 </div>
-                <button class="btn btn-primary" disabled="@(!CanUseSoap)" @onclick="TeleportAsync">Teleport</button>
+                <button class="btn btn-primary" disabled="@(!CanUseSoap || selectedActionPlayerNames.Count == 0)" @onclick="TeleportAsync">Teleport</button>
             </div>
             <div class="col-lg-6">
                 <h2 class="h5">Player-relative movement</h2>
-                <input class="form-control mb-2" list="administration-players" placeholder="Player to move" autocomplete="off" @bind="relativePlayer" />
-                <input class="form-control mb-2" list="administration-players" placeholder="Anchor player" autocomplete="off" @bind="anchorPlayer" />
-                <button class="btn btn-primary" disabled="@(!CanUseSoap)" @onclick="MoveToPlayerAsync">Move to anchor</button>
-                <p class="small text-muted mt-2">Both characters must be online. Battleground, arena, transport, and unsafe cross-instance movement is rejected.</p>
+                <label class="form-label" for="relative-anchor">Single anchor player</label>
+                <input id="relative-anchor" class="form-control mb-2" list="administration-players" placeholder="Anchor player" autocomplete="off" @bind="anchorPlayer" />
+                <button class="btn btn-primary" disabled="@(!CanUseSoap || selectedActionPlayerNames.Count == 0 || string.IsNullOrWhiteSpace(anchorPlayer))" @onclick="MoveToPlayerAsync">Move selected players to anchor</button>
+                <p class="small text-muted mt-2">All selected action targets and the anchor must be online. The anchor cannot also be a target. Battleground, arena, transport, and unsafe cross-instance movement is rejected.</p>
             </div>
             <div class="col-lg-6">
                 <h2 class="h5">Movement speed</h2>
-                <input class="form-control mb-2" list="administration-players" placeholder="Online player" autocomplete="off" @bind="speedPlayer" />
                 <label class="form-label" for="player-speed">Speed multiplier</label>
                 <div class="input-group mb-2"><input id="player-speed" class="form-control" type="number" min="0.5" max="10" step="0.25" @bind="playerSpeed" /><span class="input-group-text">x</span></div>
                 <div class="d-flex flex-wrap gap-2 mb-2">
@@ -164,7 +200,7 @@ else
                         <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="() => playerSpeed = speed">@speed.ToString("0.#")x</button>
                     }
                 </div>
-                <button class="btn btn-primary" disabled="@(!CanUseSoap || string.IsNullOrWhiteSpace(speedPlayer))" @onclick="SetPlayerSpeedAsync">Apply speed</button>
+                <button class="btn btn-primary" disabled="@(!CanUseSoap || selectedActionPlayerNames.Count == 0)" @onclick="SetPlayerSpeedAsync">Apply speed</button>
                 <p class="small text-muted mt-2">Changes walk, run, swim, and flight speed for the current online session. Use 1x to restore normal speed.</p>
             </div>
         </div>

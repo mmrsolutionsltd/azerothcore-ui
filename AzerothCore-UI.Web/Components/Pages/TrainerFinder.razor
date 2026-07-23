@@ -1,0 +1,129 @@
+@page "/trainers"
+@rendermode InteractiveServer
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@using AzerothCore_UI.Web.Models
+@inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
+
+<PageTitle>Trainer finder</PageTitle>
+
+<h1>Trainer finder</h1>
+<p class="text-muted">Find an appropriate trainer and teleport a character directly to that exact NPC spawn.</p>
+
+@if (isLoadingPage)
+{
+    <p><em>Loading trainer finder...</em></p>
+}
+else
+{
+    @if (message is not null)
+    {
+        <div class="alert @(operationSucceeded ? "alert-success" : "alert-danger")">@message</div>
+    }
+    @if (!CanTeleport)
+    {
+        <div class="alert alert-warning">The worldserver and SOAP administration connection must be available before teleporting.</div>
+    }
+
+    <datalist id="trainer-characters">
+        @foreach (var player in OrderedPlayers)
+        {
+            <option value="@player.Name">@player.PickerLabel</option>
+        }
+    </datalist>
+
+    <div class="card mb-4"><div class="card-body">
+        <div class="row g-3">
+            <div class="col-lg-5">
+                <label class="form-label" for="trainer-character">Character</label>
+                <input id="trainer-character" class="form-control" list="trainer-characters"
+                       placeholder="Select a character" autocomplete="off"
+                       @bind="characterName" @bind:after="CharacterChangedAsync" />
+                @if (!string.IsNullOrWhiteSpace(characterName) && SelectedCharacter is null)
+                {
+                    <div class="form-text text-danger">Select an existing character from the list.</div>
+                }
+            </div>
+            <div class="col-lg-3">
+                <label class="form-label" for="trainer-category">Trainer type</label>
+                <select id="trainer-category" class="form-select" @bind="category" @bind:after="ReloadAsync">
+                    <option value="all">All useful trainers</option>
+                    <option value="class">Character's class trainer</option>
+                    <option value="profession">Profession trainers</option>
+                    <option value="weapon">Weapon masters</option>
+                    <option value="riding">Riding trainers</option>
+                    <option value="stable">Stable masters</option>
+                </select>
+            </div>
+            <div class="col-lg-4">
+                <label class="form-label" for="trainer-search">Search</label>
+                <input id="trainer-search" class="form-control" value="@search"
+                       @oninput="SearchChangedAsync" placeholder="Trainer, profession or type..." autocomplete="off" />
+            </div>
+        </div>
+    </div></div>
+
+    @if (SelectedCharacter is null)
+    {
+        <div class="alert alert-info">Choose a character to see class-appropriate trainers, ordered by distance on the character's current map.</div>
+    }
+    else if (isLoadingTrainers)
+    {
+        <p><em>Finding trainers...</em></p>
+    }
+    else if (results.Trainers.Count == 0)
+    {
+        <div class="alert alert-secondary">No matching trainer spawns were found.</div>
+    }
+    else
+    {
+        <div class="row g-4">
+            <div class="col-xl-8">
+                <div class="card"><div class="card-body">
+                    <div class="table-responsive"><table class="table table-sm table-hover align-middle">
+                        <thead><tr><th>Trainer</th><th>Type</th><th>Location</th><th>Distance</th><th></th></tr></thead>
+                        <tbody>
+                        @foreach (var trainer in results.Trainers)
+                        {
+                            <tr class="@(selectedTrainer?.SpawnId == trainer.SpawnId ? "table-primary" : null)">
+                                <td><span class="fw-semibold">@trainer.Name</span><br /><span class="small text-muted">@trainer.Subname</span></td>
+                                <td>@CategoryName(trainer.Category)</td>
+                                <td>@MapName(trainer.MapId)@if (LocationDetail(trainer) is { } detail) { <br /><span class="small text-muted">@detail</span> }</td>
+                                <td>@DistanceText(trainer)</td>
+                                <td class="text-end"><button class="btn btn-sm btn-outline-primary" @onclick="() => SelectTrainer(trainer)">Select</button></td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table></div>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span class="text-muted">@results.TotalCount matching spawns</span>
+                        <div>
+                            <button class="btn btn-sm btn-outline-secondary me-2" disabled="@(isLoadingTrainers || results.Page <= 1)" @onclick="() => LoadAsync(results.Page - 1)">Previous</button>
+                            <span class="me-2">Page @results.Page of @Math.Max(1, results.TotalPages)</span>
+                            <button class="btn btn-sm btn-outline-secondary" disabled="@(isLoadingTrainers || results.Page >= results.TotalPages)" @onclick="() => LoadAsync(results.Page + 1)">Next</button>
+                        </div>
+                    </div>
+                </div></div>
+            </div>
+            <div class="col-xl-4">
+                <div class="card"><div class="card-body">
+                    <h2 class="h5">Teleport to trainer</h2>
+                    @if (selectedTrainer is null)
+                    {
+                        <div class="alert alert-secondary">Select a trainer spawn first.</div>
+                    }
+                    else
+                    {
+                        <p><strong>@selectedTrainer.Name</strong><br />@selectedTrainer.Subname</p>
+                        <p class="small text-muted">@MapName(selectedTrainer.MapId)@if (LocationDetail(selectedTrainer) is { } detail) { <text>, @detail</text> }<br />@DistanceText(selectedTrainer)</p>
+                        <div class="form-check mb-3">
+                            <input id="confirm-trainer-teleport" class="form-check-input" type="checkbox" @bind="confirmed" />
+                            <label class="form-check-label" for="confirm-trainer-teleport">Teleport @characterName to this trainer</label>
+                        </div>
+                        <button class="btn btn-success" disabled="@(!CanTeleportSelected)" @onclick="TeleportAsync">Teleport character</button>
+                        <p class="small text-muted mt-2 mb-0">Online characters move immediately. Offline characters will appear there at next login.</p>
+                    }
+                </div></div>
+            </div>
+        </div>
+    }
+}

@@ -13,17 +13,48 @@ else
 {
     @if (message is not null) { <div class="alert @(operationSucceeded ? "alert-success" : "alert-danger")">@message</div> }
     @if (!CanApply) { <div class="alert alert-warning">Character services require the worldserver and SOAP administration connection.</div> }
-    <datalist id="service-players">
-        @foreach (var player in OrderedPlayers) { <option value="@player.Name">@player.PickerLabel</option> }
-    </datalist>
     <div class="card mb-4"><div class="card-body">
-        <label class="form-label" for="service-player">Character</label>
-        <input id="service-player" class="form-control" list="service-players" placeholder="Start typing a character name" autocomplete="off" @bind="playerName" />
-        @if (!string.IsNullOrWhiteSpace(playerName) && SelectedPlayer is null)
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <label class="form-label mb-0">Real-player characters</label>
+            <div>
+                <button class="btn btn-sm btn-outline-secondary me-2" type="button" @onclick="() => SelectAllRealPlayers(true)">Select all</button>
+                <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="() => SelectAllRealPlayers(false)">Clear</button>
+            </div>
+        </div>
+        <div class="row g-2">
+        @foreach (var player in OrderedPlayers)
         {
-            <div class="form-text text-danger">Select an existing character from the list.</div>
+            var checkboxId = $"service-player-{player.Name}";
+            <div class="col-sm-6 col-lg-4">
+                <div class="form-check border rounded p-2 ps-5">
+                    <input id="@checkboxId" class="form-check-input" type="checkbox"
+                           checked="@selectedPlayerNames.Contains(player.Name)"
+                           @onchange="args => TogglePlayer(player.Name, (bool)(args.Value ?? false))" />
+                    <label class="form-check-label w-100" for="@checkboxId">
+                        <strong>@player.Name</strong>
+                        <span class="badge @(player.Online ? "text-bg-success" : "text-bg-secondary") ms-1">@(player.Online ? "Online" : "Offline")</span>
+                    </label>
+                </div>
+            </div>
         }
+        </div>
+        <div class="form-text mt-2">@selectedPlayerNames.Count selected. PlayerBots are excluded.</div>
     </div></div>
+    @if (batchResults.Count > 0)
+    {
+        <div class="card mb-4"><div class="card-body">
+            <h2 class="h5">Batch results</h2>
+            <ul class="list-group list-group-flush">
+                @foreach (var result in batchResults)
+                {
+                    <li class="list-group-item px-0">
+                        <span class="badge @(result.Success ? "text-bg-success" : "text-bg-danger") me-2">@(result.Success ? "Success" : "Failed")</span>
+                        <strong>@result.PlayerName:</strong> @result.Message
+                    </li>
+                }
+            </ul>
+        </div></div>
+    }
     <div class="row g-3">
         @foreach (var service in Services)
         {
@@ -34,7 +65,7 @@ else
                     <label class="form-label" for="service-level">New level</label><input id="service-level" class="form-control mb-3" type="number" min="1" max="80" @bind="newLevel" />
                 }
                 <button class="btn @(service.Dangerous ? "btn-outline-danger" : "btn-outline-primary")" disabled="@(!CanSelectService(service))" @onclick="() => SelectService(service.Key)">@service.Button</button>
-                @if (service.Key == "spells" && SelectedPlayer is { Online: false })
+                @if (service.Key == "spells" && SelectedPlayers.Any(player => !player.Online))
                 {
                     <div class="form-text">Log this character in before resetting spells.</div>
                 }
@@ -45,7 +76,11 @@ else
     {
         <div class="modal d-block" tabindex="-1" role="dialog" aria-modal="true"><div class="modal-dialog"><div class="modal-content">
             <div class="modal-header"><h2 class="modal-title h5">Confirm character service</h2><button class="btn-close" @onclick="CancelService"></button></div>
-            <div class="modal-body"><p>Apply <strong>@ServiceTitle(pendingService)</strong> to <strong>@playerName</strong>?</p><p class="text-muted mb-0">This command is audited and sent to the worldserver through SOAP.</p></div>
+            <div class="modal-body">
+                <p>Apply <strong>@ServiceTitle(pendingService)</strong> to these @SelectedPlayers.Count characters?</p>
+                <ul>@foreach (var player in SelectedPlayers) { <li>@player.Name (@(player.Online ? "online" : "offline"))</li> }</ul>
+                <p class="text-muted mb-0">Each command is audited and sent separately so one failure does not prevent the remaining characters from being processed.</p>
+            </div>
             <div class="modal-footer"><button class="btn btn-outline-secondary" @onclick="CancelService">Cancel</button><button class="btn btn-danger" disabled="@isWorking" @onclick="ApplyServiceAsync">Confirm and apply</button></div>
         </div></div></div><div class="modal-backdrop show"></div>
     }

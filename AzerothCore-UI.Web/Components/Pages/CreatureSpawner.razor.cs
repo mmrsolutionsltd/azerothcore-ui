@@ -9,7 +9,8 @@ public partial class CreatureSpawner
     private AdministrationCreatureSearchResult creatureResults = new([], 1, 30, 0, 0);
     private IReadOnlyList<AdministrationPlayer> administrationPlayers = [];
     private IEnumerable<AdministrationPlayer> OrderedOnlinePlayers => administrationPlayers
-        .Where(player => player.Online).OrderBy(player => player.PickerOrder).ThenBy(player => player.Name);
+        .Where(player => player.Online && !player.IsPlayerBot)
+        .OrderBy(player => player.PickerOrder).ThenBy(player => player.Name);
     private CancellationTokenSource? searchCancellation;
     private ServerStatus? status;
     private AdministrationCreature? selectedCreature;

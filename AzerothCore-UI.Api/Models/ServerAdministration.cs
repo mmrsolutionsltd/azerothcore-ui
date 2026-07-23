@@ -129,6 +129,23 @@ public sealed class TeleportLocation
 public sealed record TeleportLocationSearchResult(
     IReadOnlyList<TeleportLocation> Locations, int Page, int PageSize, int TotalCount, int TotalPages);
 
+public sealed class TrainerSpawn
+{
+    public uint SpawnId { get; init; }
+    public uint CreatureId { get; init; }
+    public string Name { get; init; } = "";
+    public string Subname { get; init; } = "";
+    public string Category { get; init; } = "";
+    public ushort MapId { get; init; }
+    public ushort ZoneId { get; init; }
+    public ushort AreaId { get; init; }
+    public bool SameMap { get; init; }
+    public double? Distance { get; init; }
+}
+
+public sealed record TrainerSearchResult(
+    IReadOnlyList<TrainerSpawn> Trainers, int Page, int PageSize, int TotalCount, int TotalPages);
+
 public sealed record ServerLogEntry(string Source, string Message);
 public sealed record GiveItemRequest(string PlayerName, uint ItemId, int Quantity);
 public sealed record MailItemRequest(string PlayerName, uint ItemId, int Quantity, string Subject, string Message);
@@ -148,6 +165,7 @@ public sealed record SpawnCreatureRequest(string AnchorPlayerName, uint Creature
 public sealed record SetAccountGmRequest(string Username, bool Enabled, bool Confirmed);
 public sealed record SetPlayerSpeedRequest(string PlayerName, decimal Speed);
 public sealed record CharacterServiceRequest(string PlayerName, string Service, int? Level, bool Confirmed);
+public sealed record TeleportToTrainerRequest(string PlayerName, uint SpawnId, bool Confirmed);
 public sealed record CollectibleItem(uint ItemId, string Name, string Type, int LearnSpellId, byte RequiredLevel, byte Quality);
 public sealed record CollectibleSearchResult(IReadOnlyList<CollectibleItem> Items, int Page, int PageSize, int TotalCount, int TotalPages);
 public sealed record CharacterCollectibleItem(uint ItemId, string Name, string Type, int LearnSpellId,

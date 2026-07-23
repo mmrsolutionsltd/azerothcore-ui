@@ -74,6 +74,12 @@ public sealed class AzerothCoreSoapClient(IConfiguration configuration, IHttpCli
     public static string BuildTeleportCommand(string playerName, string location) =>
         $"teleport name {RequirePlayerName(playerName)} {RequireLocation(location)}";
 
+    public static string BuildTrainerTeleportCommand(string playerName, uint spawnId)
+    {
+        if (spawnId == 0) throw new ArgumentOutOfRangeException(nameof(spawnId), "Trainer spawn ID is required.");
+        return $"teleport name npc guid {RequirePlayerName(playerName)} {spawnId}";
+    }
+
     public static string RequireAccountName(string value) =>
         Regex.IsMatch(value, "^[A-Za-z0-9]{3,32}$")
             ? value : throw new ArgumentException("Account names must contain 3 to 32 letters or numbers.");

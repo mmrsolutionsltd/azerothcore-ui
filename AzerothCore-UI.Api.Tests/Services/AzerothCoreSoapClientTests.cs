@@ -44,6 +44,19 @@ public sealed class AzerothCoreSoapClientTests
         Assert.Equal("teleport name Hundead SunstriderIsle", command);
     }
 
+    [Fact]
+    public void BuildTrainerTeleportCommand_UsesExactSpawnSyntax()
+    {
+        var command = AzerothCoreSoapClient.BuildTrainerTeleportCommand("Hundead", 12345);
+
+        Assert.Equal("teleport name npc guid Hundead 12345", command);
+    }
+
+    [Fact]
+    public void BuildTrainerTeleportCommand_RejectsMissingSpawn() =>
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => AzerothCoreSoapClient.BuildTrainerTeleportCommand("Hundead", 0));
+
     [Theory]
     [InlineData("Admin123")]
     [InlineData("ab", false)]

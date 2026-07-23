@@ -33,13 +33,15 @@ The solution targets .NET 10 and contains:
 
 ### Player actions
 
-- Search the world item catalogue and give an item directly to an online character.
-- Mail items to online or offline characters.
-- Send gold, silver, and copper through in-game mail.
-- Search saved AzerothCore teleport destinations and teleport a named character.
-- Move one online character safely to another online character.
-- Apply temporary walk, run, swim, and flight speed multipliers from `0.5x` to `10x`.
-- Clearly distinguish online/offline characters, human players, and PlayerBots in pickers.
+- Select one or more real-player characters as shared action targets.
+- Search the world item catalogue and give an item directly to the selected online characters.
+- Mail items to selected online or offline characters.
+- Send gold, silver, and copper to all selected characters through in-game mail.
+- Search saved AzerothCore teleport destinations and teleport all selected characters.
+- Move all selected online characters safely to one single online anchor character.
+- Apply temporary walk, run, swim, and flight speed multipliers from `0.5x` to `10x` to selected online characters.
+- Report success or failure separately for every character in a batch.
+- Show real players only in ordinary character pickers.
 
 ### PlayerBots and dungeon assistance
 
@@ -80,16 +82,27 @@ Run confirmed, allowlisted AzerothCore services for a named character:
 
 - Force rename or appearance customization.
 - Enable race or faction change.
-- Reset talents, pet talents, or learned spells.
+- Reset talents and pet talents, or reset learned spells for an online character.
 - Revive a dead character.
 - Return a character to its bound inn.
 - Set character level.
+- Select multiple real-player characters and process each service independently with per-character results.
+
+Character pickers throughout the administration UI list real-player characters only. PlayerBots remain available in the dedicated PlayerBots and dungeon-party workflows.
 
 ### Weapon training
 
 - Inspect every supported weapon proficiency and current/max skill for an online character.
 - Grant a missing proficiency through a confirmed and audited worldserver command.
 - Warn that this is an administrative override and may bypass normal class-trainer restrictions.
+
+### Trainer finder
+
+- Find class, profession, weapon, riding, and stable trainers for a selected character.
+- Restrict class-trainer results to the character's actual class, including mod-arac combinations.
+- Sort trainers on the character's current map by distance before trainers on other maps.
+- Search trainer names and disciplines, then teleport to the exact selected NPC spawn.
+- Support immediate online teleporting and next-login positioning for offline characters.
 
 ### Mounts and companions
 

@@ -16,6 +16,7 @@ public partial class ServerAdministration
     private GameplayRateSettings? gameplayRates;
     private IReadOnlyList<AdministrationPlayer> administrationPlayers = [];
     private IEnumerable<AdministrationPlayer> OrderedAdministrationPlayers => administrationPlayers
+        .Where(player => !player.IsPlayerBot)
         .OrderBy(player => player.PickerOrder).ThenBy(player => player.Name);
     private AdministrationItemSearchResult itemResults = new([], 1, 30, 0, 0);
     private CancellationTokenSource? itemSearchCancellation;
@@ -42,11 +43,13 @@ public partial class ServerAdministration
     private string locationSearch = "";
     private bool isLoading = true, isWorking, forceStop, operationSucceeded;
     private string? errorMessage, resultMessage;
-    private string activeView = "PlayerBots", playerName = "", teleportPlayer = "", teleportLocation = "", relativePlayer = "", anchorPlayer = "";
+    private string activeView = "PlayerBots", teleportLocation = "", anchorPlayer = "";
+    private readonly HashSet<string> selectedActionPlayerNames = new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<BatchActionResult> batchActionResults = [];
+    private IReadOnlyList<AdministrationPlayer> SelectedActionPlayers => OrderedAdministrationPlayers
+        .Where(player => selectedActionPlayerNames.Contains(player.Name)).ToArray();
     private uint itemId;
     private int quantity = 1;
-    private string moneyPlayer = "";
-    private string speedPlayer = "";
     private decimal playerSpeed = 1m;
     private int moneyGold, moneySilver, moneyCopper;
     private bool CanUseSoap => status is { WorldServer.IsRunning: true, SoapConfigured: true } && !isWorking;
@@ -92,13 +95,69 @@ public partial class ServerAdministration
     private Task StartAsync() => RunAsync(() => AccountsClient.StartServersAsync());
     private Task StopAsync() => RunAsync(() => AccountsClient.StopServersAsync(forceStop));
     private Task RestartAsync() => RunAsync(() => AccountsClient.RestartServersAsync(forceStop));
-    private Task GiveItemAsync() => RunAsync(() => AccountsClient.GiveItemAsync(new(playerName, itemId, quantity)));
-    private Task MailItemAsync() => RunAsync(() => AccountsClient.MailItemAsync(new(playerName, itemId, quantity, "Server administration", "Items from the server administrator.")));
-    private Task GiveMoneyAsync() => RunAsync(() => AccountsClient.GiveMoneyAsync(
-        new(moneyPlayer, moneyGold, moneySilver, moneyCopper)));
-    private Task TeleportAsync() => RunAsync(() => AccountsClient.TeleportAsync(new(teleportPlayer, teleportLocation)));
-    private Task MoveToPlayerAsync() => RunAsync(() => AccountsClient.TeleportToPlayerAsync(new(relativePlayer, anchorPlayer)));
-    private Task SetPlayerSpeedAsync() => RunAsync(() => AccountsClient.SetPlayerSpeedAsync(new(speedPlayer, playerSpeed)));
+    private Task GiveItemAsync() => RunBatchAsync("Give item",
+        player => AccountsClient.GiveItemAsync(new(player, itemId, quantity)));
+    private Task MailItemAsync() => RunBatchAsync("Mail item",
+        player => AccountsClient.MailItemAsync(new(player, itemId, quantity,
+            "Server administration", "Items from the server administrator.")));
+    private Task GiveMoneyAsync() => RunBatchAsync("Send money",
+        player => AccountsClient.GiveMoneyAsync(new(player, moneyGold, moneySilver, moneyCopper)));
+    private Task TeleportAsync() => RunBatchAsync("Teleport",
+        player => AccountsClient.TeleportAsync(new(player, teleportLocation)));
+    private Task MoveToPlayerAsync() => RunBatchAsync("Move to anchor",
+        player => AccountsClient.TeleportToPlayerAsync(new(player, anchorPlayer)));
+    private Task SetPlayerSpeedAsync() => RunBatchAsync("Apply speed",
+        player => AccountsClient.SetPlayerSpeedAsync(new(player, playerSpeed)));
+
+    private void ToggleActionPlayer(string name, bool selected)
+    {
+        if (selected) selectedActionPlayerNames.Add(name);
+        else selectedActionPlayerNames.Remove(name);
+        batchActionResults = [];
+    }
+
+    private void SelectAllActionPlayers(bool selected)
+    {
+        selectedActionPlayerNames.Clear();
+        if (selected)
+            foreach (var player in OrderedAdministrationPlayers) selectedActionPlayerNames.Add(player.Name);
+        batchActionResults = [];
+    }
+
+    private async Task RunBatchAsync(string action, Func<string, Task<AdministrationResult?>> operation)
+    {
+        if (isWorking || SelectedActionPlayers.Count == 0) return;
+        isWorking = true;
+        resultMessage = null;
+        var results = new List<BatchActionResult>();
+        try
+        {
+            foreach (var player in SelectedActionPlayers)
+            {
+                try
+                {
+                    var response = await operation(player.Name);
+                    results.Add(new(player.Name, response?.Success == true,
+                        response?.Message ?? "No response returned."));
+                }
+                catch (Exception exception)
+                {
+                    results.Add(new(player.Name, false, exception.Message));
+                }
+            }
+            batchActionResults = results;
+            var successCount = results.Count(result => result.Success);
+            operationSucceeded = successCount == results.Count;
+            resultMessage = operationSucceeded
+                ? $"{action} completed for all {successCount} selected characters."
+                : $"{action} completed for {successCount} of {results.Count} selected characters.";
+        }
+        finally
+        {
+            isWorking = false;
+            await RefreshAsync();
+        }
+    }
 
     private async Task LoadPartyAsync()
     {
@@ -286,4 +345,5 @@ public partial class ServerAdministration
     }
 
     private static string FormatBytes(long? bytes) => bytes.HasValue ? $"{bytes.Value / 1024d / 1024d:0.0} MB" : "—";
+    private sealed record BatchActionResult(string PlayerName, bool Success, string Message);
 }
