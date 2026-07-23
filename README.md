@@ -87,6 +87,16 @@ Each module configuration is validated, concurrency-checked, and backed up befor
 - Display the active AHBot configuration and link to its managed settings.
 - Safely enable or resume the AHBot seller through its installed worldserver command; the bot then stocks during normal update cycles.
 
+### Family starter presets
+
+- Select up to ten real-player characters and preview every delivery before applying it.
+- Use built-in New Character, Level 10, and Returning Player defaults, then adjust bags, money, heirlooms, hearthstones, food, drink, and class supplies.
+- Choose three class-appropriate heirlooms: a weapon, shoulders, and chest.
+- Supply bow-using hunters with arrows and warlocks with soul shards.
+- Skip heirlooms and hearthstones already owned or waiting in mail, and only provide enough silk bags to reach the requested count.
+- Give items directly to online characters and mail items to offline characters; starting money is always delivered through safe in-game mail.
+- Recheck ownership and live status when the confirmed preset is applied, with per-action and per-character results.
+
 ### Character services
 
 Run confirmed, allowlisted AzerothCore services for a named character:

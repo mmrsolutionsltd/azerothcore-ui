@@ -5,6 +5,28 @@ namespace AzerothCore_UI.Web.Clients;
 
 public sealed class AccountsApiClient(HttpClient httpClient)
 {
+    public async Task<StarterPresetPreview?> PreviewStarterPresetAsync(StarterPresetRequest request)
+    {
+        using var response = await httpClient.PostAsJsonAsync("api/starter-presets/preview", request);
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<AdministrationResult>();
+            throw new HttpRequestException(error?.Message ?? "Could not preview the starter preset.", null, response.StatusCode);
+        }
+        return await response.Content.ReadFromJsonAsync<StarterPresetPreview>();
+    }
+
+    public async Task<StarterPresetApplyResult?> ApplyStarterPresetAsync(StarterPresetRequest request)
+    {
+        using var response = await httpClient.PostAsJsonAsync("api/starter-presets/apply", request);
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<AdministrationResult>();
+            throw new HttpRequestException(error?.Message ?? "Could not apply the starter preset.", null, response.StatusCode);
+        }
+        return await response.Content.ReadFromJsonAsync<StarterPresetApplyResult>();
+    }
+
     public async Task<AuctionHouseDashboard> GetAuctionHouseDashboardAsync(
         string? search, int houseId, int category, int quality, string sort,
         bool descending, int page, CancellationToken cancellationToken = default)

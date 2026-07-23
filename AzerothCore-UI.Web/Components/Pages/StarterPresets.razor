@@ -1,0 +1,141 @@
+@page "/starter-presets"
+@rendermode InteractiveServer
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@using AzerothCore_UI.Web.Models
+@inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
+
+<PageTitle>Family starter presets</PageTitle>
+
+<h1>Family starter presets</h1>
+<p class="text-muted">Preview and deliver class-appropriate equipment and supplies to one or more real-player characters.</p>
+
+@if (message is not null)
+{
+    <div class="alert @(operationSucceeded ? "alert-success" : "alert-danger")">@message</div>
+}
+
+@if (isLoading)
+{
+    <p><em>Loading characters...</em></p>
+}
+else
+{
+    <div class="row g-4">
+        <div class="col-xl-5">
+            <div class="card mb-4"><div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h2 class="h5 mb-0">1. Select characters</h2>
+                    <div>
+                        <button class="btn btn-sm btn-link" @onclick="() => SelectAll(true)">All</button>
+                        <button class="btn btn-sm btn-link" @onclick="() => SelectAll(false)">None</button>
+                    </div>
+                </div>
+                <div class="border rounded p-2" style="max-height: 18rem; overflow-y: auto">
+                    @foreach (var character in characters.OrderByDescending(item => item.Online).ThenBy(item => item.Name))
+                    {
+                        var id = $"starter-character-{character.Guid}";
+                        <div class="form-check">
+                            <input id="@id" class="form-check-input" type="checkbox"
+                                   checked="@selectedNames.Contains(character.Name)"
+                                   @onchange="args => ToggleCharacter(character.Name, (bool?)args.Value == true)" />
+                            <label class="form-check-label" for="@id">
+                                @character.Name — level @character.Level @CharacterDisplayNames.Class(character.Class)
+                                <span class="badge @(character.Online ? "text-bg-success" : "text-bg-secondary")">@(character.Online ? "online" : "offline")</span>
+                            </label>
+                        </div>
+                    }
+                </div>
+                <div class="form-text">@selectedNames.Count selected; maximum 10.</div>
+            </div></div>
+
+            <div class="card"><div class="card-body">
+                <h2 class="h5">2. Configure preset</h2>
+                <label class="form-label" for="starter-preset">Preset</label>
+                <select id="starter-preset" class="form-select mb-3" @bind="preset" @bind:after="PresetChanged">
+                    <option value="new">New character</option>
+                    <option value="level10">Level 10</option>
+                    <option value="returning">Returning player</option>
+                </select>
+                <div class="row g-3">
+                    <div class="col-sm-6">
+                        <label class="form-label" for="starter-bags">Silk bags</label>
+                        <input id="starter-bags" class="form-control" type="number" min="0" max="4" @bind="bagCount" @bind:after="InvalidatePreview" />
+                    </div>
+                    <div class="col-sm-6">
+                        <label class="form-label" for="starter-money">Starting gold</label>
+                        <input id="starter-money" class="form-control" type="number" min="0" max="1000" @bind="moneyGold" @bind:after="InvalidatePreview" />
+                    </div>
+                </div>
+                <div class="form-check mt-3"><input id="starter-heirlooms" class="form-check-input" type="checkbox" @bind="includeHeirlooms" @bind:after="InvalidatePreview" /><label class="form-check-label" for="starter-heirlooms">Three class-appropriate heirlooms</label></div>
+                <div class="form-check"><input id="starter-hearth" class="form-check-input" type="checkbox" @bind="includeHearthstone" @bind:after="InvalidatePreview" /><label class="form-check-label" for="starter-hearth">Hearthstone if missing</label></div>
+                <div class="form-check"><input id="starter-food" class="form-check-input" type="checkbox" @bind="includeFoodAndDrink" @bind:after="InvalidatePreview" /><label class="form-check-label" for="starter-food">Basic food and drink</label></div>
+                <div class="form-check"><input id="starter-class" class="form-check-input" type="checkbox" @bind="includeClassSupplies" @bind:after="InvalidatePreview" /><label class="form-check-label" for="starter-class">Class supplies (hunter arrows or warlock shards)</label></div>
+                <button class="btn btn-primary mt-3" disabled="@(selectedNames.Count is < 1 or > 10 || isWorking)" @onclick="PreviewAsync">Preview preset</button>
+            </div></div>
+        </div>
+
+        <div class="col-xl-7">
+            <div class="card"><div class="card-body">
+                <h2 class="h5">3. Review and apply</h2>
+                @if (preview is null)
+                {
+                    <div class="alert alert-info">Select characters and preview the preset. Nothing is delivered until the reviewed preview is confirmed.</div>
+                }
+                else
+                {
+                    @foreach (var character in preview.Characters)
+                    {
+                        <h3 class="h6 mt-3">
+                            @character.PlayerName — level @character.Level @CharacterDisplayNames.Race(character.Race) @CharacterDisplayNames.Class(character.Class)
+                            <span class="badge @(character.Online ? "text-bg-success" : "text-bg-secondary")">@(character.Online ? "online" : "offline")</span>
+                        </h3>
+                        <div class="table-responsive"><table class="table table-sm align-middle">
+                            <thead><tr><th>Action</th><th>Quantity</th><th>Delivery</th><th>Status</th></tr></thead>
+                            <tbody>
+                            @foreach (var action in character.Actions)
+                            {
+                                <tr class="@(action.Skipped ? "table-secondary" : null)">
+                                    <td>@action.Description @if (action.ItemId is not null) { <span class="small text-muted">#@action.ItemId</span> }</td>
+                                    <td>@FormatQuantity(action)</td>
+                                    <td>@action.Delivery</td>
+                                    <td>@(action.Skipped ? action.SkipReason : "Planned")</td>
+                                </tr>
+                            }
+                            </tbody>
+                        </table></div>
+                    }
+                    <div class="alert alert-secondary small">
+                        Online items are given immediately; offline items and all money are sent by in-game mail.
+                        Existing heirlooms, hearthstones, and the requested number of bags are skipped.
+                    </div>
+                    @if (status is not { WorldServer.IsRunning: true, SoapConfigured: true })
+                    {
+                        <div class="alert alert-warning">The worldserver and SOAP connection must be available before applying the preset.</div>
+                    }
+                    <div class="form-check mb-3">
+                        <input id="confirm-starter-preset" class="form-check-input" type="checkbox" @bind="confirmed" />
+                        <label class="form-check-label" for="confirm-starter-preset">I reviewed this exact preview and confirm delivery</label>
+                    </div>
+                    <button class="btn btn-success" disabled="@(!CanApply)" @onclick="ApplyAsync">Apply preset</button>
+                }
+            </div></div>
+        </div>
+    </div>
+
+    @if (applyResult is not null)
+    {
+        <div class="card mt-4"><div class="card-body">
+            <h2 class="h5">Delivery results</h2>
+            @foreach (var character in applyResult.Characters)
+            {
+                <h3 class="h6 mt-3">@character.PlayerName <span class="badge @(character.Success ? "text-bg-success" : "text-bg-danger")">@(character.Success ? "Complete" : "Partial")</span></h3>
+                <ul>
+                    @foreach (var action in character.Actions)
+                    {
+                        <li class="@(action.Success ? null : "text-danger")">@action.Description: @action.Message</li>
+                    }
+                </ul>
+            }
+        </div></div>
+    }
+}
