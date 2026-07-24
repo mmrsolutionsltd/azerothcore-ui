@@ -13,6 +13,10 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
+var externalConfig = builder.Configuration["ExternalConfig"];
+if (!string.IsNullOrWhiteSpace(externalConfig))
+    builder.Configuration.AddJsonFile(
+        Path.GetFullPath(externalConfig), optional: false, reloadOnChange: true);
 var apiKey = builder.Configuration["Security:ApiKey"];
 var dataProtectionKeysPath = builder.Configuration["Security:DataProtectionKeysPath"];
 if (!builder.Environment.IsDevelopment())
@@ -35,9 +39,13 @@ var dataProtection = builder.Services.AddDataProtection()
 if (!string.IsNullOrWhiteSpace(dataProtectionKeysPath))
     dataProtection.PersistKeysToFileSystem(
         new DirectoryInfo(Path.GetFullPath(dataProtectionKeysPath)));
+builder.Services.AddWindowsService(options =>
+    options.ServiceName = "AzerothCore UI Web");
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 builder.Services.AddCascadingAuthenticationState();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddTransient<AzerothCore_UI.Web.Services.AdministrationActorHandler>();
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
@@ -112,14 +120,19 @@ builder.Services.AddRateLimiter(options =>
                 AutoReplenishment = true
             }));
 });
-builder.Services.AddHttpClient<AzerothCore_UI.Web.Clients.AccountsApiClient>(client =>
+void ConfigureApiClient(HttpClient client)
 {
     var apiBaseUrl = builder.Configuration["ApiBaseUrl"]
         ?? throw new InvalidOperationException("ApiBaseUrl is not configured.");
     client.BaseAddress = new Uri(apiBaseUrl);
     if (!string.IsNullOrWhiteSpace(apiKey))
         client.DefaultRequestHeaders.Add("X-AzerothCore-Admin-Key", apiKey);
-});
+}
+builder.Services.AddHttpClient<AzerothCore_UI.Web.Clients.AccountsApiClient>(ConfigureApiClient)
+    .AddHttpMessageHandler<AzerothCore_UI.Web.Services.AdministrationActorHandler>();
+builder.Services.AddHttpClient("ApiHealth", ConfigureApiClient);
+builder.Services.AddHealthChecks()
+    .AddCheck<AzerothCore_UI.Web.Services.ApiReadinessHealthCheck>("private-api");
 
 var app = builder.Build();
 
@@ -151,6 +164,9 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.UseAntiforgery();
+
+app.MapHealthChecks("/health/live", new() { Predicate = _ => false }).AllowAnonymous();
+app.MapHealthChecks("/health/ready").AllowAnonymous();
 
 app.MapGet("/admin/login", async (
     HttpContext context,

@@ -1,4 +1,10 @@
+using System.Diagnostics;
+
 var builder = WebApplication.CreateBuilder(args);
+var externalConfig = builder.Configuration["ExternalConfig"];
+if (!string.IsNullOrWhiteSpace(externalConfig))
+    builder.Configuration.AddJsonFile(
+        Path.GetFullPath(externalConfig), optional: false, reloadOnChange: true);
 var apiKey = builder.Configuration["Security:ApiKey"];
 if (!builder.Environment.IsDevelopment())
 {
@@ -19,6 +25,8 @@ builder.Logging.AddDebug();
 // Add services to the container.
 
 builder.Services.AddControllers();
+builder.Services.AddWindowsService(options =>
+    options.ServiceName = "AzerothCore UI API");
 builder.Services.AddSingleton<AzerothCore_UI.Api.Data.AzerothCoreConnectionFactory>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Data.AdministrationAccountStore>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Security.AdministrationPasswordHasher>();
@@ -31,6 +39,8 @@ builder.Services.AddSingleton<AzerothCore_UI.Api.Services.AzerothCoreDiagnostics
 builder.Services.AddSingleton<AzerothCore_UI.Api.Services.DatabaseBackupService>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Services.DatabaseBackupScheduler>();
 builder.Services.AddHostedService<AzerothCore_UI.Api.Services.DatabaseBackupWorker>();
+builder.Services.AddHealthChecks()
+    .AddCheck<AzerothCore_UI.Api.Services.ApiReadinessHealthCheck>("api-readiness");
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 
@@ -42,10 +52,16 @@ app.UseExceptionHandler(exceptionHandlerApp =>
     {
         var exception = context.Features
             .Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?.Error;
+        var logger = context.RequestServices.GetRequiredService<ILoggerFactory>()
+            .CreateLogger("UnhandledApiException");
+        logger.LogError(exception,
+            "Unhandled API exception. TraceId: {TraceId}", context.TraceIdentifier);
         context.Response.StatusCode = StatusCodes.Status500InternalServerError;
         await context.Response.WriteAsJsonAsync(new AzerothCore_UI.Api.Models.AdministrationResult(
             false,
-            exception?.Message ?? "An unexpected server administration error occurred."));
+            app.Environment.IsDevelopment()
+                ? exception?.Message ?? "An unexpected server administration error occurred."
+                : $"An unexpected administration error occurred. Reference: {context.TraceIdentifier}"));
     });
 });
 
@@ -84,8 +100,32 @@ app.Use(async (context, next) =>
     await next();
 });
 
+app.Use(async (context, next) =>
+{
+    var started = Stopwatch.GetTimestamp();
+    await next();
+    if (context.Request.Path.StartsWithSegments("/api")
+        && context.Request.Method is not ("GET" or "HEAD" or "OPTIONS")
+        && !context.Request.Path.StartsWithSegments(
+            "/api/administration-users/validate-session"))
+    {
+        var actor = context.Request.Headers["X-AzerothCore-Actor"].ToString();
+        var role = context.Request.Headers["X-AzerothCore-Role"].ToString();
+        app.Logger.LogWarning(
+            "ADMIN AUDIT: {Method} {Path} by {Actor} ({Role}) returned {StatusCode} in {ElapsedMs:F1} ms. TraceId: {TraceId}",
+            context.Request.Method, context.Request.Path,
+            string.IsNullOrWhiteSpace(actor) ? "web-service" : actor,
+            string.IsNullOrWhiteSpace(role) ? "unknown" : role,
+            context.Response.StatusCode,
+            Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+            context.TraceIdentifier);
+    }
+});
+
 app.UseAuthorization();
 
+app.MapHealthChecks("/health/live", new() { Predicate = _ => false });
+app.MapHealthChecks("/health/ready");
 app.MapControllers();
 
 app.Run();

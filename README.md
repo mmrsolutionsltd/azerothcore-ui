@@ -199,6 +199,9 @@ This is an administration application and should not be exposed directly to the 
 - Administrative actions are written to application logs with the `ADMIN AUDIT` prefix.
 
 See [docs/server-administration.md](docs/server-administration.md) for detailed local security and SOAP setup.
+See [docs/production-deployment.md](docs/production-deployment.md) for the
+localhost-only API, Windows service, Caddy HTTPS, DNS, and CGNAT deployment
+procedure.
 
 ## Configuration
 
