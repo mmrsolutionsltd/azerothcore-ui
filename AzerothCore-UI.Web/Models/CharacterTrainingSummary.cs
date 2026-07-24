@@ -42,3 +42,21 @@ public sealed record LearnProfessionRequest(
     uint CharacterGuid,
     ushort SkillId,
     bool Confirmed);
+
+public sealed record ProfessionManagementCharacter(
+    uint CharacterGuid,
+    string CharacterName,
+    bool Online,
+    IReadOnlyList<ManagedProfession> Professions);
+
+public sealed record ManagedProfession(
+    ushort SkillId,
+    string Name,
+    string Category,
+    ushort CurrentSkill,
+    ushort MaximumSkill);
+
+public sealed record UnlearnProfessionRequest(
+    uint CharacterGuid,
+    ushort SkillId,
+    bool Confirmed);

@@ -396,6 +396,117 @@ public sealed class TrainingController(
             output));
     }
 
+    [HttpGet("professions/manage")]
+    public async Task<ActionResult<IReadOnlyList<ProfessionManagementCharacter>>> GetProfessionManagement(
+        CancellationToken cancellationToken)
+    {
+        const string sql = """
+            SELECT
+                characters.guid AS CharacterGuid,
+                characters.name AS CharacterName,
+                characters.online AS Online,
+                skills.skill AS SkillId,
+                skills.`value` AS CurrentSkill,
+                skills.`max` AS MaximumSkill
+            FROM acore_auth.account AS account
+            INNER JOIN acore_characters.characters AS characters ON characters.account = account.id
+            INNER JOIN acore_characters.character_skills AS skills ON skills.guid = characters.guid
+            WHERE account.username NOT LIKE CONCAT(@PlayerBotPrefix, '%')
+              AND skills.skill IN @SkillIds
+            ORDER BY characters.name, skills.skill;
+            """;
+
+        await using var connection = connectionFactory.CreateConnection();
+        var rows = await connection.QueryAsync<ProfessionManagementRow>(
+            new CommandDefinition(sql, new
+            {
+                PlayerBotPrefix = PlayerBotAccountPrefix,
+                SkillIds = ProfessionCatalog.All.Keys.ToArray()
+            }, cancellationToken: cancellationToken));
+
+        return Ok(rows
+            .GroupBy(row => new
+            {
+                row.CharacterGuid,
+                row.CharacterName,
+                row.Online
+            })
+            .Select(group => new ProfessionManagementCharacter(
+                group.Key.CharacterGuid,
+                group.Key.CharacterName,
+                group.Key.Online,
+                group.Select(row =>
+                    {
+                        var definition = ProfessionCatalog.All[row.SkillId];
+                        return new ManagedProfession(
+                            row.SkillId,
+                            definition.Name,
+                            definition.Category,
+                            row.CurrentSkill,
+                            row.MaximumSkill);
+                    })
+                    .OrderBy(profession => profession.Category == "Primary" ? 0 : 1)
+                    .ThenBy(profession => profession.Name)
+                    .ToArray()))
+            .OrderByDescending(character => character.Online)
+            .ThenBy(character => character.CharacterName)
+            .ToArray());
+    }
+
+    [HttpPost("professions/unlearn")]
+    public async Task<ActionResult<AdministrationResult>> UnlearnProfession(
+        UnlearnProfessionRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!request.Confirmed)
+            return BadRequest(new AdministrationResult(false, "Confirm unlearning the profession first."));
+        if (!ProfessionCatalog.All.TryGetValue(request.SkillId, out var profession))
+            return BadRequest(new AdministrationResult(false, "Unknown profession."));
+
+        const string sql = """
+            SELECT
+                characters.name AS CharacterName,
+                characters.online AS Online
+            FROM acore_auth.account AS account
+            INNER JOIN acore_characters.characters AS characters ON characters.account = account.id
+            INNER JOIN acore_characters.character_skills AS skills ON skills.guid = characters.guid
+            WHERE characters.guid = @CharacterGuid
+              AND skills.skill = @SkillId
+              AND account.username NOT LIKE CONCAT(@PlayerBotPrefix, '%')
+            LIMIT 1;
+            """;
+
+        await using var connection = connectionFactory.CreateConnection();
+        var character = await connection.QuerySingleOrDefaultAsync<UnlearnProfessionRow>(
+            new CommandDefinition(sql, new
+            {
+                request.CharacterGuid,
+                request.SkillId,
+                PlayerBotPrefix = PlayerBotAccountPrefix
+            }, cancellationToken: cancellationToken));
+
+        if (character is null)
+            return NotFound(new AdministrationResult(false,
+                "That character does not currently know this profession."));
+        if (!character.Online)
+            return Conflict(new AdministrationResult(false,
+                $"{character.CharacterName} must be online to unlearn a profession."));
+
+        var player = AzerothCoreSoapClient.RequirePlayerName(character.CharacterName);
+        var output = await soapClient.ExecuteAsync(
+            ProfessionTrainingRules.BuildUnlearnCommand(player, profession),
+            cancellationToken);
+
+        logger.LogWarning(
+            "Profession unlearned by {Character}: {Profession} ({SkillId}, spell {SpellId})",
+            player, profession.Name, profession.SkillId, profession.ApprenticeSpellId);
+
+        return Ok(new AdministrationResult(
+            true,
+            $"{player} unlearned {profession.Name}. Its skill progress and recipes were removed.",
+            output));
+    }
+
     private DashboardRow ToDashboardRow(
         TrainingRow row,
         string category,
@@ -459,6 +570,22 @@ public sealed class TrainingController(
         public byte CharacterLevel { get; init; }
         public bool Online { get; init; }
         public ushort? SkillId { get; init; }
+    }
+
+    private sealed class ProfessionManagementRow
+    {
+        public uint CharacterGuid { get; init; }
+        public string CharacterName { get; init; } = string.Empty;
+        public bool Online { get; init; }
+        public ushort SkillId { get; init; }
+        public ushort CurrentSkill { get; init; }
+        public ushort MaximumSkill { get; init; }
+    }
+
+    private sealed class UnlearnProfessionRow
+    {
+        public string CharacterName { get; init; } = string.Empty;
+        public bool Online { get; init; }
     }
 
     private sealed record DashboardRow(

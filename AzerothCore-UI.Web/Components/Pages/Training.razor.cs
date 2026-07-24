@@ -6,6 +6,7 @@ public partial class Training
 {
     private IReadOnlyList<CharacterTrainingSummary> characters = [];
     private IReadOnlyList<ProfessionStarterCharacter> professionStarters = [];
+    private IReadOnlyList<ProfessionManagementCharacter> professionManagement = [];
     private readonly HashSet<uint> collapsedCharacters = [];
     private readonly HashSet<string> collapsedDisciplines = [];
     private bool isLoading = true;
@@ -19,11 +20,18 @@ public partial class Training
     private bool actionSucceeded;
     private uint selectedCharacterGuid;
     private ushort selectedProfessionSkillId;
+    private uint selectedManagementCharacterGuid;
+    private ManagedProfession? pendingUnlearn;
     private const string NewProfessionActionKey = "new-profession";
+    private const string UnlearnActionKey = "unlearn-profession";
 
     private ProfessionStarterCharacter? SelectedProfessionCharacter =>
         professionStarters.FirstOrDefault(character =>
             character.CharacterGuid == selectedCharacterGuid);
+
+    private ProfessionManagementCharacter? SelectedManagementCharacter =>
+        professionManagement.FirstOrDefault(character =>
+            character.CharacterGuid == selectedManagementCharacterGuid);
 
     private IReadOnlyList<string> Disciplines => characters
         .SelectMany(character => character.Requirements)
@@ -74,11 +82,16 @@ public partial class Training
         {
             characters = await AccountsClient.GetAvailableTrainingAsync();
             professionStarters = await AccountsClient.GetProfessionStartersAsync();
+            professionManagement = await AccountsClient.GetProfessionManagementAsync();
             selectedCharacterGuid = professionStarters
                 .OrderByDescending(character => character.Online)
                 .Select(character => character.CharacterGuid)
                 .FirstOrDefault();
             SelectDefaultProfession();
+            selectedManagementCharacterGuid = professionManagement
+                .OrderByDescending(character => character.Online)
+                .Select(character => character.CharacterGuid)
+                .FirstOrDefault();
         }
         catch (HttpRequestException)
         {
@@ -209,8 +222,7 @@ public partial class Training
 
             if (actionSucceeded)
             {
-                professionStarters = await AccountsClient.GetProfessionStartersAsync();
-                characters = await AccountsClient.GetAvailableTrainingAsync();
+                await RefreshProfessionDataAsync();
                 if (professionStarters.All(item => item.CharacterGuid != selectedCharacterGuid))
                 {
                     selectedCharacterGuid = professionStarters
@@ -230,5 +242,64 @@ public partial class Training
         {
             activeTraining = null;
         }
+    }
+
+    private void RequestUnlearn(ManagedProfession profession) =>
+        pendingUnlearn = profession;
+
+    private void CancelUnlearn() =>
+        pendingUnlearn = null;
+
+    private async Task ConfirmUnlearnAsync()
+    {
+        var character = SelectedManagementCharacter;
+        var profession = pendingUnlearn;
+        if (character is null || profession is null)
+            return;
+
+        activeTraining = UnlearnActionKey;
+        actionMessage = null;
+
+        try
+        {
+            var result = await AccountsClient.UnlearnProfessionAsync(
+                new UnlearnProfessionRequest(
+                    character.CharacterGuid,
+                    profession.SkillId,
+                    true));
+            actionSucceeded = result?.Success == true;
+            actionMessage = result?.Message ?? "The profession was unlearned.";
+
+            if (actionSucceeded)
+            {
+                pendingUnlearn = null;
+                await RefreshProfessionDataAsync();
+                if (professionManagement.All(item =>
+                    item.CharacterGuid != selectedManagementCharacterGuid))
+                {
+                    selectedManagementCharacterGuid = professionManagement
+                        .OrderByDescending(item => item.Online)
+                        .Select(item => item.CharacterGuid)
+                        .FirstOrDefault();
+                }
+                SelectDefaultProfession();
+            }
+        }
+        catch (HttpRequestException exception)
+        {
+            actionSucceeded = false;
+            actionMessage = exception.Message;
+        }
+        finally
+        {
+            activeTraining = null;
+        }
+    }
+
+    private async Task RefreshProfessionDataAsync()
+    {
+        professionStarters = await AccountsClient.GetProfessionStartersAsync();
+        professionManagement = await AccountsClient.GetProfessionManagementAsync();
+        characters = await AccountsClient.GetAvailableTrainingAsync();
     }
 }

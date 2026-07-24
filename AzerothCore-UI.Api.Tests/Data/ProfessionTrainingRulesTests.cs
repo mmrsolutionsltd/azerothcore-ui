@@ -6,6 +6,16 @@ namespace AzerothCore_UI.Api.Tests.Data;
 public sealed class ProfessionTrainingRulesTests
 {
     [Fact]
+    public void BuildUnlearnCommand_RemovesAllRanksFromTheApprenticeSpell()
+    {
+        var profession = ProfessionCatalog.All[171];
+
+        Assert.Equal(
+            "player unlearn Raistlin 2259 all",
+            ProfessionTrainingRules.BuildUnlearnCommand("Raistlin", profession));
+    }
+
+    [Fact]
     public void ResolveLearnedSpellId_UsesSpellTaughtByTrainerWrapper()
     {
         var metadata = new SpellMetadata("Apprentice Alchemist", null, 2259);

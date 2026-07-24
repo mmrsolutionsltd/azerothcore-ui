@@ -390,4 +390,13 @@ public sealed class AccountsApiClient(HttpClient httpClient)
     public Task<AdministrationResult?> LearnProfessionAsync(
         LearnProfessionRequest request) =>
         PostAsync("api/training/professions/learn", request);
+
+    public async Task<IReadOnlyList<ProfessionManagementCharacter>> GetProfessionManagementAsync(
+        CancellationToken cancellationToken = default) =>
+        await httpClient.GetFromJsonAsync<ProfessionManagementCharacter[]>(
+            "api/training/professions/manage", cancellationToken) ?? [];
+
+    public Task<AdministrationResult?> UnlearnProfessionAsync(
+        UnlearnProfessionRequest request) =>
+        PostAsync("api/training/professions/unlearn", request);
 }

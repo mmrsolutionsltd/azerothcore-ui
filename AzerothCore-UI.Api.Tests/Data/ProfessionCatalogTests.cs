@@ -6,6 +6,15 @@ namespace AzerothCore_UI.Api.Tests.Data;
 public sealed class ProfessionCatalogTests
 {
     [Fact]
+    public void Catalog_HasUniqueApprenticeSpellsForEverySupportedProfession()
+    {
+        Assert.Equal(14, ProfessionCatalog.All.Count);
+        Assert.Equal(
+            ProfessionCatalog.All.Count,
+            ProfessionCatalog.All.Values.Select(item => item.ApprenticeSpellId).Distinct().Count());
+    }
+
+    [Fact]
     public void CanLearn_AllowsFirstOrSecondPrimaryProfession()
     {
         IReadOnlySet<ushort> knownSkills = new HashSet<ushort> { 171 };

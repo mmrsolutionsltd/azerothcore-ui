@@ -2,6 +2,11 @@ namespace AzerothCore_UI.Api.Data;
 
 public static class ProfessionTrainingRules
 {
+    public static string BuildUnlearnCommand(
+        string playerName,
+        ProfessionDefinition profession) =>
+        $"player unlearn {playerName} {profession.ApprenticeSpellId} all";
+
     public static uint ResolveLearnedSpellId(uint trainerSpellId, SpellMetadata? metadata) =>
         metadata?.LearnedSpellId ?? trainerSpellId;
 
