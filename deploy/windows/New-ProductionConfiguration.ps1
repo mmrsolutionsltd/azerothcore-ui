@@ -49,7 +49,7 @@ $apiConfig = @{
 } | ConvertTo-Json -Depth 8
 
 $webConfig = @{
-    AllowedHosts = $Hostname
+    AllowedHosts = "$Hostname;localhost;127.0.0.1"
     ApiBaseUrl = "http://127.0.0.1:5202/"
     Security = @{
         ApiKey = $apiKey

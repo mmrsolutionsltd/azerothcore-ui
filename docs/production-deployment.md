@@ -1,6 +1,6 @@
 # Production deployment on Windows
 
-The supported home-hosting layout exposes only Caddy on TCP ports 80 and 443.
+The supported home-hosting layout exposes only Caddy on TCP port 443.
 Caddy terminates public HTTPS and proxies Blazor Server, including its WebSocket
 connection, to `127.0.0.1:5211`. The private API listens only on
 `127.0.0.1:5202`. MySQL and AzerothCore SOAP remain local.
@@ -10,13 +10,28 @@ connection, to `127.0.0.1:5211`. The private API listens only on
 - A domain or dynamic-DNS hostname controlled by the server owner.
 - A DHCP reservation for the Windows server's LAN address.
 - A public IPv4 address or working IPv6 inbound routing.
-- Router TCP forwards for 80 and 443 only.
+- A router TCP forward for 443 only.
 - .NET 10 Hosting Bundle/runtime.
 - Caddy for Windows at `C:\Caddy\caddy.exe`.
 - An elevated PowerShell session for installing services and firewall rules.
 
 Do not create router forwards until the accounts, local readiness checks,
 hostname, and Caddy configuration have all been validated.
+
+For an existing local development installation whose API user-secrets are
+complete, the entire local deployment can be performed from one elevated
+launcher:
+
+```powershell
+.\deploy\windows\Deploy-LocalProduction.ps1 `
+  -Hostname azerothcore.ddnsfree.com `
+  -Email mmrsolutionsltd@gmail.com
+```
+
+The launcher requests UAC elevation, migrates existing secrets into ACL-protected
+production files, downloads and verifies the latest official Caddy Windows
+release, publishes the applications, and installs all three services. It does
+not alter router configuration.
 
 ## 1. Publish an immutable release
 
@@ -63,7 +78,7 @@ Invoke-WebRequest http://127.0.0.1:5211/health/ready
 
 ## 4. Configure Caddy
 
-After the hostname resolves to the home's public address and ports 80/443 are
+After the hostname resolves to the home's public address and TCP port 443 is
 forwarded:
 
 ```powershell
