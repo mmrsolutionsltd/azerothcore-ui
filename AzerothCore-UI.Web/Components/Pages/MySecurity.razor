@@ -1,0 +1,39 @@
+@page "/my-security"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "PasswordChange")]
+@inject AccountsApiClient Api
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>My security</PageTitle>
+<h1>My security</h1>
+<p class="text-muted">Change your website administration password. This signs out all existing sessions.</p>
+
+@if (!string.IsNullOrEmpty(message))
+{
+    <div class="alert @(error ? "alert-danger" : "alert-success")">@message</div>
+}
+
+<div class="card" style="max-width:35rem"><div class="card-body">
+    <div class="mb-3"><label class="form-label">Current password</label><input type="password" class="form-control" @bind="currentPassword" /></div>
+    <div class="mb-3"><label class="form-label">New password</label><input type="password" class="form-control" @bind="newPassword" /></div>
+    <div class="mb-3"><label class="form-label">Confirm new password</label><input type="password" class="form-control" @bind="confirmPassword" /></div>
+    <button class="btn btn-primary" @onclick="ChangeAsync">Change password</button>
+</div></div>
+
+@code {
+    private string currentPassword = "", newPassword = "", confirmPassword = "";
+    private string? message;
+    private bool error;
+    private async Task ChangeAsync()
+    {
+        if (newPassword != confirmPassword) { error = true; message = "New passwords do not match."; return; }
+        try
+        {
+            var principal = (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User;
+            var id = ulong.Parse(principal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
+            await Api.ChangeAdministrationPasswordAsync(new(id, currentPassword, newPassword));
+            error = false; message = "Password changed. Your sessions were revoked; sign in again.";
+            currentPassword = newPassword = confirmPassword = "";
+        }
+        catch (Exception exception) { error = true; message = exception.Message; }
+    }
+}

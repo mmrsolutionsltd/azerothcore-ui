@@ -13,7 +13,11 @@
         <div class="quick-links" aria-label="Quick links">
             <NavItem Href="characters" Icon="bi-person-fill-nav-menu">Characters</NavItem>
             <NavItem Href="player-actions" Icon="bi-person-fill-nav-menu">Player actions</NavItem>
-            <NavItem Href="server" Icon="bi-house-door-fill-nav-menu">Server</NavItem>
+            <AuthorizeView Policy="Owner" Context="quickOwnerContext">
+                <Authorized Context="quickOwnerAuthorized">
+                    <NavItem Href="server" Icon="bi-house-door-fill-nav-menu">Server</NavItem>
+                </Authorized>
+            </AuthorizeView>
         </div>
 
         <NavGroup Title="Players" GroupKey="players"
@@ -39,17 +43,28 @@
             <NavItem Href="creatures" Icon="bi-plus-square-fill-nav-menu">Creature spawner</NavItem>
         </NavGroup>
 
-        <NavGroup Title="Administration" GroupKey="administration"
-                  OpenByDefault="@IsGroupActive("diagnostics", "database-backups", "modules")">
-            <NavItem Href="diagnostics" Icon="bi-list-nested-nav-menu">Server health</NavItem>
-            <NavItem Href="database-backups" Icon="bi-list-nested-nav-menu">Database backups</NavItem>
-            <NavItem Href="modules" Icon="bi-list-nested-nav-menu">Modules</NavItem>
-        </NavGroup>
+        <AuthorizeView Policy="Owner" Context="adminOwnerContext">
+            <Authorized Context="adminOwnerAuthorized">
+                <NavGroup Title="Administration" GroupKey="administration"
+                          OpenByDefault="@IsGroupActive("diagnostics", "database-backups", "modules")">
+                    <NavItem Href="diagnostics" Icon="bi-list-nested-nav-menu">Server health</NavItem>
+                    <NavItem Href="database-backups" Icon="bi-list-nested-nav-menu">Database backups</NavItem>
+                    <NavItem Href="modules" Icon="bi-list-nested-nav-menu">Modules</NavItem>
+                </NavGroup>
+            </Authorized>
+        </AuthorizeView>
 
-        <AuthorizeView>
+        <AuthorizeView Policy="PasswordChange">
             <Authorized>
+                <NavItem Href="my-security" Icon="bi-person-fill-nav-menu">My security</NavItem>
+                <AuthorizeView Policy="Owner" Context="ownerContext">
+                    <Authorized Context="ownerAuthorizedContext">
+                        <NavItem Href="administration-users" Icon="bi-person-fill-nav-menu">Administration users</NavItem>
+                    </Authorized>
+                </AuthorizeView>
                 <div class="nav-item sign-out">
                     <form method="post" action="/admin/logout">
+                        <AntiforgeryToken />
                         <button class="nav-link border-0 bg-transparent w-100 text-start" type="submit">
                             <span class="bi bi-person-fill-nav-menu" aria-hidden="true"></span>
                             <span class="nav-label">Sign out</span>

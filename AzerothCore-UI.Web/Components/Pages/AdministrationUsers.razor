@@ -1,0 +1,172 @@
+@page "/administration-users"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Owner")]
+@inject AccountsApiClient Api
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Administration users</PageTitle>
+<h1>Administration users</h1>
+<p class="text-muted">Create individual website accounts, assign permissions, reset passwords, and revoke sessions.</p>
+
+@if (!string.IsNullOrEmpty(message))
+{
+    <div class="alert @(error ? "alert-danger" : "alert-success")">@message</div>
+}
+
+<div class="card mb-4">
+    <div class="card-header">Create user</div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-3"><label class="form-label">Username</label><input class="form-control" @bind="newUsername" /></div>
+            <div class="col-md-3"><label class="form-label">Temporary password</label><input type="password" class="form-control" @bind="newPassword" /></div>
+            <div class="col-md-3"><label class="form-label">Role</label>
+                <select class="form-select" @bind="newRole"><option>Administrator</option><option>Owner</option></select>
+            </div>
+            <div class="col-md-3 d-flex align-items-end"><button class="btn btn-primary" @onclick="CreateAsync">Create user</button></div>
+        </div>
+        <div class="form-check mt-3"><input class="form-check-input" type="checkbox" @bind="newMustChange" id="must-change" />
+            <label class="form-check-label" for="must-change">Require password change at first login</label></div>
+    </div>
+</div>
+
+@if (users is null)
+{
+    <p>Loading users…</p>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table align-middle">
+            <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Last login</th><th>Actions</th></tr></thead>
+            <tbody>
+            @foreach (var user in users)
+            {
+                <tr>
+                    <td><strong>@user.Username</strong>@if (user.MustChangePassword) { <div class="small text-warning">Password change required</div> }</td>
+                    <td>
+                        <select class="form-select form-select-sm" @bind="roleDrafts[user.Id]">
+                            @if (roleDrafts[user.Id] == "Owner")
+                            {
+                                <option value="Owner">Owner</option>
+                                <option value="Administrator">Administrator</option>
+                            }
+                            else
+                            {
+                                <option value="Administrator">Administrator</option>
+                                <option value="Owner">Owner</option>
+                            }
+                        </select>
+                    </td>
+                    <td>
+                        <div class="form-check form-switch"><input class="form-check-input" type="checkbox"
+                            @bind="enabledDrafts[user.Id]" />
+                            <label class="form-check-label">@(enabledDrafts[user.Id] ? "Enabled" : "Disabled")</label></div>
+                        @if (user.LockoutUntilUtc > DateTime.UtcNow) { <div class="small text-danger">Locked until @user.LockoutUntilUtc.Value.ToLocalTime()</div> }
+                    </td>
+                    <td>@(user.LastLoginAtUtc?.ToLocalTime().ToString("g") ?? "Never")</td>
+                    <td>
+                        <button class="btn btn-sm btn-primary me-1" @onclick="() => SaveAsync(user)">Save</button>
+                        <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => SelectReset(user)">Reset password</button>
+                        <button class="btn btn-sm btn-outline-danger" @onclick="() => RevokeAsync(user)">Revoke sessions</button>
+                        @if (deleteConfirmationId == user.Id)
+                        {
+                            <button class="btn btn-sm btn-danger ms-1" @onclick="() => DeleteAsync(user)">Confirm delete</button>
+                            <button class="btn btn-sm btn-secondary ms-1" @onclick="() => deleteConfirmationId = null">Cancel</button>
+                        }
+                        else
+                        {
+                            <button class="btn btn-sm btn-outline-danger ms-1" @onclick="() => deleteConfirmationId = user.Id">Delete</button>
+                        }
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+}
+
+@if (resetUser is not null)
+{
+    <div class="card mb-4">
+        <div class="card-header">Reset password for @resetUser.Username</div>
+        <div class="card-body">
+            <input type="password" class="form-control mb-2" placeholder="New temporary password" @bind="resetPassword" />
+            <div class="form-check mb-2"><input id="reset-change" class="form-check-input" type="checkbox" @bind="resetMustChange" />
+                <label class="form-check-label" for="reset-change">Require change at next login</label></div>
+            <button class="btn btn-danger me-2" @onclick="ResetAsync">Reset and revoke sessions</button>
+            <button class="btn btn-secondary" @onclick="() => resetUser = null">Cancel</button>
+        </div>
+    </div>
+}
+
+<h2>Recent account activity</h2>
+@if (audit is not null)
+{
+    <div class="table-responsive"><table class="table table-sm">
+        <thead><tr><th>When</th><th>User</th><th>Action</th><th>Outcome</th><th>Address</th><th>Detail</th></tr></thead>
+        <tbody>@foreach (var entry in audit) { <tr><td>@entry.OccurredAtUtc.ToLocalTime().ToString("g")</td><td>@entry.Username</td><td>@entry.Action</td><td>@entry.Outcome</td><td>@entry.RemoteAddress</td><td>@entry.Detail</td></tr> }</tbody>
+    </table></div>
+}
+
+@code {
+    private IReadOnlyList<AdministrationUserSummary>? users;
+    private IReadOnlyList<AdministrationAuditEntry>? audit;
+    private readonly Dictionary<ulong, string> roleDrafts = [];
+    private readonly Dictionary<ulong, bool> enabledDrafts = [];
+    private string actor = "", newUsername = "", newPassword = "", newRole = "Administrator";
+    private bool newMustChange = true, error;
+    private ulong? deleteConfirmationId;
+    private string? message, resetPassword;
+    private AdministrationUserSummary? resetUser;
+    private bool resetMustChange = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        actor = (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User.Identity?.Name ?? "Owner";
+        await ReloadAsync();
+    }
+    private async Task ReloadAsync()
+    {
+        users = await Api.GetAdministrationUsersAsync();
+        audit = await Api.GetAdministrationAuditAsync();
+        roleDrafts.Clear();
+        enabledDrafts.Clear();
+        foreach (var user in users)
+        {
+            roleDrafts[user.Id] = user.Role;
+            enabledDrafts[user.Id] = user.Enabled;
+        }
+    }
+    private async Task RunAsync(Func<Task> action)
+    {
+        try { await action(); error = false; await ReloadAsync(); }
+        catch (Exception exception) { error = true; message = exception.Message; }
+    }
+    private Task CreateAsync() => RunAsync(async () =>
+    {
+        await Api.CreateAdministrationUserAsync(new(actor, newUsername, newPassword, newRole, newMustChange));
+        message = $"Created {newUsername}."; newUsername = newPassword = "";
+    });
+    private Task SaveAsync(AdministrationUserSummary user) => RunAsync(async () =>
+    {
+        await Api.UpdateAdministrationUserAsync(
+            user.Id, new(actor, roleDrafts[user.Id], enabledDrafts[user.Id]));
+        message = $"Updated {user.Username}.";
+    });
+    private void SelectReset(AdministrationUserSummary user) { resetUser = user; resetPassword = ""; resetMustChange = true; }
+    private Task ResetAsync() => RunAsync(async () =>
+    {
+        if (resetUser is null) return;
+        await Api.ResetAdministrationPasswordAsync(resetUser.Id, new(actor, resetPassword ?? "", resetMustChange));
+        message = $"Reset {resetUser.Username}'s password."; resetUser = null; resetPassword = "";
+    });
+    private Task RevokeAsync(AdministrationUserSummary user) => RunAsync(async () =>
+    {
+        await Api.RevokeAdministrationSessionsAsync(user.Id, actor);
+        message = $"Revoked all sessions for {user.Username}.";
+    });
+    private Task DeleteAsync(AdministrationUserSummary user) => RunAsync(async () =>
+    {
+        await Api.DeleteAdministrationUserAsync(user.Id, actor);
+        message = $"Deleted {user.Username}."; deleteConfirmationId = null;
+    });
+}

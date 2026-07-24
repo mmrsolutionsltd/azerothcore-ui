@@ -5,6 +5,100 @@ namespace AzerothCore_UI.Web.Clients;
 
 public sealed class AccountsApiClient(HttpClient httpClient)
 {
+    public async Task<bool> HasAdministrationUsersAsync()
+    {
+        var state = await httpClient.GetFromJsonAsync<AdministrationUserState>(
+            "api/administration-users/state");
+        return state?.HasUsers == true;
+    }
+
+    public Task<AdministrationAuthenticationResult?> AuthenticateAdministratorAsync(
+        AdministrationAuthenticationRequest request) =>
+        PostResultAsync<AdministrationAuthenticationRequest, AdministrationAuthenticationResult>(
+            "api/administration-users/authenticate", request);
+
+    public Task<AdministrationUserIdentity?> BootstrapAdministratorAsync(
+        BootstrapAdministrationUserRequest request) =>
+        PostResultAsync<BootstrapAdministrationUserRequest, AdministrationUserIdentity>(
+            "api/administration-users/bootstrap", request);
+
+    public async Task<bool> ValidateAdministrationSessionAsync(
+        AdministrationSessionValidationRequest request) =>
+        await PostResultAsync<AdministrationSessionValidationRequest, bool>(
+            "api/administration-users/validate-session", request);
+
+    public async Task<IReadOnlyList<AdministrationUserSummary>> GetAdministrationUsersAsync() =>
+        await httpClient.GetFromJsonAsync<AdministrationUserSummary[]>(
+            "api/administration-users") ?? [];
+
+    public Task<AdministrationUserSummary?> CreateAdministrationUserAsync(
+        CreateAdministrationUserRequest request) =>
+        PostResultAsync<CreateAdministrationUserRequest, AdministrationUserSummary>(
+            "api/administration-users", request);
+
+    public Task<AdministrationResult?> UpdateAdministrationUserAsync(
+        ulong id, UpdateAdministrationUserRequest request) =>
+        PutResultAsync<UpdateAdministrationUserRequest, AdministrationResult>(
+            $"api/administration-users/{id}", request);
+
+    public Task<AdministrationResult?> ResetAdministrationPasswordAsync(
+        ulong id, ResetAdministrationPasswordRequest request) =>
+        PostResultAsync<ResetAdministrationPasswordRequest, AdministrationResult>(
+            $"api/administration-users/{id}/reset-password", request);
+
+    public Task<AdministrationResult?> ChangeAdministrationPasswordAsync(
+        ChangeAdministrationPasswordRequest request) =>
+        PostResultAsync<ChangeAdministrationPasswordRequest, AdministrationResult>(
+            "api/administration-users/change-password", request);
+
+    public Task<AdministrationResult?> RevokeAdministrationSessionsAsync(ulong id, string actor) =>
+        PostResultAsync<object, AdministrationResult>(
+            $"api/administration-users/{id}/revoke-sessions?actor={Uri.EscapeDataString(actor)}",
+            new { });
+
+    public async Task<IReadOnlyList<AdministrationAuditEntry>> GetAdministrationAuditAsync() =>
+        await httpClient.GetFromJsonAsync<AdministrationAuditEntry[]>(
+            "api/administration-users/audit") ?? [];
+
+    public async Task<AdministrationResult?> DeleteAdministrationUserAsync(
+        ulong id, string actor)
+    {
+        using var response = await httpClient.DeleteAsync(
+            $"api/administration-users/{id}?actor={Uri.EscapeDataString(actor)}");
+        var result = await response.Content.ReadFromJsonAsync<AdministrationResult>();
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException(
+                result?.Message ?? "Could not delete administration user.", null,
+                response.StatusCode);
+        return result;
+    }
+
+    private async Task<TResponse?> PostResultAsync<TRequest, TResponse>(
+        string uri, TRequest request)
+    {
+        using var response = await httpClient.PostAsJsonAsync(uri, request);
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<AdministrationResult>();
+            throw new HttpRequestException(
+                error?.Message ?? "Administration request failed.", null, response.StatusCode);
+        }
+        return await response.Content.ReadFromJsonAsync<TResponse>();
+    }
+
+    private async Task<TResponse?> PutResultAsync<TRequest, TResponse>(
+        string uri, TRequest request)
+    {
+        using var response = await httpClient.PutAsJsonAsync(uri, request);
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<AdministrationResult>();
+            throw new HttpRequestException(
+                error?.Message ?? "Administration request failed.", null, response.StatusCode);
+        }
+        return await response.Content.ReadFromJsonAsync<TResponse>();
+    }
+
     public async Task<DiagnosticsDashboard?> GetDiagnosticsAsync(
         CancellationToken cancellationToken = default) =>
         await httpClient.GetFromJsonAsync<DiagnosticsDashboard>("api/diagnostics", cancellationToken);
@@ -443,4 +537,6 @@ public sealed class AccountsApiClient(HttpClient httpClient)
     public Task<AdministrationResult?> RestoreDatabaseBackupAsync(
         RestoreDatabaseBackupRequest request) =>
         PostAsync("api/database-backups/restore", request);
+
+    private sealed record AdministrationUserState(bool HasUsers);
 }

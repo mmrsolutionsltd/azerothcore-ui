@@ -6,13 +6,12 @@ The Server page manages the AzerothCore installation configured under
 
 ## Protect the Blazor administration page
 
-Set an administrator password in the **Web project** user secrets:
-
-```powershell
-dotnet user-secrets set "Administration:Password" "<choose-a-strong-password>" --project .\AzerothCore-UI.Web
-```
-
-The `/server` route redirects unauthenticated users to `/admin/login`.
+Install `database/azerothcore-ui-schema.sql`, configure the API's
+`ConnectionStrings:AzerothCoreUi` secret with a dedicated least-privilege MySQL
+login, and visit `/admin/setup` once to create the initial Owner. Passwords are
+stored only as salted hashes in `azerothcore_ui`. The setup route closes after
+the first account is created, and protected routes redirect unauthenticated
+users to `/admin/login`.
 
 ## Configure local AzerothCore SOAP
 

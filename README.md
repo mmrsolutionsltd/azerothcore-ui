@@ -62,7 +62,7 @@ The solution targets .NET 10 and contains:
 
 ### Database backups
 
-- Create one verified recovery point containing `acore_auth`, `acore_characters`, and `acore_world`.
+- Create one verified recovery point containing `acore_auth`, `acore_characters`, `acore_world`, and the website's `azerothcore_ui` administration database.
 - Use consistent transactional MySQL dumps and record file sizes and SHA-256 hashes in a manifest.
 - Distinguish stronger offline snapshots from backups created while either AzerothCore server was running.
 - Retain the latest 20 verified backups in the configured server backup directory.
@@ -208,12 +208,6 @@ The development defaults expect the deployed server at:
 C:\AzerothServer-PlayerBots
 ```
 
-Set the website administrator password with user secrets:
-
-```powershell
-dotnet user-secrets set "Administration:Password" "<strong-password>" --project .\AzerothCore-UI.Web
-```
-
 Set the API's AzerothCore database connection and SOAP credentials without committing secrets:
 
 ```powershell
@@ -221,9 +215,55 @@ dotnet user-secrets set "ConnectionStrings:AzerothCore" "<connection-string>" --
 dotnet user-secrets set "ConnectionStrings:AzerothCoreMaintenance" "<backup-and-restore-connection-string>" --project .\AzerothCore-UI.Api
 dotnet user-secrets set "AzerothCore:Soap:Username" "<soap-account>" --project .\AzerothCore-UI.Api
 dotnet user-secrets set "AzerothCore:Soap:Password" "<soap-password>" --project .\AzerothCore-UI.Api
+dotnet user-secrets set "ConnectionStrings:AzerothCoreUi" "<dedicated-azerothcore-ui-connection-string>" --project .\AzerothCore-UI.Api
+```
+
+Install the repeatable `database/azerothcore-ui-schema.sql` script using a MySQL
+schema-administration account, then grant a dedicated application login only
+`SELECT`, `INSERT`, `UPDATE`, and `DELETE` access to `azerothcore_ui`. On first
+run, visit `/admin/setup` to create the initial Owner. That one-time route
+automatically closes as soon as an account exists.
+
+Protect web-to-API traffic with the same randomly generated service key in both
+projects:
+
+```powershell
+$serviceKey = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+dotnet user-secrets set "Security:ApiKey" $serviceKey --project .\AzerothCore-UI.Web
+dotnet user-secrets set "Security:ApiKey" $serviceKey --project .\AzerothCore-UI.Api
 ```
 
 The non-secret SOAP endpoint and server root are configured under `AzerothCore` in `AzerothCore-UI.Api/appsettings.Development.json`. The web project's `ApiBaseUrl` must point to the API.
+
+### Production security
+
+Production startup fails unless both processes receive the same
+`Security:ApiKey` containing at least 32 characters. Published applications do
+not load development user-secrets,
+so supply these through a protected deployment secret store or environment
+variables:
+
+```text
+Security__ApiKey=<shared-web-to-api-service-key>
+Security__DataProtectionKeysPath=<protected-persistent-directory>
+AllowedHosts=<public-web-host-name>
+```
+
+Expose only the web application through an HTTPS reverse proxy. Bind the API to
+loopback and do not expose the API, AzerothCore SOAP endpoint, MySQL, authserver,
+or worldserver administration ports to the internet. The web login is limited to
+five attempts per client address in each 15-minute window, uses antiforgery
+tokens, and issues HTTP-only, same-site, HTTPS-only Production cookies. Give the
+account running the web application exclusive access to the data-protection key
+directory; those persisted keys keep authenticated sessions valid across normal
+application restarts.
+
+Website administrators use individual database-backed accounts with salted
+PBKDF2-SHA256 password hashes, temporary lockout after repeated failures,
+revocable sessions, and Owner or Administrator roles. Owners manage users,
+password resets, account status, roles, and recent authentication activity from
+the **Administration users** screen. Server process control, diagnostics,
+database restoration, and module configuration are Owner-only.
 
 ## Custom worldserver module
 

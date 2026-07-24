@@ -1,4 +1,13 @@
 var builder = WebApplication.CreateBuilder(args);
+var apiKey = builder.Configuration["Security:ApiKey"];
+if (!builder.Environment.IsDevelopment())
+{
+    AzerothCore_UI.Api.Security.ApiAccessPolicy.ValidateProductionKey(apiKey);
+    var allowedHosts = builder.Configuration["AllowedHosts"];
+    if (string.IsNullOrWhiteSpace(allowedHosts) || allowedHosts.Trim() == "*")
+        throw new InvalidOperationException(
+            "AllowedHosts must list the API host name in Production.");
+}
 
 // The Windows Event Log provider can throw AccessDenied for an unprivileged
 // local admin process and mask the original API error. Console/debug logging is
@@ -11,6 +20,8 @@ builder.Logging.AddDebug();
 
 builder.Services.AddControllers();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Data.AzerothCoreConnectionFactory>();
+builder.Services.AddSingleton<AzerothCore_UI.Api.Data.AdministrationAccountStore>();
+builder.Services.AddSingleton<AzerothCore_UI.Api.Security.AdministrationPasswordHasher>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Data.SpellMetadataProvider>();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Services.AzerothCoreSoapClient>();
@@ -45,6 +56,33 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+app.Use(async (context, next) =>
+{
+    if (!context.Request.Path.StartsWithSegments("/api"))
+    {
+        await next();
+        return;
+    }
+
+    var suppliedKey = context.Request.Headers[
+        AzerothCore_UI.Api.Security.ApiAccessPolicy.HeaderName].ToString();
+    if (!AzerothCore_UI.Api.Security.ApiAccessPolicy.IsAuthorized(
+            context.Connection.RemoteIpAddress,
+            suppliedKey,
+            apiKey,
+            app.Environment.IsDevelopment()))
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        await context.Response.WriteAsJsonAsync(new
+        {
+            message = "API authentication is required."
+        });
+        return;
+    }
+
+    await next();
+});
 
 app.UseAuthorization();
 

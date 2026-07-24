@@ -1,6 +1,6 @@
 @page "/database-backups"
 @rendermode InteractiveServer
-@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Owner")]
 @using AzerothCore_UI.Web.Models
 @inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
 

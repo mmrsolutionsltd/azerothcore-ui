@@ -10,7 +10,8 @@ public sealed class DatabaseBackupService(
     IConfiguration configuration,
     ILogger<DatabaseBackupService> logger)
 {
-    private static readonly string[] Databases = ["acore_auth", "acore_characters", "acore_world"];
+    private static readonly string[] Databases =
+        ["acore_auth", "acore_characters", "acore_world", "azerothcore_ui"];
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = true
@@ -110,7 +111,7 @@ public sealed class DatabaseBackupService(
             // Always create a verified recovery point immediately before a restore.
             var safetyBackup = await CreateCoreAsync(cancellationToken);
             var builder = new MySqlConnectionStringBuilder(connectionString);
-            foreach (var database in Databases)
+            foreach (var database in backup.Files.Select(file => file.Database))
             {
                 var file = backup.Files.SingleOrDefault(item => item.Database == database)
                     ?? throw new InvalidOperationException($"The backup is missing {database}.");
@@ -130,7 +131,13 @@ public sealed class DatabaseBackupService(
         DatabaseBackupSummary backup,
         CancellationToken cancellationToken)
     {
-        if (!backup.Verified || backup.Files.Count != Databases.Length)
+        var databases = backup.Files.Select(file => file.Database)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var requiredCoreDatabases = Databases.Take(3).ToArray();
+        if (!backup.Verified
+            || requiredCoreDatabases.Any(database => !databases.Contains(database))
+            || databases.Any(database => !Databases.Contains(
+                database, StringComparer.OrdinalIgnoreCase)))
             throw new InvalidOperationException("The selected backup is not marked as verified.");
         foreach (var file in backup.Files)
         {
