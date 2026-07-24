@@ -17,3 +17,28 @@ public sealed record TrainingRequirement(
     byte RequiredLevel,
     ushort? RequiredSkillRank,
     uint TrainingCost);
+
+public sealed record GrantProfessionTrainingRequest(
+    uint CharacterGuid,
+    uint SpellId,
+    bool Confirmed);
+
+public sealed record ProfessionStarterCharacter(
+    uint CharacterGuid,
+    string CharacterName,
+    byte CharacterLevel,
+    bool Online,
+    int PrimaryProfessionCount,
+    IReadOnlyList<AvailableProfession> AvailableProfessions);
+
+public sealed record AvailableProfession(
+    ushort SkillId,
+    string Name,
+    string Category,
+    uint ApprenticeSpellId,
+    byte RequiredLevel);
+
+public sealed record LearnProfessionRequest(
+    uint CharacterGuid,
+    ushort SkillId,
+    bool Confirmed);

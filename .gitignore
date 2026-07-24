@@ -6,6 +6,7 @@
 # .NET build output
 **/bin/
 **/obj/
+.artifacts/
 
 # Local secrets and environment overrides
 secrets.json

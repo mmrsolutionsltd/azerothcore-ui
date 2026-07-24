@@ -6,7 +6,16 @@
 <PageTitle>Training</PageTitle>
 
 <h1>Available training</h1>
-<p class="text-muted">Class abilities and profession training currently available to characters on player accounts.</p>
+<p class="text-muted">
+    Class abilities and profession training currently available to characters on player accounts.
+    Profession training can be granted free while the character is online.
+</p>
+
+@if (actionMessage is not null)
+{
+    <div class="alert @(actionSucceeded ? "alert-success" : "alert-danger")"
+         role="@(actionSucceeded ? "status" : "alert")">@actionMessage</div>
+}
 
 @if (isLoading)
 {
@@ -16,12 +25,73 @@ else if (errorMessage is not null)
 {
     <div class="alert alert-danger" role="alert">@errorMessage</div>
 }
-else if (characters.Count == 0)
-{
-    <div class="alert alert-success" role="status">No available training was found.</div>
-}
 else
 {
+    <section class="card mb-4">
+        <div class="card-header">
+            <h2 class="h5 mb-1">Learn a new profession</h2>
+            <p class="small text-muted mb-0">
+                Primary professions are limited to two. Cooking, First Aid, and Fishing do not use a primary slot.
+            </p>
+        </div>
+        <div class="card-body">
+            @if (professionStarters.Count == 0)
+            {
+                <p class="text-muted mb-0">No characters currently have an available profession.</p>
+            }
+            else
+            {
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-5">
+                        <label class="form-label" for="profession-character">Character</label>
+                        <select id="profession-character" class="form-select"
+                                @bind="selectedCharacterGuid" @bind:after="SelectDefaultProfession">
+                            @foreach (var character in professionStarters)
+                            {
+                                <option value="@character.CharacterGuid">
+                                    @character.CharacterName — level @character.CharacterLevel
+                                    — @(character.Online ? "online" : "offline")
+                                    — @character.PrimaryProfessionCount/2 primary
+                                </option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label" for="new-profession">Profession</label>
+                        <select id="new-profession" class="form-select" @bind="selectedProfessionSkillId">
+                            @foreach (var profession in SelectedProfessionCharacter?.AvailableProfessions ?? [])
+                            {
+                                <option value="@profession.SkillId">
+                                    @profession.Name (@profession.Category)
+                                </option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <button class="btn btn-primary w-100"
+                                type="button"
+                                disabled="@(activeTraining is not null || SelectedProfessionCharacter?.Online != true)"
+                                @onclick="LearnProfessionAsync">
+                            @(activeTraining == NewProfessionActionKey ? "Teaching..." : "Teach profession")
+                        </button>
+                    </div>
+                </div>
+                @if (SelectedProfessionCharacter?.Online == false)
+                {
+                    <div class="form-text text-warning">
+                        @SelectedProfessionCharacter.CharacterName must log in before the profession can be taught.
+                    </div>
+                }
+            }
+        </div>
+    </section>
+
+    @if (characters.Count == 0)
+    {
+        <div class="alert alert-success" role="status">No available rank or recipe training was found.</div>
+    }
+    else
+    {
     <div class="row g-2 align-items-end mb-4">
         <div class="col-lg-4">
             <label class="form-label" for="training-search">Account or character</label>
@@ -109,6 +179,7 @@ else
                                 <th>Rank</th>
                                 <th>Requirement</th>
                                 <th>Cost</th>
+                                <th class="text-end">Action</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -117,7 +188,7 @@ else
                             {
                                 var groupKey = DisciplineKey(character.CharacterGuid, group);
                                 <tr class="table-light">
-                                    <th colspan="5">
+                                    <th colspan="6">
                                         <button class="btn btn-sm btn-link text-decoration-none p-0"
                                                 type="button" @onclick="() => ToggleDiscipline(groupKey)">
                                             @(collapsedDisciplines.Contains(groupKey) ? "▶" : "▼")
@@ -138,6 +209,22 @@ else
                                             <td>@(requirement.Rank ?? "—")</td>
                                             <td>@FormatRequirement(requirement)</td>
                                             <td><MoneyDisplay Copper="requirement.TrainingCost" /></td>
+                                            <td class="text-end">
+                                                @if (requirement.Category == "Profession")
+                                                {
+                                                    var actionKey = TrainingKey(character.CharacterGuid, requirement.SpellId);
+                                                    <button class="btn btn-sm btn-primary"
+                                                            type="button"
+                                                            disabled="@(activeTraining == actionKey)"
+                                                            @onclick="() => GrantProfessionTrainingAsync(character, requirement)">
+                                                        @(activeTraining == actionKey ? "Teaching..." : "Teach free")
+                                                    </button>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-muted">—</span>
+                                                }
+                                            </td>
                                         </tr>
                                     }
                                 }
@@ -147,5 +234,6 @@ else
                 </div>
             }
         </section>
+    }
     }
 }

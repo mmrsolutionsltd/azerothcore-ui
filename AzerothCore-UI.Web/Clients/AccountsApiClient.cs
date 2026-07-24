@@ -377,4 +377,17 @@ public sealed class AccountsApiClient(HttpClient httpClient)
             "api/training",
             cancellationToken) ?? [];
     }
+
+    public Task<AdministrationResult?> GrantProfessionTrainingAsync(
+        GrantProfessionTrainingRequest request) =>
+        PostAsync("api/training/professions/grant", request);
+
+    public async Task<IReadOnlyList<ProfessionStarterCharacter>> GetProfessionStartersAsync(
+        CancellationToken cancellationToken = default) =>
+        await httpClient.GetFromJsonAsync<ProfessionStarterCharacter[]>(
+            "api/training/professions/starters", cancellationToken) ?? [];
+
+    public Task<AdministrationResult?> LearnProfessionAsync(
+        LearnProfessionRequest request) =>
+        PostAsync("api/training/professions/learn", request);
 }

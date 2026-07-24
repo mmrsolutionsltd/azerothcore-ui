@@ -2,6 +2,9 @@ namespace AzerothCore_UI.Api.Data;
 
 public static class ProfessionTrainingRules
 {
+    public static uint ResolveLearnedSpellId(uint trainerSpellId, SpellMetadata? metadata) =>
+        metadata?.LearnedSpellId ?? trainerSpellId;
+
     public static bool IsRankAlreadyLearned(string? spellName, ushort currentMaximum)
     {
         var learnedMaximum = spellName switch

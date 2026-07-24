@@ -1,99 +1,57 @@
-﻿<div class="top-row ps-3 navbar navbar-dark">
+@inject NavigationManager Navigation
+
+<div class="top-row ps-3 navbar navbar-dark">
     <div class="container-fluid">
-        <a class="navbar-brand" href="">AzerothCore-UI.Web</a>
+        <a class="navbar-brand" href="">AzerothCore Admin</a>
     </div>
 </div>
 
 <input type="checkbox" title="Navigation menu" class="navbar-toggler" />
 
-<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
-    <nav class="nav flex-column">
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="accounts">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Accounts
-            </NavLink>
+<div class="nav-scrollable">
+    <nav class="nav flex-column" aria-label="Main navigation">
+        <div class="quick-links" aria-label="Quick links">
+            <NavItem Href="characters" Icon="bi-person-fill-nav-menu">Characters</NavItem>
+            <NavItem Href="player-actions" Icon="bi-person-fill-nav-menu">Player actions</NavItem>
+            <NavItem Href="server" Icon="bi-house-door-fill-nav-menu">Server</NavItem>
         </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="characters">
-                <span class="bi bi-person-fill-nav-menu" aria-hidden="true"></span> Characters
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="server">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Server
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="player-actions">
-                <span class="bi bi-person-fill-nav-menu" aria-hidden="true"></span> Player actions
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="dungeon-assistant">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Dungeon assistant
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="character-services">
-                <span class="bi bi-person-fill-nav-menu" aria-hidden="true"></span> Character services
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="weapon-training">
-                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Weapon training
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="trainers">
-                <span class="bi bi-person-fill-nav-menu" aria-hidden="true"></span> Trainer finder
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="quest-helper">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Quest helper
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="auction-house">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Auction House
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="starter-presets">
-                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Starter presets
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="diagnostics">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Server health
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="collectibles">
-                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Collectibles
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="creatures">
-                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Creature spawner
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="training">
-                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Training
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="modules">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Modules
-            </NavLink>
-        </div>
+
+        <NavGroup Title="Players" GroupKey="players"
+                  OpenByDefault="@IsGroupActive("accounts", "character-services", "starter-presets", "collectibles")">
+            <NavItem Href="accounts" Icon="bi-list-nested-nav-menu">Accounts</NavItem>
+            <NavItem Href="character-services" Icon="bi-person-fill-nav-menu">Character services</NavItem>
+            <NavItem Href="starter-presets" Icon="bi-plus-square-fill-nav-menu">Starter presets</NavItem>
+            <NavItem Href="collectibles" Icon="bi-plus-square-fill-nav-menu">Collectibles</NavItem>
+        </NavGroup>
+
+        <NavGroup Title="Adventures" GroupKey="adventures"
+                  OpenByDefault="@IsGroupActive("quest-helper", "dungeon-assistant", "trainers", "weapon-training", "training")">
+            <NavItem Href="quest-helper" Icon="bi-list-nested-nav-menu">Quest helper</NavItem>
+            <NavItem Href="dungeon-assistant" Icon="bi-list-nested-nav-menu">Dungeon assistant</NavItem>
+            <NavItem Href="trainers" Icon="bi-person-fill-nav-menu">Trainer finder</NavItem>
+            <NavItem Href="weapon-training" Icon="bi-plus-square-fill-nav-menu">Weapon training</NavItem>
+            <NavItem Href="training" Icon="bi-plus-square-fill-nav-menu">Training</NavItem>
+        </NavGroup>
+
+        <NavGroup Title="World" GroupKey="world"
+                  OpenByDefault="@IsGroupActive("auction-house", "creatures")">
+            <NavItem Href="auction-house" Icon="bi-list-nested-nav-menu">Auction House</NavItem>
+            <NavItem Href="creatures" Icon="bi-plus-square-fill-nav-menu">Creature spawner</NavItem>
+        </NavGroup>
+
+        <NavGroup Title="Administration" GroupKey="administration"
+                  OpenByDefault="@IsGroupActive("diagnostics", "modules")">
+            <NavItem Href="diagnostics" Icon="bi-list-nested-nav-menu">Server health</NavItem>
+            <NavItem Href="modules" Icon="bi-list-nested-nav-menu">Modules</NavItem>
+        </NavGroup>
+
         <AuthorizeView>
             <Authorized>
-                <div class="nav-item px-3 mt-3">
+                <div class="nav-item sign-out">
                     <form method="post" action="/admin/logout">
                         <button class="nav-link border-0 bg-transparent w-100 text-start" type="submit">
-                            <span class="bi bi-person-fill-nav-menu" aria-hidden="true"></span> Sign out
+                            <span class="bi bi-person-fill-nav-menu" aria-hidden="true"></span>
+                            <span class="nav-label">Sign out</span>
                         </button>
                     </form>
                 </div>
@@ -102,3 +60,15 @@
     </nav>
 </div>
 
+@code {
+    private bool IsGroupActive(params string[] paths)
+    {
+        var relativePath = Navigation.ToBaseRelativePath(Navigation.Uri)
+            .Split('?', '#')[0]
+            .Trim('/');
+
+        return paths.Any(path =>
+            relativePath.Equals(path, StringComparison.OrdinalIgnoreCase) ||
+            relativePath.StartsWith($"{path}/", StringComparison.OrdinalIgnoreCase));
+    }
+}

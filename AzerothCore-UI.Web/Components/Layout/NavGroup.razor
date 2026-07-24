@@ -1,0 +1,23 @@
+<details class="nav-group" data-nav-group="@GroupKey" open="@OpenByDefault">
+    <summary>
+        <span>@Title</span>
+        <span class="group-chevron" aria-hidden="true"></span>
+    </summary>
+    <div class="nav-group-items">
+        @ChildContent
+    </div>
+</details>
+
+@code {
+    [Parameter, EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter, EditorRequired]
+    public string GroupKey { get; set; } = string.Empty;
+
+    [Parameter]
+    public bool OpenByDefault { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+}

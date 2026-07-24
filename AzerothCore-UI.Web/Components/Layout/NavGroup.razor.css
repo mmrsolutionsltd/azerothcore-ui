@@ -1,0 +1,57 @@
+.nav-group {
+    margin: 0.3rem 0.75rem 0;
+}
+
+.nav-group > summary {
+    color: rgba(255, 255, 255, 0.72);
+    cursor: pointer;
+    list-style: none;
+    min-height: 2.25rem;
+    padding: 0.4rem 0.75rem;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    user-select: none;
+}
+
+.nav-group > summary::-webkit-details-marker {
+    display: none;
+}
+
+.nav-group > summary:hover {
+    color: white;
+    background-color: rgba(255,255,255,0.07);
+}
+
+.group-chevron {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: rotate(45deg);
+    transition: transform 0.15s ease;
+}
+
+.nav-group[open] .group-chevron {
+    transform: rotate(225deg);
+}
+
+.nav-group-items {
+    padding: 0.1rem 0 0.2rem;
+}
+
+.nav-group-items ::deep .nav-item {
+    padding-left: 0.35rem;
+    padding-right: 0.35rem;
+}
+
+.nav-group-items ::deep .nav-link {
+    min-height: 2.25rem;
+    padding-left: 1rem;
+    font-size: 0.86rem;
+}
