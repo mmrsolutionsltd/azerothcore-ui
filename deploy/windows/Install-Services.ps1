@@ -21,12 +21,19 @@ function Set-ServiceDefinition(
     $existing = Get-Service -Name $Name -ErrorAction SilentlyContinue
     if ($existing) {
         if ($existing.Status -ne "Stopped") { Stop-Service -Name $Name -Force }
-        sc.exe config $Name binPath= $BinaryPath start= auto | Out-Null
+        & sc.exe config $Name "binPath= $BinaryPath" "start= auto" | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not update the $Name Windows service definition."
+        }
     } else {
         New-Service -Name $Name -DisplayName $DisplayName -BinaryPathName $BinaryPath `
             -StartupType Automatic -DependsOn $DependsOn | Out-Null
     }
-    sc.exe failure $Name reset= 86400 actions= restart/5000/restart/15000/restart/60000 | Out-Null
+    & sc.exe failure $Name "reset= 86400" `
+        "actions= restart/5000/restart/15000/restart/60000" | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Could not configure recovery for the $Name Windows service."
+    }
 }
 
 $apiCommand = "`"$DotnetPath`" `"$apiDll`" --environment Production --urls http://127.0.0.1:5202 --ExternalConfig=`"$apiConfig`""
