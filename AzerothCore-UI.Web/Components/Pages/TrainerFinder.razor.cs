@@ -5,6 +5,15 @@ namespace AzerothCore_UI.Web.Components.Pages;
 
 public partial class TrainerFinder : IDisposable
 {
+    [SupplyParameterFromQuery(Name = "character")]
+    public string? InitialCharacter { get; set; }
+
+    [SupplyParameterFromQuery(Name = "category")]
+    public string? InitialCategory { get; set; }
+
+    [SupplyParameterFromQuery(Name = "search")]
+    public string? InitialSearch { get; set; }
+
     private IReadOnlyList<AdministrationPlayer> players = [];
     private IEnumerable<AdministrationPlayer> OrderedPlayers =>
         players.Where(player => !player.IsPlayerBot)
@@ -28,6 +37,17 @@ public partial class TrainerFinder : IDisposable
         {
             status = await AccountsClient.GetServerStatusAsync();
             players = await AccountsClient.GetAdministrationPlayersAsync();
+            characterName = players.Any(player =>
+                player.Name.Equals(InitialCharacter, StringComparison.OrdinalIgnoreCase)
+                && !player.IsPlayerBot)
+                ? InitialCharacter!
+                : "";
+            category = InitialCategory is "class" or "profession" or "weapon" or "riding" or "stable"
+                ? InitialCategory
+                : "all";
+            search = InitialSearch?.Trim() ?? "";
+            if (SelectedCharacter is not null)
+                await LoadAsync(1);
         }
         catch (Exception exception)
         {

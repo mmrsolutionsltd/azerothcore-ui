@@ -305,7 +305,10 @@ public sealed class TrainingController(
                         profession.Name,
                         profession.Category,
                         profession.ApprenticeSpellId,
-                        profession.RequiredLevel))
+                        profession.RequiredLevel,
+                        ProfessionPairingGuide.GetPairings(profession.SkillId)
+                            .Select(pairing => pairing.Name)
+                            .ToArray()))
                     .ToArray();
                 var primaryCount = knownSkills.Count(skillId =>
                     ProfessionCatalog.All.TryGetValue(skillId, out var profession)
@@ -443,7 +446,10 @@ public sealed class TrainingController(
                             definition.Name,
                             definition.Category,
                             row.CurrentSkill,
-                            row.MaximumSkill);
+                            row.MaximumSkill,
+                            ProfessionPairingGuide.GetPairings(row.SkillId)
+                                .Select(pairing => pairing.Name)
+                                .ToArray());
                     })
                     .OrderBy(profession => profession.Category == "Primary" ? 0 : 1)
                     .ThenBy(profession => profession.Name)

@@ -29,6 +29,10 @@ public partial class Training
         professionStarters.FirstOrDefault(character =>
             character.CharacterGuid == selectedCharacterGuid);
 
+    private AvailableProfession? SelectedNewProfession =>
+        SelectedProfessionCharacter?.AvailableProfessions.FirstOrDefault(profession =>
+            profession.SkillId == selectedProfessionSkillId);
+
     private ProfessionManagementCharacter? SelectedManagementCharacter =>
         professionManagement.FirstOrDefault(character =>
             character.CharacterGuid == selectedManagementCharacterGuid);
@@ -146,6 +150,10 @@ public partial class Training
 
     private static string TrainingKey(uint characterGuid, uint spellId) =>
         $"{characterGuid}:{spellId}";
+
+    private static string TrainerLink(string characterName, string professionName) =>
+        $"/trainers?character={Uri.EscapeDataString(characterName)}" +
+        $"&category=profession&search={Uri.EscapeDataString(professionName)}";
 
     private async Task GrantProfessionTrainingAsync(
         CharacterTrainingSummary character,

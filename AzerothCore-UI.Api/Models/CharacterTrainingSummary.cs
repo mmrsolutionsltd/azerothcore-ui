@@ -36,7 +36,8 @@ public sealed record AvailableProfession(
     string Name,
     string Category,
     uint ApprenticeSpellId,
-    byte RequiredLevel);
+    byte RequiredLevel,
+    IReadOnlyList<string> SuggestedPairings);
 
 public sealed record LearnProfessionRequest(
     uint CharacterGuid,
@@ -54,7 +55,8 @@ public sealed record ManagedProfession(
     string Name,
     string Category,
     ushort CurrentSkill,
-    ushort MaximumSkill);
+    ushort MaximumSkill,
+    IReadOnlyList<string> SuggestedPairings);
 
 public sealed record UnlearnProfessionRequest(
     uint CharacterGuid,
