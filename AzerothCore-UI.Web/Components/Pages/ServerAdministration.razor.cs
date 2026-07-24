@@ -29,12 +29,20 @@ public partial class ServerAdministration
     private IReadOnlyList<DungeonDestination> dungeons = [];
     private string dungeonSearch = "";
     private uint selectedDungeonId;
+    private DungeonReadiness? dungeonReadiness;
+    private bool isLoadingReadiness;
     private bool confirmDungeonLaunch;
     private DungeonDestination? SelectedDungeon => dungeons.FirstOrDefault(dungeon => dungeon.DungeonId == selectedDungeonId);
     private IEnumerable<DungeonDestination> FilteredDungeons => dungeons
         .Where(dungeon => string.IsNullOrWhiteSpace(dungeonSearch)
             || dungeon.Name.Contains(dungeonSearch, StringComparison.OrdinalIgnoreCase))
+        .OrderBy(dungeon => DungeonRecommendationScore(dungeon))
+        .ThenBy(dungeon => dungeon.MinimumLevel)
         .Take(12);
+    private IReadOnlySet<uint> RecommendedDungeonIds => party is null
+        ? new HashSet<uint>()
+        : dungeons.OrderBy(DungeonRecommendationScore).Take(3)
+            .Select(dungeon => dungeon.DungeonId).ToHashSet();
     private bool PartyHasLevelWarning => party is not null && SelectedDungeon is not null
         && party.Members.Any(member => member.Level < SelectedDungeon.MinimumLevel || member.Level > SelectedDungeon.MaximumLevel);
     private TeleportLocationSearchResult locationResults = new([], 1, 30, 0, 0);
@@ -167,6 +175,7 @@ public partial class ServerAdministration
         {
             party = await AccountsClient.GetPartyAsync(partyLeader);
             if (dungeons.Count == 0) dungeons = await AccountsClient.GetDungeonsAsync();
+            dungeonReadiness = null;
             operationSucceeded = true;
             resultMessage = null;
         }
@@ -182,10 +191,22 @@ public partial class ServerAdministration
         () => AccountsClient.ClearPartyBotsAsync(new(partyLeader)));
     private Task FillPartyWithBotsAsync() => RunPartyOperationAsync(
         () => AccountsClient.FillPartyWithBotsAsync(new(partyLeader)));
-    private void SelectDungeon(uint dungeonId)
+    private async Task SelectDungeonAsync(uint dungeonId)
     {
         selectedDungeonId = dungeonId;
         confirmDungeonLaunch = false;
+        dungeonReadiness = null;
+        isLoadingReadiness = true;
+        try
+        {
+            dungeonReadiness = await AccountsClient.GetDungeonReadinessAsync(partyLeader, dungeonId);
+        }
+        catch (Exception exception)
+        {
+            operationSucceeded = false;
+            resultMessage = $"Readiness check failed: {exception.Message}";
+        }
+        finally { isLoadingReadiness = false; }
     }
     private async Task LaunchPartyAsync()
     {
@@ -205,6 +226,16 @@ public partial class ServerAdministration
         1 => "Warrior", 2 => "Paladin", 3 => "Hunter", 4 => "Rogue", 5 => "Priest",
         6 => "Death Knight", 7 => "Shaman", 8 => "Mage", 9 => "Warlock", 11 => "Druid", _ => "Unknown"
     };
+
+    private int DungeonRecommendationScore(DungeonDestination dungeon)
+    {
+        if (party is null || party.Members.Count == 0) return dungeon.MinimumLevel;
+        var averageLevel = party.Members.Average(member => member.Level);
+        var outsideCount = party.Members.Count(member =>
+            member.Level < dungeon.MinimumLevel || member.Level > dungeon.MaximumLevel);
+        var midpoint = (dungeon.MinimumLevel + dungeon.MaximumLevel) / 2d;
+        return outsideCount * 1000 + (int)Math.Abs(averageLevel - midpoint);
+    }
 
     private async Task OpenItemPickerAsync()
     {

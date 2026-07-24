@@ -52,8 +52,20 @@ The solution targets .NET 10 and contains:
 - Configure random-bot level range, dungeon-finder participation, battleground participation, and trading.
 - Inspect a real player's current party and eligible nearby-level PlayerBots.
 - Add or remove individual bots, clear all party bots, or auto-fill a five-player role-aware party.
-- Search supported dungeon destinations, review level recommendations, and launch the complete party into a dungeon.
+- Rank supported dungeon destinations for the current party and highlight the three best level matches.
+- Review tank, healer, damage, party-size, and level readiness before launch.
+- Show active instance lockouts and objective-linked dungeon quests, including which real players have them in progress or completed.
+- Launch the complete party into a dungeon after reviewing readiness.
 - Reject unsafe group, battleground, arena, flight, transport, combat, and cross-instance operations in the worldserver module.
+
+### Database backups
+
+- Create one verified recovery point containing `acore_auth`, `acore_characters`, and `acore_world`.
+- Use consistent transactional MySQL dumps and record file sizes and SHA-256 hashes in a manifest.
+- Distinguish stronger offline snapshots from backups created while either AzerothCore server was running.
+- Retain the latest 20 verified backups in the configured server backup directory.
+- Restore only while both servers are stopped, after typing the exact backup identifier.
+- Verify every restore file and automatically create a fresh safety backup immediately before restoration.
 
 ### Gameplay rates
 
@@ -200,6 +212,7 @@ Set the API's AzerothCore database connection and SOAP credentials without commi
 
 ```powershell
 dotnet user-secrets set "ConnectionStrings:AzerothCore" "<connection-string>" --project .\AzerothCore-UI.Api
+dotnet user-secrets set "ConnectionStrings:AzerothCoreMaintenance" "<backup-and-restore-connection-string>" --project .\AzerothCore-UI.Api
 dotnet user-secrets set "AzerothCore:Soap:Username" "<soap-account>" --project .\AzerothCore-UI.Api
 dotnet user-secrets set "AzerothCore:Soap:Password" "<soap-password>" --project .\AzerothCore-UI.Api
 ```

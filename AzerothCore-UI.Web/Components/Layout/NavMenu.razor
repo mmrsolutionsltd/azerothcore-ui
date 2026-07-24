@@ -40,8 +40,9 @@
         </NavGroup>
 
         <NavGroup Title="Administration" GroupKey="administration"
-                  OpenByDefault="@IsGroupActive("diagnostics", "modules")">
+                  OpenByDefault="@IsGroupActive("diagnostics", "database-backups", "modules")">
             <NavItem Href="diagnostics" Icon="bi-list-nested-nav-menu">Server health</NavItem>
+            <NavItem Href="database-backups" Icon="bi-list-nested-nav-menu">Database backups</NavItem>
             <NavItem Href="modules" Icon="bi-list-nested-nav-menu">Modules</NavItem>
         </NavGroup>
 

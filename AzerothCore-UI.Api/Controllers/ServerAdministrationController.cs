@@ -761,18 +761,85 @@ public sealed class ServerAdministrationController(
     {
         if (!IsLocalRequest()) return NotFound();
         var output = await soapClient.ExecuteAsync("webadmin dungeon list", cancellationToken);
-        var dungeons = new List<DungeonDestination>();
-        foreach (var line in output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
-        {
-            var fields = line.Split('\t');
-            if (fields.Length >= 7 && fields[0] == "WEBADMIN_DUNGEON"
-                && uint.TryParse(fields[1], out var id) && int.TryParse(fields[3], out var minimumLevel)
-                && int.TryParse(fields[4], out var maximumLevel) && uint.TryParse(fields[5], out var mapId))
-                dungeons.Add(new DungeonDestination(id, fields[2], minimumLevel, maximumLevel, mapId, fields[6]));
-        }
+        var dungeons = ParseDungeons(output);
         if (dungeons.Count == 0)
             throw new InvalidOperationException("The worldserver returned no dungeon destinations. Rebuild and install the latest mod-web-admin module.");
         return Ok(dungeons.OrderBy(dungeon => dungeon.MinimumLevel).ThenBy(dungeon => dungeon.Name));
+    }
+
+    [HttpGet("parties/{leaderName}/dungeons/{dungeonId}/readiness")]
+    public async Task<ActionResult<DungeonReadiness>> GetDungeonReadiness(
+        string leaderName, uint dungeonId, CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        var leader = AzerothCoreSoapClient.RequirePlayerName(leaderName);
+        var partyOutput = await soapClient.ExecuteAsync($"webadmin group inspect {leader}", cancellationToken);
+        var party = ParsePartySnapshot(leader, partyOutput);
+        var dungeonOutput = await soapClient.ExecuteAsync("webadmin dungeon list", cancellationToken);
+        var dungeon = ParseDungeons(dungeonOutput).FirstOrDefault(item => item.DungeonId == dungeonId);
+        if (dungeon is null) return NotFound("The selected dungeon is no longer available.");
+
+        var playerNames = party.Members.Where(member => !member.IsPlayerBot)
+            .Select(member => member.Name).ToArray();
+        await using var connection = connectionFactory.CreateConnection();
+        const string lockoutSql = """
+            SELECT characterData.name AS PlayerName, instanceData.map AS MapId,
+                   instanceData.difficulty AS Difficulty,
+                   FROM_UNIXTIME(instanceData.resettime) AS ResetAtUtc
+            FROM acore_characters.characters characterData
+            INNER JOIN acore_characters.character_instance characterInstance
+                ON characterInstance.guid = characterData.guid
+            INNER JOIN acore_characters.instance instanceData
+                ON instanceData.id = characterInstance.instance
+            WHERE characterData.name IN @PlayerNames
+              AND instanceData.map = @MapId
+              AND instanceData.resettime > UNIX_TIMESTAMP()
+            ORDER BY characterData.name, instanceData.difficulty;
+            """;
+        var lockouts = playerNames.Length == 0
+            ? []
+            : (await connection.QueryAsync<DungeonLockout>(new CommandDefinition(
+                lockoutSql, new { PlayerNames = playerNames, dungeon.MapId },
+                cancellationToken: cancellationToken))).AsList();
+
+        const string questSql = """
+            SELECT DISTINCT quest.ID AS QuestId, quest.LogTitle AS Title, quest.MinLevel AS MinimumLevel
+            FROM acore_world.quest_template quest
+            INNER JOIN acore_world.creature spawn
+                ON spawn.id IN (quest.RequiredNpcOrGo1, quest.RequiredNpcOrGo2,
+                                quest.RequiredNpcOrGo3, quest.RequiredNpcOrGo4)
+            WHERE spawn.map = @MapId
+              AND quest.LogTitle <> ''
+            ORDER BY quest.MinLevel, quest.ID
+            LIMIT 30;
+            """;
+        var questRows = (await connection.QueryAsync<DungeonQuestRow>(new CommandDefinition(
+            questSql, new { dungeon.MapId }, cancellationToken: cancellationToken))).AsList();
+        var quests = new List<DungeonQuest>();
+        foreach (var quest in questRows)
+        {
+            const string statusSql = """
+                SELECT characterData.name AS PlayerName,
+                       CASE WHEN rewarded.quest IS NOT NULL THEN 2
+                            WHEN progress.quest IS NOT NULL THEN 1 ELSE 0 END AS QuestState
+                FROM acore_characters.characters characterData
+                LEFT JOIN acore_characters.character_queststatus progress
+                    ON progress.guid = characterData.guid AND progress.quest = @QuestId
+                LEFT JOIN acore_characters.character_queststatus_rewarded rewarded
+                    ON rewarded.guid = characterData.guid AND rewarded.quest = @QuestId
+                WHERE characterData.name IN @PlayerNames;
+                """;
+            var states = playerNames.Length == 0
+                ? []
+                : (await connection.QueryAsync<DungeonQuestState>(new CommandDefinition(
+                    statusSql, new { quest.QuestId, PlayerNames = playerNames },
+                    cancellationToken: cancellationToken))).AsList();
+            quests.Add(new DungeonQuest(quest.QuestId, quest.Title, quest.MinimumLevel,
+                states.Where(state => state.QuestState == 1).Select(state => state.PlayerName).ToArray(),
+                states.Where(state => state.QuestState == 2).Select(state => state.PlayerName).ToArray()));
+        }
+
+        return Ok(DungeonReadinessEvaluator.Evaluate(party, dungeon, lockouts, quests));
     }
 
     [HttpPost("parties/launch")]
@@ -824,6 +891,23 @@ public sealed class ServerAdministrationController(
             throw new InvalidOperationException("The worldserver returned an unrecognized party response. Rebuild and install the latest mod-web-admin module.");
         return new PartySnapshot(leader, count, members, candidates);
     }
+
+    private static IReadOnlyList<DungeonDestination> ParseDungeons(string output)
+    {
+        var dungeons = new List<DungeonDestination>();
+        foreach (var line in output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var fields = line.Split('\t');
+            if (fields.Length >= 7 && fields[0] == "WEBADMIN_DUNGEON"
+                && uint.TryParse(fields[1], out var id) && int.TryParse(fields[3], out var minimumLevel)
+                && int.TryParse(fields[4], out var maximumLevel) && uint.TryParse(fields[5], out var mapId))
+                dungeons.Add(new DungeonDestination(id, fields[2], minimumLevel, maximumLevel, mapId, fields[6]));
+        }
+        return dungeons;
+    }
+
+    private sealed record DungeonQuestRow(uint QuestId, string Title, int MinimumLevel);
+    private sealed record DungeonQuestState(string PlayerName, int QuestState);
 
     private sealed class CharacterCollectibleContext
     {

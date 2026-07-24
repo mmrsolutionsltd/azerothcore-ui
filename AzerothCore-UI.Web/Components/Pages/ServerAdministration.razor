@@ -282,12 +282,18 @@ else
                                         @foreach (var dungeon in FilteredDungeons)
                                         {
                                             <tr class="@(dungeon.DungeonId == selectedDungeonId ? "table-primary" : null)">
-                                                <td>@dungeon.Name</td>
+                                                <td>
+                                                    @dungeon.Name
+                                                    @if (RecommendedDungeonIds.Contains(dungeon.DungeonId))
+                                                    {
+                                                        <span class="badge text-bg-success ms-1">Recommended</span>
+                                                    }
+                                                </td>
                                                 <td>@dungeon.Difficulty</td>
                                                 <td>@dungeon.MinimumLevel&ndash;@dungeon.MaximumLevel</td>
                                                 <td class="text-end">
                                                     <button class="btn btn-sm @(dungeon.DungeonId == selectedDungeonId ? "btn-primary" : "btn-outline-primary")"
-                                                            type="button" @onclick="() => SelectDungeon(dungeon.DungeonId)">
+                                                            type="button" @onclick="() => SelectDungeonAsync(dungeon.DungeonId)">
                                                         @(dungeon.DungeonId == selectedDungeonId ? "Selected" : "Select")
                                                     </button>
                                                 </td>
@@ -312,6 +318,59 @@ else
                                     <dt class="col-5">Level range</dt><dd class="col-7">@SelectedDungeon.MinimumLevel&ndash;@SelectedDungeon.MaximumLevel</dd>
                                     <dt class="col-5">Map</dt><dd class="col-7">@SelectedDungeon.MapId</dd>
                                 </dl>
+                                @if (isLoadingReadiness)
+                                {
+                                    <div class="alert alert-info small">Checking party roles, lockouts, and quests…</div>
+                                }
+                                else if (dungeonReadiness is not null)
+                                {
+                                    <div class="d-flex flex-wrap gap-2 mb-3">
+                                        <span class="badge @(dungeonReadiness.HasTank ? "text-bg-success" : "text-bg-warning")">
+                                            @(dungeonReadiness.HasTank ? "Tank ready" : "Tank missing")
+                                        </span>
+                                        <span class="badge @(dungeonReadiness.HasHealer ? "text-bg-success" : "text-bg-warning")">
+                                            @(dungeonReadiness.HasHealer ? "Healer ready" : "Healer missing")
+                                        </span>
+                                        <span class="badge @(dungeonReadiness.DamageCount >= 3 ? "text-bg-success" : "text-bg-warning")">
+                                            @dungeonReadiness.DamageCount / 3 damage
+                                        </span>
+                                        <span class="badge @(dungeonReadiness.PartyFull ? "text-bg-success" : "text-bg-secondary")">
+                                            @(dungeonReadiness.PartyFull ? "Party full" : $"{party.MemberCount} / 5 members")
+                                        </span>
+                                    </div>
+                                    @if (dungeonReadiness.Lockouts.Count > 0)
+                                    {
+                                        <div class="alert alert-warning small">
+                                            <strong>Active lockouts:</strong>
+                                            @foreach (var lockout in dungeonReadiness.Lockouts)
+                                            {
+                                                <div>@lockout.PlayerName — difficulty @lockout.Difficulty, resets @lockout.ResetAtUtc.ToLocalTime().ToString("g")</div>
+                                            }
+                                        </div>
+                                    }
+                                    @if (dungeonReadiness.RelevantQuests.Count > 0)
+                                    {
+                                        <details class="mb-3">
+                                            <summary class="small fw-semibold">@dungeonReadiness.RelevantQuests.Count relevant dungeon quests</summary>
+                                            <div class="small mt-2">
+                                                @foreach (var quest in dungeonReadiness.RelevantQuests)
+                                                {
+                                                    <div class="mb-1">
+                                                        @quest.Title <span class="text-muted">(#@quest.QuestId, level @quest.MinimumLevel)</span>
+                                                        @if (quest.InProgressBy.Count > 0)
+                                                        {
+                                                            <span class="badge text-bg-info">In progress: @string.Join(", ", quest.InProgressBy)</span>
+                                                        }
+                                                        @if (quest.CompletedBy.Count > 0)
+                                                        {
+                                                            <span class="badge text-bg-secondary">Completed: @string.Join(", ", quest.CompletedBy)</span>
+                                                        }
+                                                    </div>
+                                                }
+                                            </div>
+                                        </details>
+                                    }
+                                }
                                 @if (PartyHasLevelWarning)
                                 {
                                     <div class="alert alert-warning small">

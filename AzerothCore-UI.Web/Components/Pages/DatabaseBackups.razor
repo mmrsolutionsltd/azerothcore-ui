@@ -1,0 +1,190 @@
+@page "/database-backups"
+@rendermode InteractiveServer
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@using AzerothCore_UI.Web.Models
+@inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
+
+<PageTitle>Database backups</PageTitle>
+
+<h1>Database backups</h1>
+<p class="text-muted">
+    Verified backups of the auth, characters, and world databases. The newest 20 backups are retained.
+</p>
+
+@if (isLoading)
+{
+    <p><em>Loading database backups...</em></p>
+}
+else
+{
+    @if (message is not null)
+    {
+        <div class="alert @(operationSucceeded ? "alert-success" : "alert-danger")" role="alert">@message</div>
+    }
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <h2 class="h5">Create verified backup</h2>
+            <p>
+                Uses transactional MySQL dumps and verifies every file with its size and SHA-256 hash.
+                For the strongest consistency, stop both AzerothCore servers first.
+            </p>
+            <div class="form-check mb-3">
+                <input id="confirm-backup" class="form-check-input" type="checkbox" @bind="confirmCreate" />
+                <label class="form-check-label" for="confirm-backup">
+                    Create a backup of all three AzerothCore databases
+                </label>
+            </div>
+            <button class="btn btn-primary" disabled="@(!confirmCreate || isWorking)" @onclick="CreateAsync">
+                @(isWorking ? "Working..." : "Create backup")
+            </button>
+        </div>
+    </div>
+
+    @if (backups.Count == 0)
+    {
+        <div class="alert alert-warning">No verified database backups are available.</div>
+    }
+    else
+    {
+        @foreach (var backup in backups)
+        {
+            <section class="card mb-3">
+                <div class="card-header d-flex flex-wrap justify-content-between gap-2">
+                    <div>
+                        <strong>@backup.CreatedAtUtc.ToLocalTime().ToString("g")</strong>
+                        <span class="text-muted ms-2">@backup.BackupId</span>
+                    </div>
+                    <div>
+                        <span class="badge @(backup.Verified ? "text-bg-success" : "text-bg-danger")">
+                            @(backup.Verified ? "Verified" : "Unverified")
+                        </span>
+                        <span class="badge @(backup.ServersWereStopped ? "text-bg-success" : "text-bg-warning") ms-1">
+                            @(backup.ServersWereStopped ? "Offline snapshot" : "Online snapshot")
+                        </span>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <p class="mb-2">@FormatBytes(backup.TotalBytes) total</p>
+                    <ul class="small">
+                        @foreach (var file in backup.Files)
+                        {
+                            <li>@file.Database — @FormatBytes(file.Bytes) — SHA-256 @file.Sha256[..12]…</li>
+                        }
+                    </ul>
+                    <button class="btn btn-sm btn-outline-danger"
+                            disabled="@isWorking"
+                            @onclick="() => SelectRestore(backup)">
+                        Restore...
+                    </button>
+
+                    @if (selectedRestore?.BackupId == backup.BackupId)
+                    {
+                        <div class="alert alert-danger mt-3 mb-0">
+                            <strong>This replaces all three current databases.</strong>
+                            <p class="mb-2">
+                                Both servers must already be stopped. A new verified safety backup is created
+                                immediately before restoration.
+                            </p>
+                            <label class="form-label" for="restore-id">Type the backup ID to confirm</label>
+                            <input id="restore-id" class="form-control mb-2" @bind="restoreConfirmation"
+                                   autocomplete="off" />
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-danger"
+                                        disabled="@(!CanRestore || isWorking)"
+                                        @onclick="RestoreAsync">
+                                    Restore databases
+                                </button>
+                                <button class="btn btn-outline-secondary" disabled="@isWorking"
+                                        @onclick="CancelRestore">Cancel</button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </section>
+        }
+    }
+}
+
+@code {
+    private IReadOnlyList<DatabaseBackupSummary> backups = [];
+    private DatabaseBackupSummary? selectedRestore;
+    private string restoreConfirmation = "";
+    private string? message;
+    private bool isLoading = true, isWorking, confirmCreate, operationSucceeded;
+    private bool CanRestore => selectedRestore is not null
+        && restoreConfirmation.Equals(selectedRestore.BackupId, StringComparison.Ordinal);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+        isLoading = false;
+    }
+
+    private async Task ReloadAsync() =>
+        backups = await AccountsClient.GetDatabaseBackupsAsync();
+
+    private async Task CreateAsync()
+    {
+        isWorking = true;
+        message = null;
+        try
+        {
+            var backup = await AccountsClient.CreateDatabaseBackupAsync(confirmCreate);
+            operationSucceeded = backup?.Verified == true;
+            message = backup is null
+                ? "The backup did not return a result."
+                : $"Verified backup {backup.BackupId} created.";
+            confirmCreate = false;
+            await ReloadAsync();
+        }
+        catch (Exception exception)
+        {
+            operationSucceeded = false;
+            message = exception.Message;
+        }
+        finally { isWorking = false; }
+    }
+
+    private void SelectRestore(DatabaseBackupSummary backup)
+    {
+        selectedRestore = backup;
+        restoreConfirmation = "";
+        message = null;
+    }
+
+    private void CancelRestore()
+    {
+        selectedRestore = null;
+        restoreConfirmation = "";
+    }
+
+    private async Task RestoreAsync()
+    {
+        if (!CanRestore || selectedRestore is null) return;
+        isWorking = true;
+        try
+        {
+            var result = await AccountsClient.RestoreDatabaseBackupAsync(
+                new(selectedRestore.BackupId, true));
+            operationSucceeded = result?.Success == true;
+            message = result?.Message;
+            CancelRestore();
+            await ReloadAsync();
+        }
+        catch (Exception exception)
+        {
+            operationSucceeded = false;
+            message = exception.Message;
+        }
+        finally { isWorking = false; }
+    }
+
+    private static string FormatBytes(long bytes) => bytes switch
+    {
+        >= 1_073_741_824 => $"{bytes / 1_073_741_824d:N2} GB",
+        >= 1_048_576 => $"{bytes / 1_048_576d:N1} MB",
+        >= 1024 => $"{bytes / 1024d:N1} KB",
+        _ => $"{bytes:N0} bytes"
+    };
+}

@@ -194,6 +194,9 @@ public sealed class AccountsApiClient(HttpClient httpClient)
     public Task<AdministrationResult?> FillPartyWithBotsAsync(PartyLeaderRequest request) => PostAsync("api/server-administration/parties/bots/fill", request);
     public async Task<IReadOnlyList<DungeonDestination>> GetDungeonsAsync() =>
         await GetAdministrationAsync<DungeonDestination[]>("api/server-administration/dungeons") ?? [];
+    public Task<DungeonReadiness?> GetDungeonReadinessAsync(string leaderName, uint dungeonId) =>
+        GetAdministrationAsync<DungeonReadiness>(
+            $"api/server-administration/parties/{Uri.EscapeDataString(leaderName)}/dungeons/{dungeonId}/readiness");
     public Task<AdministrationResult?> LaunchPartyAsync(LaunchDungeonRequest request) =>
         PostAsync("api/server-administration/parties/launch", request);
     public Task<AdministrationResult?> SpawnCreatureAsync(SpawnCreatureRequest request) =>
@@ -399,4 +402,26 @@ public sealed class AccountsApiClient(HttpClient httpClient)
     public Task<AdministrationResult?> UnlearnProfessionAsync(
         UnlearnProfessionRequest request) =>
         PostAsync("api/training/professions/unlearn", request);
+
+    public async Task<IReadOnlyList<DatabaseBackupSummary>> GetDatabaseBackupsAsync(
+        CancellationToken cancellationToken = default) =>
+        await httpClient.GetFromJsonAsync<DatabaseBackupSummary[]>(
+            "api/database-backups", cancellationToken) ?? [];
+
+    public async Task<DatabaseBackupSummary?> CreateDatabaseBackupAsync(bool confirmed)
+    {
+        using var response = await httpClient.PostAsJsonAsync(
+            "api/database-backups", new CreateDatabaseBackupRequest(confirmed));
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<AdministrationResult>();
+            throw new HttpRequestException(
+                error?.Message ?? "Database backup failed.", null, response.StatusCode);
+        }
+        return await response.Content.ReadFromJsonAsync<DatabaseBackupSummary>();
+    }
+
+    public Task<AdministrationResult?> RestoreDatabaseBackupAsync(
+        RestoreDatabaseBackupRequest request) =>
+        PostAsync("api/database-backups/restore", request);
 }

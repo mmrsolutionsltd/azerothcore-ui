@@ -160,6 +160,11 @@ public sealed record PartySnapshot(string LeaderName, int MemberCount,
     IReadOnlyList<PartyMember> Members, IReadOnlyList<PartyBotCandidate> Candidates);
 public sealed record DungeonDestination(uint DungeonId, string Name, int MinimumLevel,
     int MaximumLevel, uint MapId, string Difficulty);
+public sealed record DungeonLockout(string PlayerName, uint MapId, int Difficulty, DateTime ResetAtUtc);
+public sealed record DungeonQuest(uint QuestId, string Title, int MinimumLevel,
+    IReadOnlyList<string> InProgressBy, IReadOnlyList<string> CompletedBy);
+public sealed record DungeonReadiness(bool HasTank, bool HasHealer, int DamageCount, bool PartyFull,
+    bool LevelsSuitable, IReadOnlyList<DungeonLockout> Lockouts, IReadOnlyList<DungeonQuest> RelevantQuests);
 public sealed record LaunchDungeonRequest(string LeaderName, uint DungeonId, bool Confirmed);
 public sealed record SpawnCreatureRequest(string AnchorPlayerName, uint CreatureId, int Level, int DespawnMinutes, bool Confirmed);
 public sealed record SetAccountGmRequest(string Username, bool Enabled, bool Confirmed);
