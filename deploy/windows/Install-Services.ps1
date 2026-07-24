@@ -38,4 +38,7 @@ Set-Content -LiteralPath (Join-Path $DestinationRoot "current-release.txt") `
     -Value $ReleaseId -Encoding ASCII
 Start-Service AzerothCoreUiApi
 Start-Service AzerothCoreUiWeb
+if (Get-Service Caddy -ErrorAction SilentlyContinue) {
+    Start-Service Caddy
+}
 Write-Output "Services installed and started with release $ReleaseId."
