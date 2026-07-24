@@ -16,8 +16,11 @@ public partial class TrainerFinder : IDisposable
 
     private IReadOnlyList<AdministrationPlayer> players = [];
     private IEnumerable<AdministrationPlayer> OrderedPlayers =>
-        players.Where(player => !player.IsPlayerBot)
-            .OrderBy(player => player.PickerOrder).ThenBy(player => player.Name);
+        players.OrderBy(player => player.PickerOrder).ThenBy(player => player.Name);
+    private IReadOnlyList<CharacterPickerItem> PickerItems => OrderedPlayers
+        .Select(player => new CharacterPickerItem(
+            player.Name, player.Name, $"Account {player.Username}", player.Online, player.IsPlayerBot))
+        .ToArray();
     private AdministrationPlayer? SelectedCharacter => players.FirstOrDefault(
         player => player.Name.Equals(characterName.Trim(), StringComparison.OrdinalIgnoreCase));
     private TrainerSearchResult results = new([], 1, 30, 0, 0);
@@ -30,6 +33,12 @@ public partial class TrainerFinder : IDisposable
     private long queryGeneration;
     private bool CanTeleport => status is { WorldServer.IsRunning: true, SoapConfigured: true } && !isWorking;
     private bool CanTeleportSelected => CanTeleport && confirmed && selectedTrainer is not null && SelectedCharacter is not null;
+
+    private async Task SelectCharacterAsync(string? value)
+    {
+        characterName = value ?? "";
+        await CharacterChangedAsync();
+    }
 
     protected override async Task OnInitializedAsync()
     {

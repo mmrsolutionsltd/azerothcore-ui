@@ -97,38 +97,14 @@ else
         {
             <div class="alert alert-warning">These tools require the worldserver and SOAP administration connection to be available.</div>
         }
-        <datalist id="administration-players">
-            @foreach (var player in OrderedAdministrationPlayers)
-            {
-                <option value="@player.Name">@player.PickerLabel</option>
-            }
-        </datalist>
         @if (PlayerActionsOnly)
         {
         <div class="card mb-4"><div class="card-body">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-                <h2 class="h5 mb-0">Action targets</h2>
-                <div>
-                    <button class="btn btn-sm btn-outline-secondary me-2" type="button" @onclick="() => SelectAllActionPlayers(true)">Select all</button>
-                    <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="() => SelectAllActionPlayers(false)">Clear</button>
-                </div>
-            </div>
-            <div class="row g-2">
-                @foreach (var player in OrderedAdministrationPlayers)
-                {
-                    var checkboxId = $"action-player-{player.Name}";
-                    <div class="col-sm-6 col-lg-4"><div class="form-check border rounded p-2 ps-5">
-                        <input id="@checkboxId" class="form-check-input" type="checkbox"
-                               checked="@selectedActionPlayerNames.Contains(player.Name)"
-                               @onchange="args => ToggleActionPlayer(player.Name, (bool)(args.Value ?? false))" />
-                        <label class="form-check-label w-100" for="@checkboxId">
-                            <strong>@player.Name</strong>
-                            <span class="badge @(player.Online ? "text-bg-success" : "text-bg-secondary") ms-1">@(player.Online ? "Online" : "Offline")</span>
-                        </label>
-                    </div></div>
-                }
-            </div>
-            <div class="form-text mt-2">@selectedActionPlayerNames.Count selected. Applies to items, mail, money, saved-location teleport, move-to-anchor, and speed.</div>
+            <h2 class="h5">Action targets</h2>
+            <CharacterPicker Items="@AdministrationPickerItems" Multiple="true" AllowBots="true"
+                             SelectedValues="@selectedActionPlayerNames"
+                             SelectedValuesChanged="SetSelectedActionPlayers" />
+            <div class="form-text mt-2">Applies to items, mail, money, saved-location teleport, move-to-anchor, and speed.</div>
         </div></div>
         @if (batchActionResults.Count > 0)
         {
@@ -185,8 +161,9 @@ else
             </div>
             <div class="col-lg-6">
                 <h2 class="h5">Player-relative movement</h2>
-                <label class="form-label" for="relative-anchor">Single anchor player</label>
-                <input id="relative-anchor" class="form-control mb-2" list="administration-players" placeholder="Anchor player" autocomplete="off" @bind="anchorPlayer" />
+                <label class="form-label">Single anchor player</label>
+                <CharacterPicker Items="@AdministrationPickerItems" AllowBots="true"
+                                 SelectedValue="@anchorPlayer" SelectedValueChanged="SelectAnchorPlayer" />
                 <button class="btn btn-primary" disabled="@(!CanUseSoap || selectedActionPlayerNames.Count == 0 || string.IsNullOrWhiteSpace(anchorPlayer))" @onclick="MoveToPlayerAsync">Move selected players to anchor</button>
                 <p class="small text-muted mt-2">All selected action targets and the anchor must be online. The anchor cannot also be a target. Battleground, arena, transport, and unsafe cross-instance movement is rejected.</p>
             </div>
@@ -213,7 +190,8 @@ else
                     <div class="flex-grow-1">
                         <h2 class="h5">Dungeon party assistance</h2>
                         <label class="form-label" for="party-leader">Online real-player leader</label>
-                        <input id="party-leader" class="form-control" list="administration-players" placeholder="Type the party leader's character name" autocomplete="off" @bind="partyLeader" />
+                        <CharacterPicker Items="@AdministrationPickerItems" AllowBots="true"
+                                         SelectedValue="@partyLeader" SelectedValueChanged="SelectPartyLeader" />
                     </div>
                     <div class="d-flex gap-2">
                         <button class="btn btn-outline-secondary" disabled="@(!CanUseSoap || isLoadingParty)" @onclick="LoadPartyAsync">Inspect party</button>

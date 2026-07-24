@@ -1,0 +1,125 @@
+@using AzerothCore_UI.Web.Models
+
+<div class="character-picker border rounded p-2">
+    <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+        <input class="form-control form-control-sm flex-grow-1" style="min-width: 10rem"
+               placeholder="Find character…" @bind="search" @bind:event="oninput" />
+        <div class="form-check form-switch mb-0">
+            <input id="@($"{pickerId}-offline")" class="form-check-input" type="checkbox" @bind="showOffline" />
+            <label class="form-check-label small" for="@($"{pickerId}-offline")">Offline</label>
+        </div>
+        <div class="form-check form-switch mb-0">
+            <input id="@($"{pickerId}-bots")" class="form-check-input" type="checkbox"
+                   disabled="@(!AllowBots)" @bind="showBots" />
+            <label class="form-check-label small" for="@($"{pickerId}-bots")">Bots</label>
+        </div>
+        @if (Multiple)
+        {
+            <button class="btn btn-sm btn-link p-0" type="button" @onclick="SelectVisibleAsync">All</button>
+            <button class="btn btn-sm btn-link p-0" type="button" @onclick="ClearAsync">Clear</button>
+        }
+    </div>
+    <div style="max-height: 8rem; overflow-y: auto">
+        @if (FilteredItems.Count == 0)
+        {
+            <div class="small text-muted px-1 py-2">No characters match these filters.</div>
+        }
+        else
+        {
+            @foreach (var item in FilteredItems)
+            {
+                var selected = IsSelected(item.Value);
+                <button type="button"
+                        class="btn btn-sm w-100 text-start d-flex align-items-center gap-2 mb-1 @(selected ? "btn-primary" : "btn-light")"
+                        @onclick="() => ToggleAsync(item.Value)">
+                    <span class="text-truncate flex-grow-1">
+                        <strong>@item.Name</strong>
+                        @if (!string.IsNullOrWhiteSpace(item.Detail))
+                        {
+                            <span class="small @(selected ? null : "text-muted")"> — @item.Detail</span>
+                        }
+                    </span>
+                    <span class="badge @(item.Online ? "text-bg-success" : "text-bg-secondary")">
+                        @(item.Online ? "Online" : "Offline")
+                    </span>
+                    @if (item.IsPlayerBot)
+                    {
+                        <span class="badge text-bg-info">Bot</span>
+                    }
+                </button>
+            }
+        }
+    </div>
+    <div class="small text-muted mt-1">
+        @if (Multiple)
+        {
+            <span>@SelectedValues.Count selected</span>
+        }
+        else
+        {
+            <span>@(string.IsNullOrEmpty(SelectedValue) ? "No character selected" : "1 selected")</span>
+        }
+        @if (HiddenSelectedCount > 0)
+        {
+            <span> · @HiddenSelectedCount hidden by filters</span>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<CharacterPickerItem> Items { get; set; } = [];
+    [Parameter] public bool Multiple { get; set; }
+    [Parameter] public bool AllowBots { get; set; } = true;
+    [Parameter] public int MaximumSelections { get; set; } = int.MaxValue;
+    [Parameter] public string? SelectedValue { get; set; }
+    [Parameter] public EventCallback<string?> SelectedValueChanged { get; set; }
+    [Parameter] public IReadOnlySet<string> SelectedValues { get; set; } = new HashSet<string>();
+    [Parameter] public EventCallback<IReadOnlySet<string>> SelectedValuesChanged { get; set; }
+    private readonly string pickerId = $"character-picker-{Guid.NewGuid():N}";
+    private string search = "";
+    private bool showOffline, showBots;
+    private IReadOnlyList<CharacterPickerItem> FilteredItems => Items
+        .Where(item => (item.Online || showOffline)
+            && (!item.IsPlayerBot || (AllowBots && showBots))
+            && (string.IsNullOrWhiteSpace(search)
+                || item.Name.Contains(search, StringComparison.OrdinalIgnoreCase)
+                || item.Detail.Contains(search, StringComparison.OrdinalIgnoreCase)))
+        .OrderByDescending(item => item.Online)
+        .ThenBy(item => item.IsPlayerBot)
+        .ThenBy(item => item.Name)
+        .ToArray();
+    private int HiddenSelectedCount => Multiple
+        ? SelectedValues.Count(value => FilteredItems.All(item => item.Value != value))
+        : string.IsNullOrEmpty(SelectedValue) || FilteredItems.Any(item => item.Value == SelectedValue) ? 0 : 1;
+
+    private bool IsSelected(string value) => Multiple
+        ? SelectedValues.Contains(value)
+        : string.Equals(SelectedValue, value, StringComparison.Ordinal);
+
+    private async Task ToggleAsync(string value)
+    {
+        if (!Multiple)
+        {
+            await SelectedValueChanged.InvokeAsync(
+                string.Equals(SelectedValue, value, StringComparison.Ordinal) ? null : value);
+            return;
+        }
+        var values = SelectedValues.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (!values.Remove(value) && values.Count < MaximumSelections) values.Add(value);
+        await SelectedValuesChanged.InvokeAsync(values);
+    }
+
+    private async Task SelectVisibleAsync()
+    {
+        var values = SelectedValues.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in FilteredItems)
+        {
+            if (values.Count >= MaximumSelections) break;
+            values.Add(item.Value);
+        }
+        await SelectedValuesChanged.InvokeAsync(values);
+    }
+
+    private Task ClearAsync() =>
+        SelectedValuesChanged.InvokeAsync(new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+}

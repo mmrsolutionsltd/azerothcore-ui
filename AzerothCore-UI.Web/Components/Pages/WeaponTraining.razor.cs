@@ -6,10 +6,15 @@ public partial class WeaponTraining
 {
     private IReadOnlyList<AdministrationPlayer> players = [];
     private IReadOnlyList<WeaponTrainingStatus> training = [];
-    private IEnumerable<AdministrationPlayer> OrderedOnlinePlayers => players
-        .Where(player => player.Online && !player.IsPlayerBot)
+    private IEnumerable<AdministrationPlayer> OrderedPlayers => players
         .OrderBy(player => player.PickerOrder)
         .ThenBy(player => player.Name);
+    private IReadOnlyList<CharacterPickerItem> PickerItems => OrderedPlayers
+        .Select(player => new CharacterPickerItem(
+            player.Name, player.Name, $"Account {player.Username}", player.Online, player.IsPlayerBot))
+        .ToArray();
+    private AdministrationPlayer? SelectedPlayer => players.FirstOrDefault(
+        player => player.Name.Equals(playerName, StringComparison.OrdinalIgnoreCase));
 
     private ServerStatus? status;
     private WeaponTrainingStatus? pendingTraining;
@@ -22,7 +27,13 @@ public partial class WeaponTraining
     private bool operationSucceeded;
 
     private bool CanUseWeaponTraining => status is { WorldServer.IsRunning: true, SoapConfigured: true } && !isWorking;
-    private bool CanLoad => CanUseWeaponTraining && !isLoadingTraining && !string.IsNullOrWhiteSpace(playerName);
+    private bool CanLoad => CanUseWeaponTraining && !isLoadingTraining && SelectedPlayer?.Online == true;
+    private void SelectPlayer(string? value)
+    {
+        playerName = value ?? "";
+        training = [];
+        loadedPlayerName = "";
+    }
 
     protected override async Task OnInitializedAsync()
     {

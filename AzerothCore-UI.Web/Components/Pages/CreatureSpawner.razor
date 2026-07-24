@@ -25,13 +25,6 @@ else
     }
     <div class="alert alert-info">Spawns are temporary runtime creatures. Nothing is inserted into the AzerothCore world database.</div>
 
-    <datalist id="creature-anchor-players">
-        @foreach (var player in OrderedOnlinePlayers)
-        {
-            <option value="@player.Name">@player.PickerLabel</option>
-        }
-    </datalist>
-
     <div class="row g-4">
         <div class="col-xl-8">
             <div class="card"><div class="card-body">
@@ -87,13 +80,15 @@ else
             else
             {
                 <p><strong>@selectedCreature.Name</strong> <span class="badge text-bg-secondary">ID @selectedCreature.CreatureId</span> @if (selectedCreature.Exotic) { <span class="badge text-bg-purple">Exotic</span> }</p>
-                <label class="form-label" for="creature-anchor">Online anchor player</label><input id="creature-anchor" class="form-control mb-3" list="creature-anchor-players" @bind="creatureAnchor" autocomplete="off" />
+                <label class="form-label">Anchor character</label>
+                <CharacterPicker Items="@PickerItems" AllowBots="true"
+                                 SelectedValue="@creatureAnchor" SelectedValueChanged="SelectAnchor" />
                 <label class="form-label" for="creature-level">Spawn level</label><input id="creature-level" class="form-control mb-2" type="number" min="1" max="83" @bind="creatureLevel" />
                 <p class="small text-muted">Natural template range: @selectedCreature.MinimumLevel&ndash;@selectedCreature.MaximumLevel. Override allowed from level 1 to 83.</p>
                 @if (creatureLevel < selectedCreature.MinimumLevel || creatureLevel > selectedCreature.MaximumLevel) { <div class="alert alert-warning py-2 small">This level is outside the creature's natural range. AzerothCore will recalculate its stats.</div> }
                 <label class="form-label" for="creature-despawn">Despawn after</label><div class="input-group mb-3"><input id="creature-despawn" class="form-control" type="number" min="1" max="30" @bind="creatureDespawnMinutes" /><span class="input-group-text">minutes</span></div>
                 <div class="form-check mb-3"><input id="confirm-creature-spawn" class="form-check-input" type="checkbox" @bind="confirmCreatureSpawn" /><label class="form-check-label" for="confirm-creature-spawn">Confirm temporary spawn near @creatureAnchor</label></div>
-                <button class="btn btn-success" disabled="@(!CanSpawn || !confirmCreatureSpawn || string.IsNullOrWhiteSpace(creatureAnchor))" @onclick="SpawnCreatureAsync">Spawn creature</button>
+                <button class="btn btn-success" disabled="@(!CanSpawn || !confirmCreatureSpawn || SelectedAnchor?.Online != true)" @onclick="SpawnCreatureAsync">Spawn creature</button>
             }
         </div></div></div>
     </div>

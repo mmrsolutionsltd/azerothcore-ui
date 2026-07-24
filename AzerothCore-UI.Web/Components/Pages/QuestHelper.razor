@@ -15,14 +15,9 @@
 }
 
 <div class="card mb-4"><div class="card-body">
-    <label class="form-label" for="quest-character">Character</label>
-    <select id="quest-character" class="form-select" @bind="selectedGuid" @bind:after="LoadDashboardAsync">
-        <option value="0">Select a real-player character</option>
-        @foreach (var character in characters.OrderByDescending(item => item.Online).ThenBy(item => item.Name))
-        {
-            <option value="@character.Guid">@character.Name — level @character.Level @CharacterDisplayNames.Class(character.Class) @(character.Online ? "(online)" : "(offline)")</option>
-        }
-    </select>
+    <label class="form-label">Character</label>
+    <CharacterPicker Items="@PickerItems" AllowBots="false"
+                     SelectedValue="@SelectedGuidValue" SelectedValueChanged="SelectCharacterAsync" />
 </div></div>
 
 @if (isLoading)

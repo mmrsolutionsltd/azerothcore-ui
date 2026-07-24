@@ -11,11 +11,13 @@
 @if (isLoadingPage) { <p><em>Loading characters...</em></p> }
 else
 {
-    <datalist id="collectible-players">@foreach (var player in OrderedPlayers) { <option value="@player.Name">@player.PickerLabel</option> }</datalist>
-    <div class="card mb-4"><div class="card-body"><div class="row g-2 align-items-end">
-        <div class="col-md-9"><label class="form-label" for="collection-character">Character</label><input id="collection-character" class="form-control" list="collectible-players" @bind="playerName" placeholder="Choose a character before browsing" autocomplete="off" /></div>
-        <div class="col-md-3"><button class="btn btn-primary w-100" disabled="@string.IsNullOrWhiteSpace(playerName)" @onclick="LoadCollectionAsync">Load collection</button></div>
-    </div></div></div>
+    <div class="card mb-4"><div class="card-body">
+        <label class="form-label">Character</label>
+        <CharacterPicker Items="@PickerItems" AllowBots="true"
+                         SelectedValue="@playerName" SelectedValueChanged="SelectPlayer" />
+        <button class="btn btn-primary btn-sm mt-2" disabled="@string.IsNullOrWhiteSpace(playerName)"
+                @onclick="LoadCollectionAsync">Load collection</button>
+    </div></div>
 
     @if (collectionLoaded)
     {

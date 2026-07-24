@@ -24,6 +24,21 @@ public partial class Training
     private ManagedProfession? pendingUnlearn;
     private const string NewProfessionActionKey = "new-profession";
     private const string UnlearnActionKey = "unlearn-profession";
+    private string? SelectedProfessionGuidValue => selectedCharacterGuid == 0
+        ? null : selectedCharacterGuid.ToString();
+    private string? SelectedManagementGuidValue => selectedManagementCharacterGuid == 0
+        ? null : selectedManagementCharacterGuid.ToString();
+    private IReadOnlyList<CharacterPickerItem> ProfessionStarterPickerItems => professionStarters
+        .Select(character => new CharacterPickerItem(
+            character.CharacterGuid.ToString(), character.CharacterName,
+            $"Level {character.CharacterLevel} · {character.PrimaryProfessionCount}/2 primary",
+            character.Online))
+        .ToArray();
+    private IReadOnlyList<CharacterPickerItem> ProfessionManagementPickerItems => professionManagement
+        .Select(character => new CharacterPickerItem(
+            character.CharacterGuid.ToString(), character.CharacterName,
+            $"{character.Professions.Count} known professions", character.Online))
+        .ToArray();
 
     private ProfessionStarterCharacter? SelectedProfessionCharacter =>
         professionStarters.FirstOrDefault(character =>
@@ -36,6 +51,18 @@ public partial class Training
     private ProfessionManagementCharacter? SelectedManagementCharacter =>
         professionManagement.FirstOrDefault(character =>
             character.CharacterGuid == selectedManagementCharacterGuid);
+
+    private void SelectProfessionCharacter(string? value)
+    {
+        selectedCharacterGuid = uint.TryParse(value, out var guid) ? guid : 0;
+        SelectDefaultProfession();
+    }
+
+    private void SelectManagementCharacter(string? value)
+    {
+        selectedManagementCharacterGuid = uint.TryParse(value, out var guid) ? guid : 0;
+        CancelUnlearn();
+    }
 
     private IReadOnlyList<string> Disciplines => characters
         .SelectMany(character => character.Requirements)

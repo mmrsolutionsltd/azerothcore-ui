@@ -16,3 +16,22 @@ public sealed record DatabaseBackupFile(
 
 public sealed record CreateDatabaseBackupRequest(bool Confirmed);
 public sealed record RestoreDatabaseBackupRequest(string BackupId, bool Confirmed);
+public sealed record DatabaseBackupSchedule(
+    bool Enabled,
+    string Frequency,
+    string LocalTime,
+    DayOfWeek DayOfWeek,
+    bool OnlyWhenServersStopped,
+    int RetentionCount);
+public sealed record DatabaseBackupActivity(
+    DateTime OccurredAtUtc, string Outcome, string Message, string? BackupId = null);
+public sealed record DatabaseBackupDashboard(
+    DatabaseBackupSchedule Schedule,
+    DateTime? NextRunUtc,
+    DateTime? LastAttemptUtc,
+    DateTime? LastSuccessUtc,
+    bool Overdue,
+    string? LastError,
+    int BackupCount,
+    long TotalBytes,
+    IReadOnlyList<DatabaseBackupActivity> Activity);

@@ -24,24 +24,12 @@ else
         <div class="alert alert-warning">The worldserver and SOAP administration connection must be available before teleporting.</div>
     }
 
-    <datalist id="trainer-characters">
-        @foreach (var player in OrderedPlayers)
-        {
-            <option value="@player.Name">@player.PickerLabel</option>
-        }
-    </datalist>
-
     <div class="card mb-4"><div class="card-body">
         <div class="row g-3">
             <div class="col-lg-5">
-                <label class="form-label" for="trainer-character">Character</label>
-                <input id="trainer-character" class="form-control" list="trainer-characters"
-                       placeholder="Select a character" autocomplete="off"
-                       @bind="characterName" @bind:after="CharacterChangedAsync" />
-                @if (!string.IsNullOrWhiteSpace(characterName) && SelectedCharacter is null)
-                {
-                    <div class="form-text text-danger">Select an existing character from the list.</div>
-                }
+                <label class="form-label">Character</label>
+                <CharacterPicker Items="@PickerItems" AllowBots="true"
+                                 SelectedValue="@characterName" SelectedValueChanged="SelectCharacterAsync" />
             </div>
             <div class="col-lg-3">
                 <label class="form-label" for="trainer-category">Trainer type</label>

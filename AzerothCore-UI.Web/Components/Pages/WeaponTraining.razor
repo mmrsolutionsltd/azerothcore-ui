@@ -25,22 +25,17 @@ else
         <div class="alert alert-warning">Weapon training requires the worldserver and its SOAP administration connection.</div>
     }
 
-    <datalist id="weapon-training-players">
-        @foreach (var player in OrderedOnlinePlayers)
-        {
-            <option value="@player.Name">@player.PickerLabel</option>
-        }
-    </datalist>
-
     <div class="card mb-4">
         <div class="card-body">
-            <label class="form-label" for="weapon-training-player">Online character</label>
-            <div class="input-group">
-                <input id="weapon-training-player" class="form-control" list="weapon-training-players"
-                       placeholder="Start typing a character name" autocomplete="off" @bind="playerName" />
-                <button class="btn btn-primary" disabled="@(!CanLoad)" @onclick="LoadTrainingAsync">Load training</button>
-            </div>
-            <div class="form-text">Online players are listed first, with human players ahead of PlayerBots.</div>
+            <label class="form-label">Character</label>
+            <CharacterPicker Items="@PickerItems" AllowBots="true"
+                             SelectedValue="@playerName" SelectedValueChanged="SelectPlayer" />
+            <button class="btn btn-primary btn-sm mt-2" disabled="@(!CanLoad)"
+                    @onclick="LoadTrainingAsync">Load training</button>
+            @if (!string.IsNullOrWhiteSpace(playerName) && SelectedPlayer?.Online != true)
+            {
+                <div class="form-text text-warning">Weapon training requires the selected character to be online.</div>
+            }
         </div>
     </div>
 

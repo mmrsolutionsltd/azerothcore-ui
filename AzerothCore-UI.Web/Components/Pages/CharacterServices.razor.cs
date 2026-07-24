@@ -19,7 +19,6 @@ public partial class CharacterServices
     ];
     private IReadOnlyList<AdministrationPlayer> players = [];
     private IEnumerable<AdministrationPlayer> OrderedPlayers => players
-        .Where(player => !player.IsPlayerBot)
         .OrderBy(player => player.PickerOrder).ThenBy(player => player.Name);
     private ServerStatus? status;
     private readonly HashSet<string> selectedPlayerNames = new(StringComparer.OrdinalIgnoreCase);
@@ -34,6 +33,10 @@ public partial class CharacterServices
         && (service.Key != "level" || newLevel is >= 1 and <= 80);
     private IReadOnlyList<AdministrationPlayer> SelectedPlayers => OrderedPlayers
         .Where(player => selectedPlayerNames.Contains(player.Name)).ToArray();
+    private IReadOnlyList<CharacterPickerItem> PickerItems => OrderedPlayers
+        .Select(player => new CharacterPickerItem(
+            player.Name, player.Name, $"Account {player.Username}", player.Online, player.IsPlayerBot))
+        .ToArray();
 
     protected override async Task OnInitializedAsync()
     {
@@ -81,18 +84,10 @@ public partial class CharacterServices
         finally { isWorking = false; }
     }
 
-    private void TogglePlayer(string name, bool selected)
-    {
-        if (selected) selectedPlayerNames.Add(name);
-        else selectedPlayerNames.Remove(name);
-        batchResults = [];
-    }
-
-    private void SelectAllRealPlayers(bool selected)
+    private void SetSelectedPlayers(IReadOnlySet<string> values)
     {
         selectedPlayerNames.Clear();
-        if (selected)
-            foreach (var player in OrderedPlayers) selectedPlayerNames.Add(player.Name);
+        selectedPlayerNames.UnionWith(values);
         batchResults = [];
     }
 

@@ -7,7 +7,9 @@ namespace AzerothCore_UI.Api.Controllers;
 
 [ApiController]
 [Route("api/database-backups")]
-public sealed class DatabaseBackupsController(DatabaseBackupService backupService) : ControllerBase
+public sealed class DatabaseBackupsController(
+    DatabaseBackupService backupService,
+    DatabaseBackupScheduler scheduler) : ControllerBase
 {
     [HttpGet]
     public ActionResult<IReadOnlyList<DatabaseBackupSummary>> GetBackups() =>
@@ -21,7 +23,18 @@ public sealed class DatabaseBackupsController(DatabaseBackupService backupServic
         if (!IsLocalRequest()) return NotFound();
         if (!request.Confirmed)
             return BadRequest(new AdministrationResult(false, "Confirm creating the database backup."));
-        return Ok(await backupService.CreateAsync(cancellationToken));
+        return Ok(await scheduler.RunNowAsync("Manual", cancellationToken));
+    }
+
+    [HttpGet("schedule")]
+    public ActionResult<DatabaseBackupDashboard> GetSchedule() =>
+        IsLocalRequest() ? Ok(scheduler.GetDashboard()) : NotFound();
+
+    [HttpPut("schedule")]
+    public ActionResult<DatabaseBackupDashboard> UpdateSchedule(DatabaseBackupSchedule schedule)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        return Ok(scheduler.UpdateSchedule(schedule));
     }
 
     [HttpPost("restore")]

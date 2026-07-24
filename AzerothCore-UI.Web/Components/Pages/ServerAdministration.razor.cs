@@ -16,8 +16,11 @@ public partial class ServerAdministration
     private GameplayRateSettings? gameplayRates;
     private IReadOnlyList<AdministrationPlayer> administrationPlayers = [];
     private IEnumerable<AdministrationPlayer> OrderedAdministrationPlayers => administrationPlayers
-        .Where(player => !player.IsPlayerBot)
         .OrderBy(player => player.PickerOrder).ThenBy(player => player.Name);
+    private IReadOnlyList<CharacterPickerItem> AdministrationPickerItems => OrderedAdministrationPlayers
+        .Select(player => new CharacterPickerItem(
+            player.Name, player.Name, $"Account {player.Username}", player.Online, player.IsPlayerBot))
+        .ToArray();
     private AdministrationItemSearchResult itemResults = new([], 1, 30, 0, 0);
     private CancellationTokenSource? itemSearchCancellation;
     private bool showItemPicker, isLoadingItems;
@@ -117,19 +120,21 @@ public partial class ServerAdministration
     private Task SetPlayerSpeedAsync() => RunBatchAsync("Apply speed",
         player => AccountsClient.SetPlayerSpeedAsync(new(player, playerSpeed)));
 
-    private void ToggleActionPlayer(string name, bool selected)
+    private void SetSelectedActionPlayers(IReadOnlySet<string> values)
     {
-        if (selected) selectedActionPlayerNames.Add(name);
-        else selectedActionPlayerNames.Remove(name);
+        selectedActionPlayerNames.Clear();
+        selectedActionPlayerNames.UnionWith(values);
         batchActionResults = [];
     }
 
-    private void SelectAllActionPlayers(bool selected)
+    private void SelectAnchorPlayer(string? value) => anchorPlayer = value ?? "";
+
+    private void SelectPartyLeader(string? value)
     {
-        selectedActionPlayerNames.Clear();
-        if (selected)
-            foreach (var player in OrderedAdministrationPlayers) selectedActionPlayerNames.Add(player.Name);
-        batchActionResults = [];
+        partyLeader = value ?? "";
+        party = null;
+        selectedDungeonId = 0;
+        dungeonReadiness = null;
     }
 
     private async Task RunBatchAsync(string action, Func<string, Task<AdministrationResult?>> operation)

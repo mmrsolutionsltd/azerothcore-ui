@@ -15,6 +15,12 @@ public partial class StarterPresets
     private bool includeFoodAndDrink = true, includeClassSupplies = true;
     private bool confirmed, isLoading = true, isWorking, operationSucceeded;
     private string? message;
+    private IReadOnlyList<CharacterPickerItem> PickerItems => characters
+        .Select(character => new CharacterPickerItem(
+            character.Name, character.Name,
+            $"Level {character.Level} {CharacterDisplayNames.Class(character.Class)} · {character.Username}",
+            character.Online))
+        .ToArray();
     private bool CanApply => preview is not null && confirmed && !isWorking
         && status is { WorldServer.IsRunning: true, SoapConfigured: true };
 
@@ -32,18 +38,10 @@ public partial class StarterPresets
         finally { isLoading = false; }
     }
 
-    private void ToggleCharacter(string name, bool selected)
-    {
-        if (selected && selectedNames.Count < 10) selectedNames.Add(name);
-        else if (!selected) selectedNames.Remove(name);
-        InvalidatePreview();
-    }
-
-    private void SelectAll(bool selected)
+    private void SetSelectedCharacters(IReadOnlySet<string> values)
     {
         selectedNames.Clear();
-        if (selected)
-            foreach (var character in characters.Take(10)) selectedNames.Add(character.Name);
+        selectedNames.UnionWith(values.Take(10));
         InvalidatePreview();
     }
 

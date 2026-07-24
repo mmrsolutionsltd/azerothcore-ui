@@ -18,6 +18,8 @@ builder.Services.AddSingleton<AzerothCore_UI.Api.Services.AzerothCoreServerManag
 builder.Services.AddSingleton<AzerothCore_UI.Api.Services.AzerothCoreConfigurationManager>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Services.AzerothCoreDiagnosticsService>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Services.DatabaseBackupService>();
+builder.Services.AddSingleton<AzerothCore_UI.Api.Services.DatabaseBackupScheduler>();
+builder.Services.AddHostedService<AzerothCore_UI.Api.Services.DatabaseBackupWorker>();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 

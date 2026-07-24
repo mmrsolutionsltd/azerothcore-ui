@@ -24,6 +24,96 @@ else
 
     <div class="card mb-4">
         <div class="card-body">
+            <div class="d-flex flex-wrap justify-content-between gap-2">
+                <div>
+                    <h2 class="h5">Automatic backups</h2>
+                    @if (dashboard is not null)
+                    {
+                        <p class="small mb-0">
+                            @if (!dashboard.Schedule.Enabled)
+                            {
+                                <span class="badge text-bg-secondary">Disabled</span>
+                            }
+                            else if (dashboard.Overdue)
+                            {
+                                <span class="badge text-bg-warning">Overdue</span>
+                            }
+                            else
+                            {
+                                <span class="badge text-bg-success">On schedule</span>
+                            }
+                            @if (dashboard.LastSuccessUtc is { } lastSuccess)
+                            {
+                                <span class="ms-2">Last success: @lastSuccess.ToLocalTime().ToString("g")</span>
+                            }
+                            @if (dashboard.NextRunUtc is { } nextRun)
+                            {
+                                <span class="ms-2">Next run: @nextRun.ToLocalTime().ToString("g")</span>
+                            }
+                            <span class="ms-2">
+                                Storage: @FormatBytes(dashboard.TotalBytes) in @dashboard.BackupCount backups
+                            </span>
+                        </p>
+                    }
+                </div>
+            </div>
+            @if (dashboard?.LastError is { Length: > 0 } lastError)
+            {
+                <div class="alert alert-danger small mt-3">@lastError</div>
+            }
+            <div class="row g-3 mt-1">
+                <div class="col-md-2">
+                    <div class="form-check mt-md-4">
+                        <input id="schedule-enabled" class="form-check-input" type="checkbox" @bind="scheduleEnabled" />
+                        <label for="schedule-enabled" class="form-check-label">Enabled</label>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label" for="schedule-frequency">Frequency</label>
+                    <select id="schedule-frequency" class="form-select" @bind="scheduleFrequency">
+                        <option>Daily</option>
+                        <option>Weekly</option>
+                    </select>
+                </div>
+                @if (scheduleFrequency == "Weekly")
+                {
+                    <div class="col-md-2">
+                        <label class="form-label" for="schedule-day">Day</label>
+                        <select id="schedule-day" class="form-select" @bind="scheduleDay">
+                            @foreach (var day in Enum.GetValues<DayOfWeek>())
+                            {
+                                <option value="@day">@day</option>
+                            }
+                        </select>
+                    </div>
+                }
+                <div class="col-md-2">
+                    <label class="form-label" for="schedule-time">Local time</label>
+                    <input id="schedule-time" class="form-control" type="time" @bind="scheduleTime" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label" for="schedule-retention">Keep backups</label>
+                    <input id="schedule-retention" class="form-control" type="number"
+                           min="1" max="100" @bind="scheduleRetention" />
+                </div>
+                <div class="col-md-4">
+                    <div class="form-check mt-md-4">
+                        <input id="schedule-offline" class="form-check-input" type="checkbox"
+                               @bind="scheduleOnlyOffline" />
+                        <label for="schedule-offline" class="form-check-label">
+                            Wait until both servers are stopped
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <button class="btn btn-primary mt-3" disabled="@isWorking" @onclick="SaveScheduleAsync">
+                Save schedule
+            </button>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-body">
             <h2 class="h5">Create verified backup</h2>
             <p>
                 Uses transactional MySQL dumps and verifies every file with its size and SHA-256 hash.
@@ -104,25 +194,75 @@ else
             </section>
         }
     }
+
+    @if (dashboard?.Activity.Count > 0)
+    {
+        <div class="card mt-4">
+            <div class="card-body">
+                <h2 class="h5">Backup activity</h2>
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead><tr><th>Time</th><th>Outcome</th><th>Details</th></tr></thead>
+                        <tbody>
+                        @foreach (var activity in dashboard.Activity.Take(20))
+                        {
+                            <tr>
+                                <td class="text-nowrap">@activity.OccurredAtUtc.ToLocalTime().ToString("g")</td>
+                                <td>@activity.Outcome</td>
+                                <td>@activity.Message
+                                    @if (activity.BackupId is not null)
+                                    {
+                                        <span class="text-muted">(@activity.BackupId)</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
 }
 
 @code {
     private IReadOnlyList<DatabaseBackupSummary> backups = [];
+    private DatabaseBackupDashboard? dashboard;
     private DatabaseBackupSummary? selectedRestore;
     private string restoreConfirmation = "";
     private string? message;
     private bool isLoading = true, isWorking, confirmCreate, operationSucceeded;
+    private bool scheduleEnabled, scheduleOnlyOffline = true;
+    private string scheduleFrequency = "Daily";
+    private TimeOnly scheduleTime = new(3, 0);
+    private DayOfWeek scheduleDay = DayOfWeek.Sunday;
+    private int scheduleRetention = 20;
     private bool CanRestore => selectedRestore is not null
         && restoreConfirmation.Equals(selectedRestore.BackupId, StringComparison.Ordinal);
 
     protected override async Task OnInitializedAsync()
     {
         await ReloadAsync();
+        LoadScheduleFields();
         isLoading = false;
     }
 
     private async Task ReloadAsync() =>
-        backups = await AccountsClient.GetDatabaseBackupsAsync();
+        (backups, dashboard) = (
+            await AccountsClient.GetDatabaseBackupsAsync(),
+            await AccountsClient.GetDatabaseBackupScheduleAsync());
+
+    private void LoadScheduleFields()
+    {
+        if (dashboard is null) return;
+        scheduleEnabled = dashboard.Schedule.Enabled;
+        scheduleFrequency = dashboard.Schedule.Frequency;
+        scheduleTime = TimeOnly.TryParse(dashboard.Schedule.LocalTime, out var parsedTime)
+            ? parsedTime : new TimeOnly(3, 0);
+        scheduleDay = dashboard.Schedule.DayOfWeek;
+        scheduleOnlyOffline = dashboard.Schedule.OnlyWhenServersStopped;
+        scheduleRetention = dashboard.Schedule.RetentionCount;
+    }
 
     private async Task CreateAsync()
     {
@@ -136,6 +276,30 @@ else
                 ? "The backup did not return a result."
                 : $"Verified backup {backup.BackupId} created.";
             confirmCreate = false;
+            await ReloadAsync();
+        }
+        catch (Exception exception)
+        {
+            operationSucceeded = false;
+            message = exception.Message;
+        }
+        finally { isWorking = false; }
+    }
+
+    private async Task SaveScheduleAsync()
+    {
+        isWorking = true;
+        message = null;
+        try
+        {
+            dashboard = await AccountsClient.UpdateDatabaseBackupScheduleAsync(
+                new(scheduleEnabled, scheduleFrequency, scheduleTime.ToString("HH:mm"), scheduleDay,
+                    scheduleOnlyOffline, scheduleRetention));
+            operationSucceeded = dashboard is not null;
+            message = scheduleEnabled
+                ? "Automatic backup schedule saved."
+                : "Automatic backups disabled.";
+            LoadScheduleFields();
             await ReloadAsync();
         }
         catch (Exception exception)

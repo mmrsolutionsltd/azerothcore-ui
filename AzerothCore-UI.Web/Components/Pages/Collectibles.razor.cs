@@ -7,8 +7,11 @@ public partial class Collectibles
     private CharacterCollectibleSearchResult results = new([], 1, 30, 0, 0, 0, 0);
     private IReadOnlyList<AdministrationPlayer> players = [];
     private IEnumerable<AdministrationPlayer> OrderedPlayers => players
-        .Where(player => !player.IsPlayerBot)
         .OrderBy(player => player.PickerOrder).ThenBy(player => player.Name);
+    private IReadOnlyList<CharacterPickerItem> PickerItems => OrderedPlayers
+        .Select(player => new CharacterPickerItem(
+            player.Name, player.Name, $"Account {player.Username}", player.Online, player.IsPlayerBot))
+        .ToArray();
     private readonly HashSet<uint> bulkSelection = [];
     private readonly Dictionary<uint, CharacterCollectibleItem> selectedItems = [];
     private CancellationTokenSource? debounce;
@@ -23,6 +26,11 @@ public partial class Collectibles
         finally { isLoadingPage = false; }
     }
     private async Task LoadCollectionAsync() { collectionLoaded = true; selected = null; bulkSelection.Clear(); selectedItems.Clear(); await LoadAsync(1); }
+    private void SelectPlayer(string? value)
+    {
+        playerName = value ?? "";
+        collectionLoaded = false;
+    }
     private async Task SearchChangedAsync(ChangeEventArgs args)
     {
         search = args.Value?.ToString() ?? ""; debounce?.Cancel(); debounce?.Dispose(); debounce = new();

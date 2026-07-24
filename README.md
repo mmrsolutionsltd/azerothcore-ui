@@ -35,7 +35,9 @@ The solution targets .NET 10 and contains:
 
 ### Player actions
 
-- Select one or more real-player characters as shared action targets.
+- Use the same compact, searchable character picker across administration tools.
+- Show online real-player characters by default, with optional offline-character and PlayerBot filters where supported.
+- Select one or more characters as shared action targets on batch-capable screens.
 - Search the world item catalogue and give an item directly to the selected online characters.
 - Mail items to selected online or offline characters.
 - Send gold, silver, and copper to all selected characters through in-game mail.
@@ -66,6 +68,10 @@ The solution targets .NET 10 and contains:
 - Retain the latest 20 verified backups in the configured server backup directory.
 - Restore only while both servers are stopped, after typing the exact backup identifier.
 - Verify every restore file and automatically create a fresh safety backup immediately before restoration.
+- Schedule daily or weekly backups at a chosen local time through an API-hosted background worker.
+- Optionally defer scheduled backups until both AzerothCore servers are stopped.
+- Configure retention from 1 to 100 backups and show the next run, last success, overdue state, failures, and recent activity.
+- Prevent scheduled/manual backups and database restoration from overlapping.
 
 ### Gameplay rates
 

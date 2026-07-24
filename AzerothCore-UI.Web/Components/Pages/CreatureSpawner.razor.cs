@@ -8,9 +8,14 @@ public partial class CreatureSpawner
     private static readonly uint[] CreatureFamilies = [1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 20, 21, 24, 25, 26, 27, 30, 31, 32, 33, 34, 35, 37, 38, 39, 41, 42, 43, 44, 45, 46];
     private AdministrationCreatureSearchResult creatureResults = new([], 1, 30, 0, 0);
     private IReadOnlyList<AdministrationPlayer> administrationPlayers = [];
-    private IEnumerable<AdministrationPlayer> OrderedOnlinePlayers => administrationPlayers
-        .Where(player => player.Online && !player.IsPlayerBot)
+    private IEnumerable<AdministrationPlayer> OrderedPlayers => administrationPlayers
         .OrderBy(player => player.PickerOrder).ThenBy(player => player.Name);
+    private IReadOnlyList<CharacterPickerItem> PickerItems => OrderedPlayers
+        .Select(player => new CharacterPickerItem(
+            player.Name, player.Name, $"Account {player.Username}", player.Online, player.IsPlayerBot))
+        .ToArray();
+    private AdministrationPlayer? SelectedAnchor => administrationPlayers.FirstOrDefault(
+        player => player.Name.Equals(creatureAnchor, StringComparison.OrdinalIgnoreCase));
     private CancellationTokenSource? searchCancellation;
     private ServerStatus? status;
     private AdministrationCreature? selectedCreature;
@@ -22,6 +27,11 @@ public partial class CreatureSpawner
     private int creatureLevel = 1, creatureDespawnMinutes = 10;
     private long creatureQueryGeneration;
     private bool CanSpawn => status is { WorldServer.IsRunning: true, SoapConfigured: true } && !isWorking;
+    private void SelectAnchor(string? value)
+    {
+        creatureAnchor = value ?? "";
+        confirmCreatureSpawn = false;
+    }
 
     protected override async Task OnInitializedAsync()
     {

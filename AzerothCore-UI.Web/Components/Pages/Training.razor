@@ -43,18 +43,10 @@ else
             {
                 <div class="row g-3 align-items-end">
                     <div class="col-md-5">
-                        <label class="form-label" for="profession-character">Character</label>
-                        <select id="profession-character" class="form-select"
-                                @bind="selectedCharacterGuid" @bind:after="SelectDefaultProfession">
-                            @foreach (var character in professionStarters)
-                            {
-                                <option value="@character.CharacterGuid">
-                                    @character.CharacterName — level @character.CharacterLevel
-                                    — @(character.Online ? "online" : "offline")
-                                    — @character.PrimaryProfessionCount/2 primary
-                                </option>
-                            }
-                        </select>
+                        <label class="form-label">Character</label>
+                        <CharacterPicker Items="@ProfessionStarterPickerItems" AllowBots="false"
+                                         SelectedValue="@SelectedProfessionGuidValue"
+                                         SelectedValueChanged="SelectProfessionCharacter" />
                     </div>
                     <div class="col-md-4">
                         <label class="form-label" for="new-profession">Profession</label>
@@ -108,16 +100,10 @@ else
             {
                 <div class="row g-3 mb-3">
                     <div class="col-md-6">
-                        <label class="form-label" for="manage-profession-character">Character</label>
-                        <select id="manage-profession-character" class="form-select"
-                                @bind="selectedManagementCharacterGuid" @bind:after="CancelUnlearn">
-                            @foreach (var character in professionManagement)
-                            {
-                                <option value="@character.CharacterGuid">
-                                    @character.CharacterName — @(character.Online ? "online" : "offline")
-                                </option>
-                            }
-                        </select>
+                        <label class="form-label">Character</label>
+                        <CharacterPicker Items="@ProfessionManagementPickerItems" AllowBots="false"
+                                         SelectedValue="@SelectedManagementGuidValue"
+                                         SelectedValueChanged="SelectManagementCharacter" />
                     </div>
                 </div>
 

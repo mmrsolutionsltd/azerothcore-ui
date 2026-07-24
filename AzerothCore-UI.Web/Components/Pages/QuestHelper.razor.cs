@@ -12,6 +12,13 @@ public partial class QuestHelper
     private string search = "";
     private bool nearbyOnly = true, isLoading = true, isWorking, confirmed, operationSucceeded;
     private string? message;
+    private string? SelectedGuidValue => selectedGuid == 0 ? null : selectedGuid.ToString();
+    private IReadOnlyList<CharacterPickerItem> PickerItems => characters
+        .Select(character => new CharacterPickerItem(
+            character.Guid.ToString(), character.Name,
+            $"Level {character.Level} {CharacterDisplayNames.Class(character.Class)} · {character.Username}",
+            character.Online))
+        .ToArray();
 
     private int ReadyCount => dashboard?.ActiveQuests.Count(quest => quest.Status == 1) ?? 0;
     private IReadOnlyList<QuestHelperRecommendation> FilteredRecommendations =>
@@ -40,6 +47,12 @@ public partial class QuestHelper
         try { dashboard = await AccountsClient.GetQuestHelperAsync(selectedGuid); }
         catch (Exception exception) { message = exception.Message; operationSucceeded = false; }
         finally { isLoading = false; }
+    }
+
+    private async Task SelectCharacterAsync(string? value)
+    {
+        selectedGuid = uint.TryParse(value, out var guid) ? guid : 0;
+        await LoadDashboardAsync();
     }
 
     private void SelectOperation(uint questId, string title, bool add)

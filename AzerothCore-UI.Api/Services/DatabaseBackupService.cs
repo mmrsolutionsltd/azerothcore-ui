@@ -25,6 +25,7 @@ public sealed class DatabaseBackupService(
         configuration.GetConnectionString("AzerothCoreMaintenance")
         ?? throw new InvalidOperationException(
             "Connection string 'AzerothCoreMaintenance' is not configured in API user-secrets.");
+    private readonly SemaphoreSlim databaseOperationGate = new(1, 1);
 
     public IReadOnlyList<DatabaseBackupSummary> GetBackups()
     {
@@ -40,6 +41,13 @@ public sealed class DatabaseBackupService(
     }
 
     public async Task<DatabaseBackupSummary> CreateAsync(CancellationToken cancellationToken)
+    {
+        await databaseOperationGate.WaitAsync(cancellationToken);
+        try { return await CreateCoreAsync(cancellationToken); }
+        finally { databaseOperationGate.Release(); }
+    }
+
+    private async Task<DatabaseBackupSummary> CreateCoreAsync(CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(backupRoot);
         var backupId = $"{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}"[..24];
@@ -72,7 +80,6 @@ public sealed class DatabaseBackupService(
                 Path.Combine(directory, "manifest.json"),
                 JsonSerializer.Serialize(summary, JsonOptions),
                 cancellationToken);
-            ApplyRetention();
             logger.LogWarning(
                 "ADMIN AUDIT: Verified database backup {BackupId} created ({Bytes} bytes).",
                 summary.BackupId, summary.TotalBytes);
@@ -88,29 +95,34 @@ public sealed class DatabaseBackupService(
 
     public async Task RestoreAsync(string backupId, CancellationToken cancellationToken)
     {
-        if (ServersRunning())
-            throw new InvalidOperationException(
-                "Both worldserver and authserver must be stopped before restoring a database backup.");
-
-        var directory = ResolveBackupDirectory(backupId);
-        var backup = TryReadManifest(directory)
-            ?? throw new FileNotFoundException("The selected database backup was not found.");
-        await VerifyAsync(directory, backup, cancellationToken);
-
-        // Always create a verified recovery point immediately before a restore.
-        var safetyBackup = await CreateAsync(cancellationToken);
-        var builder = new MySqlConnectionStringBuilder(connectionString);
-        foreach (var database in Databases)
+        await databaseOperationGate.WaitAsync(cancellationToken);
+        try
         {
-            var file = backup.Files.SingleOrDefault(item => item.Database == database)
-                ?? throw new InvalidOperationException($"The backup is missing {database}.");
-            await RestoreDatabaseAsync(
-                builder, database, Path.Combine(directory, file.FileName), cancellationToken);
-        }
+            if (ServersRunning())
+                throw new InvalidOperationException(
+                    "Both worldserver and authserver must be stopped before restoring a database backup.");
 
-        logger.LogCritical(
-            "ADMIN AUDIT: Database backup {BackupId} restored. Pre-restore safety backup: {SafetyBackupId}.",
-            backupId, safetyBackup.BackupId);
+            var directory = ResolveBackupDirectory(backupId);
+            var backup = TryReadManifest(directory)
+                ?? throw new FileNotFoundException("The selected database backup was not found.");
+            await VerifyAsync(directory, backup, cancellationToken);
+
+            // Always create a verified recovery point immediately before a restore.
+            var safetyBackup = await CreateCoreAsync(cancellationToken);
+            var builder = new MySqlConnectionStringBuilder(connectionString);
+            foreach (var database in Databases)
+            {
+                var file = backup.Files.SingleOrDefault(item => item.Database == database)
+                    ?? throw new InvalidOperationException($"The backup is missing {database}.");
+                await RestoreDatabaseAsync(
+                    builder, database, Path.Combine(directory, file.FileName), cancellationToken);
+            }
+
+            logger.LogCritical(
+                "ADMIN AUDIT: Database backup {BackupId} restored. Pre-restore safety backup: {SafetyBackupId}.",
+                backupId, safetyBackup.BackupId);
+        }
+        finally { databaseOperationGate.Release(); }
     }
 
     private async Task VerifyAsync(
@@ -233,16 +245,17 @@ public sealed class DatabaseBackupService(
         }
     }
 
-    private void ApplyRetention()
+    public void ApplyRetention(int? maximumBackups = null)
     {
-        foreach (var backup in GetBackups().Skip(retentionCount))
+        var keep = Math.Clamp(maximumBackups ?? retentionCount, 1, 100);
+        foreach (var backup in GetBackups().Skip(keep))
         {
             var directory = ResolveBackupDirectory(backup.BackupId);
             Directory.Delete(directory, true);
         }
     }
 
-    private static bool ServersRunning() =>
+    public bool ServersRunning() =>
         Process.GetProcessesByName("worldserver").Length > 0
         || Process.GetProcessesByName("authserver").Length > 0;
 

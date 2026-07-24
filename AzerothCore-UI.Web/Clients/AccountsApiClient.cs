@@ -421,6 +421,25 @@ public sealed class AccountsApiClient(HttpClient httpClient)
         return await response.Content.ReadFromJsonAsync<DatabaseBackupSummary>();
     }
 
+    public Task<DatabaseBackupDashboard?> GetDatabaseBackupScheduleAsync(
+        CancellationToken cancellationToken = default) =>
+        httpClient.GetFromJsonAsync<DatabaseBackupDashboard>(
+            "api/database-backups/schedule", cancellationToken);
+
+    public async Task<DatabaseBackupDashboard?> UpdateDatabaseBackupScheduleAsync(
+        DatabaseBackupSchedule schedule)
+    {
+        using var response = await httpClient.PutAsJsonAsync(
+            "api/database-backups/schedule", schedule);
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<AdministrationResult>();
+            throw new HttpRequestException(
+                error?.Message ?? "Could not save the backup schedule.", null, response.StatusCode);
+        }
+        return await response.Content.ReadFromJsonAsync<DatabaseBackupDashboard>();
+    }
+
     public Task<AdministrationResult?> RestoreDatabaseBackupAsync(
         RestoreDatabaseBackupRequest request) =>
         PostAsync("api/database-backups/restore", request);
