@@ -4,6 +4,7 @@ using AzerothCore_UI.Api.Services;
 using AzerothCore_UI.Api.Data;
 using Dapper;
 using Microsoft.AspNetCore.Mvc;
+using AzerothCore_UI.Api.Security;
 
 namespace AzerothCore_UI.Api.Controllers;
 
@@ -34,14 +35,20 @@ public sealed class ServerAdministrationController(
             FROM acore_characters.characters characterData
             INNER JOIN acore_auth.account account ON account.id = characterData.account
             WHERE characterData.name <> ''
+              AND (@AllAccounts OR characterData.account IN @AllowedAccounts)
             ORDER BY characterData.online DESC,
                      CASE WHEN account.username LIKE CONCAT(@BotPrefix, '%') THEN 1 ELSE 0 END,
                      characterData.name
             LIMIT 5000;
             """;
         await using var connection = connectionFactory.CreateConnection();
+        var identity = HttpContext.AdministrationIdentity();
         var players = await connection.QueryAsync<AdministrationPlayer>(new CommandDefinition(
-            sql, new { BotPrefix = "rndbot" }, cancellationToken: cancellationToken));
+            sql, new {
+                BotPrefix = "rndbot",
+                AllAccounts = identity?.AccountScope == "All",
+                AllowedAccounts = identity?.GameAccountIds ?? []
+            }, cancellationToken: cancellationToken));
         return Ok(players.AsList());
     }
 

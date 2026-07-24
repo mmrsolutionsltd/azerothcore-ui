@@ -2,6 +2,7 @@ using AzerothCore_UI.Api.Data;
 using AzerothCore_UI.Api.Models;
 using Dapper;
 using Microsoft.AspNetCore.Mvc;
+using AzerothCore_UI.Api.Security;
 
 namespace AzerothCore_UI.Api.Controllers;
 
@@ -70,6 +71,7 @@ public sealed class AccountsController(AzerothCoreConnectionFactory connectionFa
                   OR (@Type = 'playerbot' AND a.username LIKE CONCAT(@PlayerBotPrefix, '%'))
                   OR (@Type = 'human' AND a.username NOT LIKE CONCAT(@PlayerBotPrefix, '%'))
               )
+              AND (@AllAccounts OR a.id IN @AllowedAccounts)
             """;
 
         var countSql = $"""
@@ -98,13 +100,16 @@ public sealed class AccountsController(AzerothCoreConnectionFactory connectionFa
             LIMIT @PageSize OFFSET @Offset;
             """;
 
+        var identity = HttpContext.AdministrationIdentity();
         var parameters = new
         {
             Search = search,
             Type = type,
             PlayerBotPrefix = PlayerBotAccountPrefix,
             PageSize = pageSize,
-            Offset = (long)(page - 1) * pageSize
+            Offset = (long)(page - 1) * pageSize,
+            AllAccounts = identity?.AccountScope == "All",
+            AllowedAccounts = identity?.GameAccountIds ?? []
         };
 
         await using var connection = connectionFactory.CreateConnection();

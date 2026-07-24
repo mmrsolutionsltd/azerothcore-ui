@@ -1,30 +1,94 @@
 @page "/administration-users"
-@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "Owner")]
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "security.users")]
 @inject AccountsApiClient Api
 @inject AuthenticationStateProvider AuthenticationStateProvider
 
-<PageTitle>Administration users</PageTitle>
-<h1>Administration users</h1>
-<p class="text-muted">Create individual website accounts, assign permissions, reset passwords, and revoke sessions.</p>
+<PageTitle>Access management</PageTitle>
+<h1>Access management</h1>
+<p class="text-muted">Manage website users, capability roles, and the game accounts each user may affect.</p>
 
 @if (!string.IsNullOrEmpty(message))
 {
     <div class="alert @(error ? "alert-danger" : "alert-success")">@message</div>
 }
 
+<AuthorizeView Policy="security.roles">
+<Authorized>
 <div class="card mb-4">
-    <div class="card-header">Create user</div>
+    <div class="card-header">Roles and permissions</div>
+    <div class="card-body">
+        <div class="row g-3 mb-3">
+            <div class="col-md-3"><label class="form-label">Role name</label>
+                <input class="form-control" @bind="roleName" disabled="@editingSystemRole" /></div>
+            <div class="col-md-6"><label class="form-label">Description</label>
+                <input class="form-control" @bind="roleDescription" disabled="@editingOwnerRole" /></div>
+            <div class="col-md-3 d-flex align-items-end">
+                <button class="btn btn-primary me-2" disabled="@editingOwnerRole" @onclick="SaveRoleAsync">Save role</button>
+                <button class="btn btn-secondary" @onclick="ClearRoleEditor">New</button>
+            </div>
+        </div>
+        @if (permissions is not null)
+        {
+            @foreach (var category in permissions.GroupBy(permission => permission.Category))
+            {
+                <fieldset class="mb-3" disabled="@editingOwnerRole">
+                    <legend class="h6">@category.Key</legend>
+                    <div class="row">
+                    @foreach (var permission in category)
+                    {
+                        <div class="col-md-4 form-check">
+                            <input class="form-check-input" type="checkbox"
+                                   id="@($"permission-{permission.Key}")"
+                                   checked="@selectedPermissions.Contains(permission.Key)"
+                                   @onchange="args => TogglePermission(permission.Key, args)" />
+                            <label class="form-check-label" for="@($"permission-{permission.Key}")"
+                                   title="@permission.Description">@permission.DisplayName</label>
+                        </div>
+                    }
+                    </div>
+                </fieldset>
+            }
+        }
+        <div class="d-flex flex-wrap gap-2">
+        @foreach (var role in roles ?? [])
+        {
+            <button class="btn btn-sm @(role.Name == roleName ? "btn-primary" : "btn-outline-secondary")"
+                    @onclick="() => EditRole(role)">@role.Name</button>
+            @if (!role.IsSystem)
+            {
+                <button class="btn btn-sm btn-outline-danger"
+                        @onclick="() => DeleteRoleAsync(role)">Delete @role.Name</button>
+            }
+        }
+        </div>
+    </div>
+</div>
+</Authorized>
+</AuthorizeView>
+
+<div class="card mb-4">
+    <div class="card-header">Create website user</div>
     <div class="card-body">
         <div class="row g-3">
             <div class="col-md-3"><label class="form-label">Username</label><input class="form-control" @bind="newUsername" /></div>
             <div class="col-md-3"><label class="form-label">Temporary password</label><input type="password" class="form-control" @bind="newPassword" /></div>
             <div class="col-md-3"><label class="form-label">Role</label>
-                <select class="form-select" @bind="newRole"><option>Administrator</option><option>Owner</option></select>
+                <select class="form-select" @bind="newRole">
+                    @foreach (var role in roles ?? []) { <option value="@role.Name">@role.Name</option> }
+                </select>
             </div>
-            <div class="col-md-3 d-flex align-items-end"><button class="btn btn-primary" @onclick="CreateAsync">Create user</button></div>
+            <div class="col-md-3"><label class="form-label">Account access</label>
+                <select class="form-select" @bind="newScope">
+                    <option value="All">All accounts</option><option value="Assigned">Assigned accounts</option><option value="None">No accounts</option>
+                </select>
+            </div>
         </div>
-        <div class="form-check mt-3"><input class="form-check-input" type="checkbox" @bind="newMustChange" id="must-change" />
-            <label class="form-check-label" for="must-change">Require password change at first login</label></div>
+        @if (newScope == "Assigned") { @AccountSelector(newAccountIds, "new") }
+        <div class="d-flex justify-content-between mt-3">
+            <div class="form-check"><input class="form-check-input" type="checkbox" @bind="newMustChange" id="must-change" />
+                <label class="form-check-label" for="must-change">Require password change at first login</label></div>
+            <button class="btn btn-primary" @onclick="CreateAsync">Create user</button>
+        </div>
     </div>
 </div>
 
@@ -34,60 +98,50 @@
 }
 else
 {
-    <div class="table-responsive">
-        <table class="table align-middle">
-            <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Last login</th><th>Actions</th></tr></thead>
-            <tbody>
-            @foreach (var user in users)
-            {
-                <tr>
-                    <td><strong>@user.Username</strong>@if (user.MustChangePassword) { <div class="small text-warning">Password change required</div> }</td>
-                    <td>
-                        <select class="form-select form-select-sm" @bind="roleDrafts[user.Id]">
-                            @if (roleDrafts[user.Id] == "Owner")
-                            {
-                                <option value="Owner">Owner</option>
-                                <option value="Administrator">Administrator</option>
-                            }
-                            else
-                            {
-                                <option value="Administrator">Administrator</option>
-                                <option value="Owner">Owner</option>
-                            }
-                        </select>
-                    </td>
-                    <td>
-                        <div class="form-check form-switch"><input class="form-check-input" type="checkbox"
-                            @bind="enabledDrafts[user.Id]" />
+    @foreach (var user in users)
+    {
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between">
+                <strong>@user.Username</strong>
+                <span>@(user.LastLoginAtUtc?.ToLocalTime().ToString("g") ?? "Never signed in")</span>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-4"><label class="form-label">Role</label>
+                        <select class="form-select" @bind="roleDrafts[user.Id]">
+                            @foreach (var role in roles ?? []) { <option value="@role.Name">@role.Name</option> }
+                        </select></div>
+                    <div class="col-md-4"><label class="form-label">Account access</label>
+                        <select class="form-select" @bind="scopeDrafts[user.Id]">
+                            <option value="All">All accounts</option><option value="Assigned">Assigned accounts</option><option value="None">No accounts</option>
+                        </select></div>
+                    <div class="col-md-4 d-flex align-items-end">
+                        <div class="form-check form-switch"><input class="form-check-input" type="checkbox" @bind="enabledDrafts[user.Id]" />
                             <label class="form-check-label">@(enabledDrafts[user.Id] ? "Enabled" : "Disabled")</label></div>
-                        @if (user.LockoutUntilUtc > DateTime.UtcNow) { <div class="small text-danger">Locked until @user.LockoutUntilUtc.Value.ToLocalTime()</div> }
-                    </td>
-                    <td>@(user.LastLoginAtUtc?.ToLocalTime().ToString("g") ?? "Never")</td>
-                    <td>
-                        <button class="btn btn-sm btn-primary me-1" @onclick="() => SaveAsync(user)">Save</button>
-                        <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => SelectReset(user)">Reset password</button>
-                        <button class="btn btn-sm btn-outline-danger" @onclick="() => RevokeAsync(user)">Revoke sessions</button>
-                        @if (deleteConfirmationId == user.Id)
-                        {
-                            <button class="btn btn-sm btn-danger ms-1" @onclick="() => DeleteAsync(user)">Confirm delete</button>
-                            <button class="btn btn-sm btn-secondary ms-1" @onclick="() => deleteConfirmationId = null">Cancel</button>
-                        }
-                        else
-                        {
-                            <button class="btn btn-sm btn-outline-danger ms-1" @onclick="() => deleteConfirmationId = user.Id">Delete</button>
-                        }
-                    </td>
-                </tr>
-            }
-            </tbody>
-        </table>
-    </div>
+                    </div>
+                </div>
+                @if (scopeDrafts[user.Id] == "Assigned") { @AccountSelector(accountDrafts[user.Id], user.Id.ToString()) }
+                @if (user.MustChangePassword) { <div class="small text-warning mt-2">Password change required</div> }
+                @if (user.LockoutUntilUtc > DateTime.UtcNow) { <div class="small text-danger">Locked until @user.LockoutUntilUtc.Value.ToLocalTime()</div> }
+                <div class="mt-3">
+                    <button class="btn btn-sm btn-primary me-1" @onclick="() => SaveAsync(user)">Save</button>
+                    <button class="btn btn-sm btn-outline-secondary me-1" @onclick="() => SelectReset(user)">Reset password</button>
+                    <button class="btn btn-sm btn-outline-danger me-1" @onclick="() => RevokeAsync(user)">Revoke sessions</button>
+                    @if (deleteConfirmationId == user.Id)
+                    {
+                        <button class="btn btn-sm btn-danger" @onclick="() => DeleteAsync(user)">Confirm delete</button>
+                        <button class="btn btn-sm btn-secondary ms-1" @onclick="() => deleteConfirmationId = null">Cancel</button>
+                    }
+                    else { <button class="btn btn-sm btn-outline-danger" @onclick="() => deleteConfirmationId = user.Id">Delete</button> }
+                </div>
+            </div>
+        </div>
+    }
 }
 
 @if (resetUser is not null)
 {
-    <div class="card mb-4">
-        <div class="card-header">Reset password for @resetUser.Username</div>
+    <div class="card mb-4"><div class="card-header">Reset password for @resetUser.Username</div>
         <div class="card-body">
             <input type="password" class="form-control mb-2" placeholder="New temporary password" @bind="resetPassword" />
             <div class="form-check mb-2"><input id="reset-change" class="form-check-input" type="checkbox" @bind="resetMustChange" />
@@ -98,6 +152,8 @@ else
     </div>
 }
 
+<AuthorizeView Policy="security.audit">
+<Authorized>
 <h2>Recent account activity</h2>
 @if (audit is not null)
 {
@@ -106,14 +162,25 @@ else
         <tbody>@foreach (var entry in audit) { <tr><td>@entry.OccurredAtUtc.ToLocalTime().ToString("g")</td><td>@entry.Username</td><td>@entry.Action</td><td>@entry.Outcome</td><td>@entry.RemoteAddress</td><td>@entry.Detail</td></tr> }</tbody>
     </table></div>
 }
+</Authorized>
+</AuthorizeView>
 
 @code {
     private IReadOnlyList<AdministrationUserSummary>? users;
     private IReadOnlyList<AdministrationAuditEntry>? audit;
-    private readonly Dictionary<ulong, string> roleDrafts = [];
+    private IReadOnlyList<AdministrationRole>? roles;
+    private IReadOnlyList<AdministrationPermission>? permissions;
+    private IReadOnlyList<GameAccountOption>? gameAccounts;
+    private readonly Dictionary<ulong, string> roleDrafts = [], scopeDrafts = [];
     private readonly Dictionary<ulong, bool> enabledDrafts = [];
-    private string actor = "", newUsername = "", newPassword = "", newRole = "Administrator";
-    private bool newMustChange = true, error;
+    private readonly Dictionary<ulong, HashSet<uint>> accountDrafts = [];
+    private readonly HashSet<uint> newAccountIds = [];
+    private readonly HashSet<string> selectedPermissions = [];
+    private string actor = "", newUsername = "", newPassword = "", newRole = "Administrator", newScope = "Assigned";
+    private string roleName = "", roleDescription = "";
+    private bool newMustChange = true, error, editingSystemRole, editingOwnerRole;
+    private bool isOwner;
+    private HashSet<string> actorPermissions = [];
     private ulong? deleteConfirmationId;
     private string? message, resetPassword;
     private AdministrationUserSummary? resetUser;
@@ -121,35 +188,76 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        actor = (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User.Identity?.Name ?? "Owner";
+        var principal = (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User;
+        actor = principal.Identity?.Name ?? "administrator";
+        isOwner = principal.IsInRole("Owner");
+        actorPermissions = principal.FindAll("permission").Select(claim => claim.Value).ToHashSet();
         await ReloadAsync();
     }
     private async Task ReloadAsync()
     {
         users = await Api.GetAdministrationUsersAsync();
-        audit = await Api.GetAdministrationAuditAsync();
-        roleDrafts.Clear();
-        enabledDrafts.Clear();
+        var allRoles = await Api.GetAdministrationRolesAsync();
+        roles = allRoles.Where(role => isOwner
+            || role.Permissions.All(actorPermissions.Contains)).ToArray();
+        permissions = await Api.GetAdministrationPermissionsAsync();
+        gameAccounts = await Api.GetGameAccountOptionsAsync();
+        try { audit = await Api.GetAdministrationAuditAsync(); } catch { audit = []; }
+        roleDrafts.Clear(); scopeDrafts.Clear(); enabledDrafts.Clear(); accountDrafts.Clear();
         foreach (var user in users)
         {
-            roleDrafts[user.Id] = user.Role;
+            roleDrafts[user.Id] = user.Role; scopeDrafts[user.Id] = user.AccountScope;
             enabledDrafts[user.Id] = user.Enabled;
+            accountDrafts[user.Id] = (await Api.GetAdministrationUserGameAccountsAsync(user.Id)).ToHashSet();
         }
+        if (roles.Count > 0 && string.IsNullOrEmpty(roleName)) EditRole(roles[0]);
+        if (!roles.Any(role => role.Name == newRole)) newRole = roles.FirstOrDefault()?.Name ?? "";
     }
+    private RenderFragment AccountSelector(HashSet<uint> selected, string key) => @<div class="border rounded p-2 mt-3" style="max-height: 12rem; overflow:auto">
+            @foreach (var account in gameAccounts ?? [])
+            {
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" id="@($"account-{key}-{account.Id}")"
+                           checked="@selected.Contains(account.Id)"
+                           @onchange="args => ToggleAccount(selected, account.Id, args)" />
+                    <label class="form-check-label" for="@($"account-{key}-{account.Id}")">@account.Username</label>
+                </div>
+            }
+        </div>;
+    private static void ToggleAccount(HashSet<uint> selected, uint id, ChangeEventArgs args)
+    { if (args.Value as bool? == true) selected.Add(id); else selected.Remove(id); }
+    private void TogglePermission(string permission, ChangeEventArgs args)
+    { if (args.Value as bool? == true) selectedPermissions.Add(permission); else selectedPermissions.Remove(permission); }
+    private void EditRole(AdministrationRole role)
+    {
+        roleName = role.Name; roleDescription = role.Description;
+        editingSystemRole = role.IsSystem; editingOwnerRole = role.Name == "Owner";
+        selectedPermissions.Clear(); selectedPermissions.UnionWith(role.Permissions);
+    }
+    private void ClearRoleEditor()
+    { roleName = roleDescription = ""; editingSystemRole = editingOwnerRole = false; selectedPermissions.Clear(); }
     private async Task RunAsync(Func<Task> action)
     {
         try { await action(); error = false; await ReloadAsync(); }
         catch (Exception exception) { error = true; message = exception.Message; }
     }
+    private Task SaveRoleAsync() => RunAsync(async () =>
+    {
+        await Api.SaveAdministrationRoleAsync(new(actor, roleName, roleDescription, selectedPermissions.ToArray()));
+        message = $"Saved role {roleName}.";
+    });
+    private Task DeleteRoleAsync(AdministrationRole role) => RunAsync(async () =>
+    { await Api.DeleteAdministrationRoleAsync(role.Name, actor); message = $"Deleted role {role.Name}."; ClearRoleEditor(); });
     private Task CreateAsync() => RunAsync(async () =>
     {
-        await Api.CreateAdministrationUserAsync(new(actor, newUsername, newPassword, newRole, newMustChange));
-        message = $"Created {newUsername}."; newUsername = newPassword = "";
+        await Api.CreateAdministrationUserAsync(new(actor, newUsername, newPassword, newRole,
+            newScope, newAccountIds.ToArray(), newMustChange));
+        message = $"Created {newUsername}."; newUsername = newPassword = ""; newAccountIds.Clear();
     });
     private Task SaveAsync(AdministrationUserSummary user) => RunAsync(async () =>
     {
-        await Api.UpdateAdministrationUserAsync(
-            user.Id, new(actor, roleDrafts[user.Id], enabledDrafts[user.Id]));
+        await Api.UpdateAdministrationUserAsync(user.Id, new(actor, roleDrafts[user.Id],
+            scopeDrafts[user.Id], accountDrafts[user.Id].ToArray(), enabledDrafts[user.Id]));
         message = $"Updated {user.Username}.";
     });
     private void SelectReset(AdministrationUserSummary user) { resetUser = user; resetPassword = ""; resetMustChange = true; }
@@ -160,13 +268,7 @@ else
         message = $"Reset {resetUser.Username}'s password."; resetUser = null; resetPassword = "";
     });
     private Task RevokeAsync(AdministrationUserSummary user) => RunAsync(async () =>
-    {
-        await Api.RevokeAdministrationSessionsAsync(user.Id, actor);
-        message = $"Revoked all sessions for {user.Username}.";
-    });
+    { await Api.RevokeAdministrationSessionsAsync(user.Id, actor); message = $"Revoked all sessions for {user.Username}."; });
     private Task DeleteAsync(AdministrationUserSummary user) => RunAsync(async () =>
-    {
-        await Api.DeleteAdministrationUserAsync(user.Id, actor);
-        message = $"Deleted {user.Username}."; deleteConfirmationId = null;
-    });
+    { await Api.DeleteAdministrationUserAsync(user.Id, actor); message = $"Deleted {user.Username}."; deleteConfirmationId = null; });
 }

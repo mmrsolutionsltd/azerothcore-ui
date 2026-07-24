@@ -1,4 +1,4 @@
 @page "/player-actions"
-@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "players.actions")]
 
 <ServerAdministration PlayerActionsOnly="true" />

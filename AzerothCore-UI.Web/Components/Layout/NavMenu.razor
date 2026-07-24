@@ -11,57 +11,45 @@
 <div class="nav-scrollable">
     <nav class="nav flex-column" aria-label="Main navigation">
         <div class="quick-links" aria-label="Quick links">
-            <NavItem Href="characters" Icon="bi-person-fill-nav-menu">Characters</NavItem>
-            <NavItem Href="player-actions" Icon="bi-person-fill-nav-menu">Player actions</NavItem>
-            <AuthorizeView Policy="Owner" Context="quickOwnerContext">
-                <Authorized Context="quickOwnerAuthorized">
-                    <NavItem Href="server" Icon="bi-house-door-fill-nav-menu">Server</NavItem>
-                </Authorized>
-            </AuthorizeView>
+            <NavItem Href="characters" Policy="players.characters" Icon="bi-person-fill-nav-menu">Characters</NavItem>
+            <NavItem Href="player-actions" Policy="players.actions" Icon="bi-person-fill-nav-menu">Player actions</NavItem>
+            <NavItem Href="server" Policy="server.control" Icon="bi-house-door-fill-nav-menu">Server</NavItem>
         </div>
 
         <NavGroup Title="Players" GroupKey="players"
                   OpenByDefault="@IsGroupActive("accounts", "character-services", "starter-presets", "collectibles")">
-            <NavItem Href="accounts" Icon="bi-list-nested-nav-menu">Accounts</NavItem>
-            <NavItem Href="character-services" Icon="bi-person-fill-nav-menu">Character services</NavItem>
-            <NavItem Href="starter-presets" Icon="bi-plus-square-fill-nav-menu">Starter presets</NavItem>
-            <NavItem Href="collectibles" Icon="bi-plus-square-fill-nav-menu">Collectibles</NavItem>
+            <NavItem Href="accounts" Policy="players.accounts" Icon="bi-list-nested-nav-menu">Accounts</NavItem>
+            <NavItem Href="character-services" Policy="players.services" Icon="bi-person-fill-nav-menu">Character services</NavItem>
+            <NavItem Href="starter-presets" Policy="players.services" Icon="bi-plus-square-fill-nav-menu">Starter presets</NavItem>
+            <NavItem Href="collectibles" Policy="players.collectibles" Icon="bi-plus-square-fill-nav-menu">Collectibles</NavItem>
         </NavGroup>
 
         <NavGroup Title="Adventures" GroupKey="adventures"
                   OpenByDefault="@IsGroupActive("quest-helper", "dungeon-assistant", "trainers", "weapon-training", "training")">
-            <NavItem Href="quest-helper" Icon="bi-list-nested-nav-menu">Quest helper</NavItem>
-            <NavItem Href="dungeon-assistant" Icon="bi-list-nested-nav-menu">Dungeon assistant</NavItem>
-            <NavItem Href="trainers" Icon="bi-person-fill-nav-menu">Trainer finder</NavItem>
-            <NavItem Href="weapon-training" Icon="bi-plus-square-fill-nav-menu">Weapon training</NavItem>
-            <NavItem Href="training" Icon="bi-plus-square-fill-nav-menu">Training</NavItem>
+            <NavItem Href="quest-helper" Policy="adventures.quests" Icon="bi-list-nested-nav-menu">Quest helper</NavItem>
+            <NavItem Href="dungeon-assistant" Policy="adventures.dungeons" Icon="bi-list-nested-nav-menu">Dungeon assistant</NavItem>
+            <NavItem Href="trainers" Policy="adventures.training" Icon="bi-person-fill-nav-menu">Trainer finder</NavItem>
+            <NavItem Href="weapon-training" Policy="adventures.training" Icon="bi-plus-square-fill-nav-menu">Weapon training</NavItem>
+            <NavItem Href="training" Policy="adventures.training" Icon="bi-plus-square-fill-nav-menu">Training</NavItem>
         </NavGroup>
 
         <NavGroup Title="World" GroupKey="world"
                   OpenByDefault="@IsGroupActive("auction-house", "creatures")">
-            <NavItem Href="auction-house" Icon="bi-list-nested-nav-menu">Auction House</NavItem>
-            <NavItem Href="creatures" Icon="bi-plus-square-fill-nav-menu">Creature spawner</NavItem>
+            <NavItem Href="auction-house" Policy="world.auction-house" Icon="bi-list-nested-nav-menu">Auction House</NavItem>
+            <NavItem Href="creatures" Policy="world.creatures" Icon="bi-plus-square-fill-nav-menu">Creature spawner</NavItem>
         </NavGroup>
 
-        <AuthorizeView Policy="Owner" Context="adminOwnerContext">
-            <Authorized Context="adminOwnerAuthorized">
-                <NavGroup Title="Administration" GroupKey="administration"
+        <NavGroup Title="Administration" GroupKey="administration"
                           OpenByDefault="@IsGroupActive("diagnostics", "database-backups", "modules")">
-                    <NavItem Href="diagnostics" Icon="bi-list-nested-nav-menu">Server health</NavItem>
-                    <NavItem Href="database-backups" Icon="bi-list-nested-nav-menu">Database backups</NavItem>
-                    <NavItem Href="modules" Icon="bi-list-nested-nav-menu">Modules</NavItem>
-                </NavGroup>
-            </Authorized>
-        </AuthorizeView>
+            <NavItem Href="diagnostics" Policy="server.diagnostics" Icon="bi-list-nested-nav-menu">Server health</NavItem>
+            <NavItem Href="database-backups" Policy="server.backups" Icon="bi-list-nested-nav-menu">Database backups</NavItem>
+            <NavItem Href="modules" Policy="server.settings" Icon="bi-list-nested-nav-menu">Modules</NavItem>
+        </NavGroup>
 
         <AuthorizeView Policy="PasswordChange">
             <Authorized>
                 <NavItem Href="my-security" Icon="bi-person-fill-nav-menu">My security</NavItem>
-                <AuthorizeView Policy="Owner" Context="ownerContext">
-                    <Authorized Context="ownerAuthorizedContext">
-                        <NavItem Href="administration-users" Icon="bi-person-fill-nav-menu">Administration users</NavItem>
-                    </Authorized>
-                </AuthorizeView>
+                <NavItem Href="administration-users" Policy="security.users" Icon="bi-person-fill-nav-menu">Access management</NavItem>
                 <div class="nav-item sign-out">
                     <form method="post" action="/admin/logout">
                         <AntiforgeryToken />

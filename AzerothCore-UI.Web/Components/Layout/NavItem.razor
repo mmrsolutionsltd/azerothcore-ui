@@ -1,11 +1,21 @@
-<div class="nav-item">
+@if (string.IsNullOrEmpty(Policy))
+{
+    @Item
+}
+else
+{
+    <AuthorizeView Policy="@Policy">
+        <Authorized>@Item</Authorized>
+    </AuthorizeView>
+}
+
+@code {
+private RenderFragment Item => @<div class="nav-item">
     <NavLink class="nav-link" href="@Href">
         <span class="bi @Icon" aria-hidden="true"></span>
         <span class="nav-label">@ChildContent</span>
     </NavLink>
-</div>
-
-@code {
+</div>;
     [Parameter, EditorRequired]
     public string Href { get; set; } = string.Empty;
 
@@ -14,4 +24,7 @@
 
     [Parameter]
     public RenderFragment? ChildContent { get; set; }
+
+    [Parameter]
+    public string? Policy { get; set; }
 }

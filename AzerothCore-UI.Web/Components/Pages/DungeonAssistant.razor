@@ -1,4 +1,4 @@
 @page "/dungeon-assistant"
-@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "adventures.dungeons")]
 
 <ServerAdministration DungeonAssistantOnly="true" />

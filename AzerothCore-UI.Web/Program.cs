@@ -98,6 +98,12 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("Owner", policy => policy
         .RequireRole("Owner")
         .RequireClaim("must_change_password", bool.FalseString));
+    foreach (var permission in AzerothCore_UI.Web.Security.AdministrationPermissions.All)
+        options.AddPolicy(permission, policy => policy
+            .RequireClaim(
+                AzerothCore_UI.Web.Security.AdministrationPermissions.ClaimType,
+                permission)
+            .RequireClaim("must_change_password", bool.FalseString));
 });
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
@@ -206,13 +212,19 @@ app.MapPost("/admin/login", async (
     if (result is not { Succeeded: true, User: { } user })
         return Results.Redirect("/admin/login?error=1");
 
-    var identity = new ClaimsIdentity([
+    var claims = new List<Claim> {
         new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
         new Claim(ClaimTypes.Name, user.Username),
         new Claim(ClaimTypes.Role, user.Role),
         new Claim("security_stamp", user.SecurityStamp),
-        new Claim("must_change_password", user.MustChangePassword.ToString())
-        ],
+        new Claim("must_change_password", user.MustChangePassword.ToString()),
+        new Claim("account_scope", user.AccountScope)
+    };
+    claims.AddRange(user.Permissions.Select(permission =>
+        new Claim(AzerothCore_UI.Web.Security.AdministrationPermissions.ClaimType, permission)));
+    claims.AddRange(user.GameAccountIds.Select(accountId =>
+        new Claim("game_account", accountId.ToString())));
+    var identity = new ClaimsIdentity(claims,
         CookieAuthenticationDefaults.AuthenticationScheme);
     await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme,
         new ClaimsPrincipal(identity),
@@ -221,7 +233,8 @@ app.MapPost("/admin/login", async (
             IsPersistent = false,
             AllowRefresh = true
         });
-    return Results.Redirect(user.MustChangePassword ? "/my-security" : "/server");
+    return Results.Redirect(user.MustChangePassword ? "/my-security"
+        : user.Permissions.Contains("server.control") ? "/server" : "/characters");
 }).AllowAnonymous().RequireRateLimiting("admin-login");
 
 app.MapGet("/admin/setup", async (

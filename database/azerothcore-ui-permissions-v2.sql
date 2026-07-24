@@ -1,36 +1,19 @@
-CREATE DATABASE IF NOT EXISTS `azerothcore_ui`
-  CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
-
 USE `azerothcore_ui`;
 
-CREATE TABLE IF NOT EXISTS `admin_user` (
-  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `username` VARCHAR(64) NOT NULL,
-  `normalized_username` VARCHAR(64) NOT NULL,
-  `password_hash` VARCHAR(255) NOT NULL,
-  `role` VARCHAR(32) NOT NULL,
-  `enabled` TINYINT(1) NOT NULL DEFAULT 1,
-  `must_change_password` TINYINT(1) NOT NULL DEFAULT 0,
-  `failed_login_count` INT UNSIGNED NOT NULL DEFAULT 0,
-  `lockout_until_utc` DATETIME(6) NULL,
-  `security_stamp` CHAR(36) NOT NULL,
-  `created_at_utc` DATETIME(6) NOT NULL,
-  `last_login_at_utc` DATETIME(6) NULL,
-  `account_scope` VARCHAR(16) NOT NULL DEFAULT 'All',
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uq_admin_user_normalized_username` (`normalized_username`),
-  CONSTRAINT `ck_admin_user_account_scope`
-    CHECK (`account_scope` IN ('All', 'Assigned', 'None'))
-) ENGINE=InnoDB;
+ALTER TABLE `admin_user`
+  DROP CHECK `ck_admin_user_role`,
+  ADD COLUMN `account_scope` VARCHAR(16) NOT NULL DEFAULT 'All',
+  ADD CONSTRAINT `ck_admin_user_account_scope`
+    CHECK (`account_scope` IN ('All', 'Assigned', 'None'));
 
-CREATE TABLE IF NOT EXISTS `admin_role` (
+CREATE TABLE `admin_role` (
   `name` VARCHAR(32) NOT NULL,
   `description` VARCHAR(255) NOT NULL,
   `is_system` TINYINT(1) NOT NULL DEFAULT 0,
   PRIMARY KEY (`name`)
 ) ENGINE=InnoDB;
 
-CREATE TABLE IF NOT EXISTS `admin_permission` (
+CREATE TABLE `admin_permission` (
   `permission_key` VARCHAR(64) NOT NULL,
   `display_name` VARCHAR(100) NOT NULL,
   `category` VARCHAR(32) NOT NULL,
@@ -38,7 +21,7 @@ CREATE TABLE IF NOT EXISTS `admin_permission` (
   PRIMARY KEY (`permission_key`)
 ) ENGINE=InnoDB;
 
-CREATE TABLE IF NOT EXISTS `admin_role_permission` (
+CREATE TABLE `admin_role_permission` (
   `role_name` VARCHAR(32) NOT NULL,
   `permission_key` VARCHAR(64) NOT NULL,
   PRIMARY KEY (`role_name`, `permission_key`),
@@ -48,7 +31,7 @@ CREATE TABLE IF NOT EXISTS `admin_role_permission` (
     REFERENCES `admin_permission` (`permission_key`) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
-CREATE TABLE IF NOT EXISTS `admin_user_game_account` (
+CREATE TABLE `admin_user_game_account` (
   `admin_user_id` BIGINT UNSIGNED NOT NULL,
   `game_account_id` INT UNSIGNED NOT NULL,
   PRIMARY KEY (`admin_user_id`, `game_account_id`),
@@ -58,8 +41,7 @@ CREATE TABLE IF NOT EXISTS `admin_user_game_account` (
 
 INSERT INTO `admin_role` (`name`, `description`, `is_system`) VALUES
   ('Owner', 'Unrestricted website and server access.', 1),
-  ('Administrator', 'All player and world tools, excluding server infrastructure.', 1)
-ON DUPLICATE KEY UPDATE `description` = VALUES(`description`);
+  ('Administrator', 'All player and world tools, excluding server infrastructure.', 1);
 
 INSERT INTO `admin_permission`
   (`permission_key`, `display_name`, `category`, `description`) VALUES
@@ -79,39 +61,19 @@ INSERT INTO `admin_permission`
   ('server.backups', 'Database backups', 'Server', 'Create, schedule, and restore database backups.'),
   ('security.users', 'Manage users', 'Security', 'Create and administer website users.'),
   ('security.roles', 'Manage roles', 'Security', 'Create roles and assign permissions.'),
-  ('security.audit', 'View security audit', 'Security', 'View website security activity.')
-ON DUPLICATE KEY UPDATE `display_name` = VALUES(`display_name`),
-  `category` = VALUES(`category`), `description` = VALUES(`description`);
+  ('security.audit', 'View security audit', 'Security', 'View website security activity.');
 
-INSERT IGNORE INTO `admin_role_permission` (`role_name`, `permission_key`)
+INSERT INTO `admin_role_permission` (`role_name`, `permission_key`)
 SELECT 'Owner', `permission_key` FROM `admin_permission`;
 
-INSERT IGNORE INTO `admin_role_permission` (`role_name`, `permission_key`)
-SELECT 'Administrator', `permission_key` FROM `admin_permission`
+INSERT INTO `admin_role_permission` (`role_name`, `permission_key`)
+SELECT 'Administrator', `permission_key`
+FROM `admin_permission`
 WHERE `permission_key` NOT LIKE 'server.%';
 
-CREATE TABLE IF NOT EXISTS `admin_audit_log` (
-  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `user_id` BIGINT UNSIGNED NULL,
-  `username` VARCHAR(64) NOT NULL,
-  `action` VARCHAR(100) NOT NULL,
-  `outcome` VARCHAR(32) NOT NULL,
-  `remote_address` VARCHAR(64) NULL,
-  `detail` VARCHAR(500) NULL,
-  `occurred_at_utc` DATETIME(6) NOT NULL,
-  PRIMARY KEY (`id`),
-  KEY `ix_admin_audit_occurred` (`occurred_at_utc` DESC),
-  KEY `ix_admin_audit_user` (`user_id`, `occurred_at_utc` DESC),
-  CONSTRAINT `fk_admin_audit_user`
-    FOREIGN KEY (`user_id`) REFERENCES `admin_user` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB;
-
-CREATE TABLE IF NOT EXISTS `ui_schema_version` (
-  `version` INT UNSIGNED NOT NULL,
-  `applied_at_utc` DATETIME(6) NOT NULL,
-  PRIMARY KEY (`version`)
-) ENGINE=InnoDB;
+UPDATE `admin_user` SET `account_scope` = 'All'
+WHERE `role` IN ('Owner', 'Administrator');
 
 INSERT INTO `ui_schema_version` (`version`, `applied_at_utc`)
 VALUES (2, UTC_TIMESTAMP(6))
-ON DUPLICATE KEY UPDATE `version` = VALUES(`version`);
+ON DUPLICATE KEY UPDATE `applied_at_utc` = VALUES(`applied_at_utc`);

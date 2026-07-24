@@ -2,6 +2,7 @@ using AzerothCore_UI.Api.Data;
 using AzerothCore_UI.Api.Models;
 using Dapper;
 using Microsoft.AspNetCore.Mvc;
+using AzerothCore_UI.Api.Security;
 
 namespace AzerothCore_UI.Api.Controllers;
 
@@ -52,12 +53,18 @@ public sealed class CharactersController(
             LEFT JOIN acore_characters.character_homebind homebind ON homebind.guid = characters.guid
             WHERE account.username NOT LIKE 'rndbot%'
               AND account.username <> 'AHBOT'
+              AND (@AllAccounts OR characters.account IN @AllowedAccounts)
             ORDER BY characters.online DESC, characters.name;
             """;
 
         await using var connection = connectionFactory.CreateConnection();
+        var identity = HttpContext.AdministrationIdentity();
         var rows = await connection.QueryAsync<CharacterOverviewRow>(new CommandDefinition(
-            sql, new { ProfessionSkillIds = professionSkillIds }, cancellationToken: cancellationToken));
+            sql, new {
+                ProfessionSkillIds = professionSkillIds,
+                AllAccounts = identity?.AccountScope == "All",
+                AllowedAccounts = identity?.GameAccountIds ?? []
+            }, cancellationToken: cancellationToken));
         return Ok(rows.Select(row => new CharacterOverviewSummary(
             row.Guid, row.Username, row.Name, row.Level, row.Race, row.Class,
             row.OnlineValue != 0, row.Money, row.TotalTime, row.Map, row.Zone,

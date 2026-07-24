@@ -1,0 +1,30 @@
+using AzerothCore_UI.Api.Security;
+using Xunit;
+
+namespace AzerothCore_UI.Api.Tests.Security;
+
+public sealed class AdministrationPermissionResolverTests
+{
+    [Theory]
+    [InlineData("/api/accounts", "players.accounts")]
+    [InlineData("/api/characters/42", "players.characters")]
+    [InlineData("/api/quest-helper/add", "adventures.quests")]
+    [InlineData("/api/server-administration/items/give", "players.actions")]
+    [InlineData("/api/server-administration/settings/rates", "server.settings")]
+    [InlineData("/api/server-administration/restart", "server.control")]
+    [InlineData("/api/database-backups/restore", "server.backups")]
+    [InlineData("/api/administration-users/roles/Family", "security.roles")]
+    [InlineData("/api/administration-users/audit", "security.audit")]
+    public void MapsApiAreaToPermission(string path, string expected)
+    {
+        Assert.Equal(expected,
+            AdministrationPermissionResolver.RequiredPermission("POST", path));
+    }
+
+    [Fact]
+    public void DoesNotMapUnknownNonAdministrativeRoute()
+    {
+        Assert.Null(AdministrationPermissionResolver.RequiredPermission(
+            "GET", "/health/ready"));
+    }
+}

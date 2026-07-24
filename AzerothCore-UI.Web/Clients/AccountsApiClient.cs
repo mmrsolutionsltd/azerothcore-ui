@@ -60,6 +60,40 @@ public sealed class AccountsApiClient(HttpClient httpClient)
         await httpClient.GetFromJsonAsync<AdministrationAuditEntry[]>(
             "api/administration-users/audit") ?? [];
 
+    public async Task<IReadOnlyList<AdministrationPermission>> GetAdministrationPermissionsAsync() =>
+        await httpClient.GetFromJsonAsync<AdministrationPermission[]>(
+            "api/administration-users/permissions") ?? [];
+
+    public async Task<IReadOnlyList<AdministrationRole>> GetAdministrationRolesAsync() =>
+        await httpClient.GetFromJsonAsync<AdministrationRole[]>(
+            "api/administration-users/roles") ?? [];
+
+    public async Task<IReadOnlyList<GameAccountOption>> GetGameAccountOptionsAsync() =>
+        await httpClient.GetFromJsonAsync<GameAccountOption[]>(
+            "api/administration-users/game-accounts") ?? [];
+
+    public async Task<IReadOnlyList<uint>> GetAdministrationUserGameAccountsAsync(ulong id) =>
+        await httpClient.GetFromJsonAsync<uint[]>(
+            $"api/administration-users/{id}/game-accounts") ?? [];
+
+    public Task<AdministrationResult?> SaveAdministrationRoleAsync(
+        SaveAdministrationRoleRequest request) =>
+        PutResultAsync<SaveAdministrationRoleRequest, AdministrationResult>(
+            $"api/administration-users/roles/{Uri.EscapeDataString(request.Name)}", request);
+
+    public async Task<AdministrationResult?> DeleteAdministrationRoleAsync(
+        string name, string actor)
+    {
+        using var response = await httpClient.DeleteAsync(
+            $"api/administration-users/roles/{Uri.EscapeDataString(name)}" +
+            $"?actor={Uri.EscapeDataString(actor)}");
+        var result = await response.Content.ReadFromJsonAsync<AdministrationResult>();
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException(
+                result?.Message ?? "Could not delete role.", null, response.StatusCode);
+        return result;
+    }
+
     public async Task<AdministrationResult?> DeleteAdministrationUserAsync(
         ulong id, string actor)
     {

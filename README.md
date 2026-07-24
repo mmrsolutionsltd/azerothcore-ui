@@ -262,11 +262,19 @@ directory; those persisted keys keep authenticated sessions valid across normal
 application restarts.
 
 Website administrators use individual database-backed accounts with salted
-PBKDF2-SHA256 password hashes, temporary lockout after repeated failures,
-revocable sessions, and Owner or Administrator roles. Owners manage users,
-password resets, account status, roles, and recent authentication activity from
-the **Administration users** screen. Server process control, diagnostics,
-database restoration, and module configuration are Owner-only.
+PBKDF2-SHA256 password hashes, temporary lockout after repeated failures, and
+revocable sessions. The **Access management** screen provides capability-based
+roles covering each player, adventure, world, server, and security area.
+The built-in Owner role always has every permission. Administrator has all
+player, adventure, world, and access-management permissions but no server
+control, settings, diagnostics, or backup permissions.
+
+Each website user also has an AzerothCore account scope: all game accounts,
+selected game accounts, or none. Character lists are filtered to that scope and
+the API independently rejects account or character operations outside it,
+including multi-character commands. Administrators cannot assign permissions or
+game-account access broader than their own. Role changes revoke affected
+sessions so updated claims take effect at the next sign-in.
 
 ## Custom worldserver module
 

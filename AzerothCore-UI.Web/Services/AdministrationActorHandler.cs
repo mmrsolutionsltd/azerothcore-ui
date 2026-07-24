@@ -18,6 +18,9 @@ public sealed class AdministrationActorHandler(IHttpContextAccessor contextAcces
             request.Headers.TryAddWithoutValidation(
                 "X-AzerothCore-Role",
                 principal.FindFirstValue(ClaimTypes.Role) ?? "unknown");
+            request.Headers.TryAddWithoutValidation(
+                "X-AzerothCore-Actor-Id",
+                principal.FindFirstValue(ClaimTypes.NameIdentifier) ?? "");
         }
         return base.SendAsync(request, cancellationToken);
     }

@@ -24,9 +24,18 @@ public sealed class AdministrationAccountStore(
             throw new ArgumentException(
                 "Username must be 3-64 letters, numbers, dots, hyphens, or underscores.");
     }
-    private static string ValidateRole(string role) =>
-        role is "Owner" or "Administrator" ? role
-        : throw new ArgumentException("Role must be Owner or Administrator.");
+    private static string ValidateScope(string scope) =>
+        scope is "All" or "Assigned" or "None" ? scope
+        : throw new ArgumentException("Account scope must be All, Assigned, or None.");
+
+    private static async Task ValidateRoleAsync(
+        MySqlConnection connection, string role, MySqlTransaction? transaction = null)
+    {
+        if (string.IsNullOrWhiteSpace(role) || await connection.ExecuteScalarAsync<long>(
+            "SELECT COUNT(*) FROM admin_role WHERE name=@role",
+            new { role }, transaction) != 1)
+            throw new ArgumentException("The selected role does not exist.");
+    }
 
     public async Task<bool> HasUsersAsync()
     {
@@ -61,7 +70,7 @@ public sealed class AdministrationAccountStore(
         await AuditAsync(connection, transaction, id, request.Username.Trim(),
             "OwnerBootstrap", "Succeeded", request.RemoteAddress, null);
         await transaction.CommitAsync();
-        return new(id, request.Username.Trim(), "Owner", false, stamp);
+        return await GetIdentityAsync(connection, id, transaction);
     }
 
     public async Task<AdministrationAuthenticationResult> AuthenticateAsync(
@@ -114,8 +123,7 @@ public sealed class AdministrationAccountStore(
             "Login", "Succeeded", request.RemoteAddress, null);
         await transaction.CommitAsync();
         return new(true, "Signed in.",
-            new(user.Id, user.Username, user.Role, user.MustChangePassword,
-                user.SecurityStamp.ToString()));
+            await GetIdentityAsync(connection, user.Id, transaction));
     }
 
     public async Task<bool> ValidateSessionAsync(AdministrationSessionValidationRequest request)
@@ -131,7 +139,7 @@ public sealed class AdministrationAccountStore(
     {
         await using var connection = Open();
         return (await connection.QueryAsync<AdministrationUserSummary>("""
-            SELECT id, username, role, enabled,
+            SELECT id, username, role, account_scope AccountScope, enabled,
               must_change_password MustChangePassword, created_at_utc CreatedAtUtc,
               last_login_at_utc LastLoginAtUtc, lockout_until_utc LockoutUntilUtc
             FROM admin_user ORDER BY username
@@ -143,39 +151,55 @@ public sealed class AdministrationAccountStore(
     {
         ValidateUsername(request.Username);
         AdministrationPasswordHasher.Validate(request.Password);
-        var role = ValidateRole(request.Role);
+        var scope = ValidateScope(request.AccountScope);
         await using var connection = Open();
+        await connection.OpenAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+        await ValidateRoleAsync(connection, request.Role, transaction);
         var now = DateTime.UtcNow;
         var id = await connection.ExecuteScalarAsync<ulong>("""
             INSERT INTO admin_user
               (username, normalized_username, password_hash, role, enabled,
-               must_change_password, security_stamp, created_at_utc)
-            VALUES (@Username, @Normalized, @Hash, @Role, 1, @MustChange, @Stamp, @Now);
+               must_change_password, security_stamp, created_at_utc, account_scope)
+            VALUES (@Username, @Normalized, @Hash, @Role, 1, @MustChange, @Stamp, @Now, @Scope);
             SELECT LAST_INSERT_ID();
             """, new {
                 Username = request.Username.Trim(), Normalized = Normalize(request.Username),
-                Hash = passwordHasher.Hash(request.Password), Role = role,
-                MustChange = request.MustChangePassword, Stamp = Guid.NewGuid().ToString(), Now = now
-            });
-        await WriteAuditAsync(id, request.Username.Trim(), "UserCreated", "Succeeded", request.Actor);
-        return new(id, request.Username.Trim(), role, true, request.MustChangePassword, now, null, null);
+                Hash = passwordHasher.Hash(request.Password), request.Role,
+                MustChange = request.MustChangePassword, Stamp = Guid.NewGuid().ToString(),
+                Now = now, Scope = scope
+            }, transaction);
+        await ReplaceGameAccountsAsync(connection, transaction, id, scope, request.GameAccountIds);
+        await AuditAsync(connection, transaction, id, request.Username.Trim(),
+            "UserCreated", "Succeeded", null, request.Actor);
+        await transaction.CommitAsync();
+        return new(id, request.Username.Trim(), request.Role, scope, true,
+            request.MustChangePassword, now, null, null);
     }
 
     public async Task UpdateAsync(ulong id, UpdateAdministrationUserRequest request)
     {
-        var role = ValidateRole(request.Role);
+        var scope = ValidateScope(request.AccountScope);
         await using var connection = Open();
+        await connection.OpenAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+        await ValidateRoleAsync(connection, request.Role, transaction);
         var target = await connection.QuerySingleAsync<(string Username, string Role)>(
-            "SELECT username, role FROM admin_user WHERE id=@id", new { id });
-        if (target.Role == "Owner" && (role != "Owner" || !request.Enabled)
+            "SELECT username, role FROM admin_user WHERE id=@id", new { id }, transaction);
+        if (target.Role == "Owner" && (request.Role != "Owner" || !request.Enabled)
             && await connection.ExecuteScalarAsync<long>(
-                "SELECT COUNT(*) FROM admin_user WHERE role='Owner' AND enabled=1") <= 1)
+                "SELECT COUNT(*) FROM admin_user WHERE role='Owner' AND enabled=1",
+                transaction: transaction) <= 1)
             throw new InvalidOperationException("The final enabled Owner cannot be demoted or disabled.");
         await connection.ExecuteAsync("""
-            UPDATE admin_user SET role=@role, enabled=@Enabled,
+            UPDATE admin_user SET role=@Role, account_scope=@Scope, enabled=@Enabled,
               security_stamp=@Stamp WHERE id=@id
-            """, new { id, role, request.Enabled, Stamp = Guid.NewGuid().ToString() });
-        await WriteAuditAsync(id, target.Username, "UserUpdated", "Succeeded", request.Actor);
+            """, new { id, request.Role, Scope = scope, request.Enabled,
+                Stamp = Guid.NewGuid().ToString() }, transaction);
+        await ReplaceGameAccountsAsync(connection, transaction, id, scope, request.GameAccountIds);
+        await AuditAsync(connection, transaction, id, target.Username,
+            "UserUpdated", "Succeeded", null, request.Actor);
+        await transaction.CommitAsync();
     }
 
     public async Task ResetPasswordAsync(ulong id, ResetAdministrationPasswordRequest request)
@@ -245,6 +269,144 @@ public sealed class AdministrationAccountStore(
             """)).AsList();
     }
 
+    public async Task<IReadOnlyList<AdministrationPermission>> GetPermissionsAsync()
+    {
+        await using var connection = Open();
+        return (await connection.QueryAsync<AdministrationPermission>("""
+            SELECT permission_key `Key`, display_name DisplayName, category, description
+            FROM admin_permission ORDER BY category, display_name
+            """)).AsList();
+    }
+
+    public async Task<IReadOnlyList<uint>> GetUserGameAccountsAsync(ulong id)
+    {
+        await using var connection = Open();
+        return (await connection.QueryAsync<uint>("""
+            SELECT game_account_id FROM admin_user_game_account
+            WHERE admin_user_id=@id ORDER BY game_account_id
+            """, new { id })).AsList();
+    }
+
+    public async Task<IReadOnlyList<AdministrationRole>> GetRolesAsync()
+    {
+        await using var connection = Open();
+        var rows = await connection.QueryAsync<RolePermissionRow>("""
+            SELECT r.name, r.description, r.is_system IsSystem,
+                   rp.permission_key PermissionKey
+            FROM admin_role r
+            LEFT JOIN admin_role_permission rp ON rp.role_name=r.name
+            ORDER BY r.name, rp.permission_key
+            """);
+        return rows.GroupBy(row => new { row.Name, row.Description, row.IsSystem })
+            .Select(group => new AdministrationRole(
+                group.Key.Name, group.Key.Description, group.Key.IsSystem,
+                group.Where(row => row.PermissionKey is not null)
+                    .Select(row => row.PermissionKey!).ToArray()))
+            .ToArray();
+    }
+
+    public async Task<IReadOnlyList<string>> GetRolePermissionsAsync(string role)
+    {
+        await using var connection = Open();
+        return (await connection.QueryAsync<string>("""
+            SELECT permission_key FROM admin_role_permission WHERE role_name=@role
+            """, new { role })).AsList();
+    }
+
+    public async Task SaveRoleAsync(SaveAdministrationRoleRequest request)
+    {
+        var name = request.Name.Trim();
+        if (name.Length is < 3 or > 32)
+            throw new ArgumentException("Role names must contain 3-32 characters.");
+        if (name.Equals("Owner", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("The Owner role cannot be changed.");
+        await using var connection = Open();
+        await connection.OpenAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+        var known = (await connection.QueryAsync<string>(
+            "SELECT permission_key FROM admin_permission", transaction: transaction))
+            .ToHashSet(StringComparer.Ordinal);
+        if (request.Permissions.Any(permission => !known.Contains(permission)))
+            throw new ArgumentException("The role contains an unknown permission.");
+        await connection.ExecuteAsync("""
+            INSERT INTO admin_role (name, description, is_system)
+            VALUES (@Name, @Description, 0)
+            ON DUPLICATE KEY UPDATE description=@Description
+            """, new { Name = name, Description = request.Description.Trim() }, transaction);
+        await connection.ExecuteAsync(
+            "DELETE FROM admin_role_permission WHERE role_name=@Name",
+            new { Name = name }, transaction);
+        if (request.Permissions.Count > 0)
+            await connection.ExecuteAsync("""
+                INSERT INTO admin_role_permission (role_name, permission_key)
+                VALUES (@Name, @Permission)
+                """, request.Permissions.Distinct().Select(
+                    permission => new { Name = name, Permission = permission }), transaction);
+        await connection.ExecuteAsync("""
+            UPDATE admin_user SET security_stamp=@Stamp WHERE role=@Name
+            """, new { Name = name, Stamp = Guid.NewGuid().ToString() }, transaction);
+        await AuditAsync(connection, transaction, null, name, "RoleSaved",
+            "Succeeded", null, request.Actor);
+        await transaction.CommitAsync();
+    }
+
+    public async Task DeleteRoleAsync(string name, string actor)
+    {
+        if (name is "Owner" or "Administrator")
+            throw new InvalidOperationException("Built-in roles cannot be deleted.");
+        await using var connection = Open();
+        if (await connection.ExecuteScalarAsync<long>(
+            "SELECT COUNT(*) FROM admin_user WHERE role=@name", new { name }) > 0)
+            throw new InvalidOperationException("Assign users to another role before deleting it.");
+        await connection.ExecuteAsync("DELETE FROM admin_role WHERE name=@name", new { name });
+        await WriteAuditAsync(null, name, "RoleDeleted", "Succeeded", actor);
+    }
+
+    public async Task<AdministrationUserIdentity?> GetIdentityAsync(ulong id)
+    {
+        await using var connection = Open();
+        return await GetIdentityOrDefaultAsync(connection, id, null);
+    }
+
+    private static async Task ReplaceGameAccountsAsync(
+        MySqlConnection connection, MySqlTransaction transaction, ulong userId,
+        string scope, IReadOnlyList<uint> accountIds)
+    {
+        await connection.ExecuteAsync(
+            "DELETE FROM admin_user_game_account WHERE admin_user_id=@userId",
+            new { userId }, transaction);
+        if (scope == "Assigned" && accountIds.Count > 0)
+            await connection.ExecuteAsync("""
+                INSERT INTO admin_user_game_account (admin_user_id, game_account_id)
+                VALUES (@userId, @accountId)
+                """, accountIds.Distinct().Select(accountId => new { userId, accountId }),
+                transaction);
+    }
+
+    private static async Task<AdministrationUserIdentity> GetIdentityAsync(
+        MySqlConnection connection, ulong id, MySqlTransaction? transaction) =>
+        await GetIdentityOrDefaultAsync(connection, id, transaction)
+        ?? throw new KeyNotFoundException("Administration user not found.");
+
+    private static async Task<AdministrationUserIdentity?> GetIdentityOrDefaultAsync(
+        MySqlConnection connection, ulong id, MySqlTransaction? transaction)
+    {
+        var user = await connection.QuerySingleOrDefaultAsync<IdentityRow>("""
+            SELECT id, username, role, account_scope AccountScope,
+                   must_change_password MustChangePassword, security_stamp SecurityStamp
+            FROM admin_user WHERE id=@id AND enabled=1
+            """, new { id }, transaction);
+        if (user is null) return null;
+        var permissions = (await connection.QueryAsync<string>("""
+            SELECT permission_key FROM admin_role_permission WHERE role_name=@Role
+            """, new { user.Role }, transaction)).AsList();
+        var accounts = (await connection.QueryAsync<uint>("""
+            SELECT game_account_id FROM admin_user_game_account WHERE admin_user_id=@id
+            """, new { id }, transaction)).AsList();
+        return new(user.Id, user.Username, user.Role, user.AccountScope,
+            permissions, accounts, user.MustChangePassword, user.SecurityStamp.ToString());
+    }
+
     private async Task WriteAuditAsync(
         ulong? userId, string username, string action, string outcome, string? detail)
     {
@@ -272,5 +434,21 @@ public sealed class AdministrationAccountStore(
         public uint FailedLoginCount { get; init; }
         public DateTime? LockoutUntilUtc { get; init; }
         public Guid SecurityStamp { get; init; }
+    }
+    private sealed class IdentityRow
+    {
+        public ulong Id { get; init; }
+        public string Username { get; init; } = "";
+        public string Role { get; init; } = "";
+        public string AccountScope { get; init; } = "";
+        public bool MustChangePassword { get; init; }
+        public Guid SecurityStamp { get; init; }
+    }
+    private sealed class RolePermissionRow
+    {
+        public string Name { get; init; } = "";
+        public string Description { get; init; } = "";
+        public bool IsSystem { get; init; }
+        public string? PermissionKey { get; init; }
     }
 }

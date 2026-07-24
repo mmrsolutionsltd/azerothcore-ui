@@ -30,6 +30,7 @@ builder.Services.AddWindowsService(options =>
 builder.Services.AddSingleton<AzerothCore_UI.Api.Data.AzerothCoreConnectionFactory>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Data.AdministrationAccountStore>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Security.AdministrationPasswordHasher>();
+builder.Services.AddSingleton<AzerothCore_UI.Api.Security.AdministrationRequestAuthorizer>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Data.SpellMetadataProvider>();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Services.AzerothCoreSoapClient>();
@@ -72,6 +73,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseRouting();
 
 app.Use(async (context, next) =>
 {
@@ -97,6 +99,26 @@ app.Use(async (context, next) =>
         return;
     }
 
+    await next();
+});
+
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/api"))
+    {
+        var authorizer = context.RequestServices.GetRequiredService<
+            AzerothCore_UI.Api.Security.AdministrationRequestAuthorizer>();
+        var decision = await authorizer.AuthorizeAsync(context);
+        if (!decision.Allowed)
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await context.Response.WriteAsJsonAsync(new
+            {
+                message = decision.Message
+            });
+            return;
+        }
+    }
     await next();
 });
 
