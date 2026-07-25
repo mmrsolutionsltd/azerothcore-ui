@@ -52,13 +52,32 @@ else
                     <div class="col-md-4">
                         <label class="form-label" for="new-profession">Profession</label>
                         <select id="new-profession" class="form-select" @bind="selectedProfessionSkillId">
-                            @foreach (var profession in SelectedProfessionCharacter?.AvailableProfessions ?? [])
+                            @foreach (var category in (SelectedProfessionCharacter?.AvailableProfessions ?? [])
+                                .GroupBy(profession => profession.Category)
+                                .OrderBy(group => group.Key == "Primary" ? 0 : 1))
                             {
-                                <option value="@profession.SkillId">
-                                    @profession.Name (@profession.Category)
-                                </option>
+                                <optgroup label="@($"{category.Key} professions")">
+                                @foreach (var profession in category)
+                                {
+                                    <option value="@profession.SkillId">@profession.Name</option>
+                                }
+                                </optgroup>
                             }
                         </select>
+                        @if (SelectedProfessionCharacter is { } selectedCharacter)
+                        {
+                            <div class="form-text">
+                                Primary slots: @selectedCharacter.PrimaryProfessionCount/2.
+                                @if (selectedCharacter.PrimaryProfessionCount >= 2)
+                                {
+                                    <span>Unlearn a primary profession below before choosing another.</span>
+                                }
+                                else
+                                {
+                                    <span>@(2 - selectedCharacter.PrimaryProfessionCount) primary slot(s) available.</span>
+                                }
+                            </div>
+                        }
                         @if (SelectedNewProfession?.SuggestedPairings.Count > 0)
                         {
                             <div class="form-text">
@@ -77,8 +96,17 @@ else
                 </div>
                 @if (SelectedProfessionCharacter?.Online == false)
                 {
-                    <div class="form-text text-warning">
+                    <div class="alert alert-warning mt-3 mb-0">
                         @SelectedProfessionCharacter.CharacterName must log in before the profession can be taught.
+                    </div>
+                }
+                else if (SelectedProfessionCharacter?.PrimaryProfessionCount >= 2
+                    && SelectedProfessionCharacter.AvailableProfessions.All(
+                        profession => profession.Category != "Primary"))
+                {
+                    <div class="alert alert-info mt-3 mb-0">
+                        This character already knows two primary professions, so only missing
+                        secondary professions are available.
                     </div>
                 }
             }
