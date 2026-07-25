@@ -240,6 +240,7 @@ public sealed class TrainingController(
             request.SpellId, metadata);
         var output = await soapClient.ExecuteAsync(
             $"player learn {player} {learnedSpellId}", cancellationToken);
+        await soapClient.ExecuteAsync("saveall", cancellationToken);
         var profession = ProfessionNames.GetValueOrDefault(row.SkillId, $"Skill {row.SkillId}");
         var trainingName = metadata?.Name ?? $"spell {request.SpellId}";
 
@@ -388,6 +389,7 @@ public sealed class TrainingController(
         var player = AzerothCoreSoapClient.RequirePlayerName(character.CharacterName);
         var output = await soapClient.ExecuteAsync(
             $"player learn {player} {profession.ApprenticeSpellId}", cancellationToken);
+        await soapClient.ExecuteAsync("saveall", cancellationToken);
 
         logger.LogInformation(
             "Profession learned by {Character}: {Profession} ({SkillId}, spell {SpellId})",
@@ -502,6 +504,7 @@ public sealed class TrainingController(
         var output = await soapClient.ExecuteAsync(
             ProfessionTrainingRules.BuildUnlearnCommand(player, profession),
             cancellationToken);
+        await soapClient.ExecuteAsync("saveall", cancellationToken);
 
         logger.LogWarning(
             "Profession unlearned by {Character}: {Profession} ({SkillId}, spell {SpellId})",
