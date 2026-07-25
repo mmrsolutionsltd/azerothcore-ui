@@ -69,8 +69,9 @@ public sealed class AdministrationAccountStore(
             }, transaction);
         await AuditAsync(connection, transaction, id, request.Username.Trim(),
             "OwnerBootstrap", "Succeeded", request.RemoteAddress, null);
+        var identity = await GetIdentityAsync(connection, id, transaction);
         await transaction.CommitAsync();
-        return await GetIdentityAsync(connection, id, transaction);
+        return identity;
     }
 
     public async Task<AdministrationAuthenticationResult> AuthenticateAsync(
@@ -121,9 +122,9 @@ public sealed class AdministrationAccountStore(
             """, new { Now = now, user.Id }, transaction);
         await AuditAsync(connection, transaction, user.Id, user.Username,
             "Login", "Succeeded", request.RemoteAddress, null);
+        var identity = await GetIdentityAsync(connection, user.Id, transaction);
         await transaction.CommitAsync();
-        return new(true, "Signed in.",
-            await GetIdentityAsync(connection, user.Id, transaction));
+        return new(true, "Signed in.", identity);
     }
 
     public async Task<bool> ValidateSessionAsync(AdministrationSessionValidationRequest request)
