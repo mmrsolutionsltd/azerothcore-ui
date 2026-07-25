@@ -7,11 +7,21 @@ public sealed class DatabaseBackupWorker(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromMinutes(1));
-        do
+        while (!stoppingToken.IsCancellationRequested)
         {
             try { await scheduler.CheckScheduleAsync(stoppingToken); }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception exception) { logger.LogError(exception, "Database backup scheduler check failed."); }
-        } while (await timer.WaitForNextTickAsync(stoppingToken));
+
+            try
+            {
+                if (!await timer.WaitForNextTickAsync(stoppingToken))
+                    break;
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+        }
     }
 }
