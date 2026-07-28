@@ -81,6 +81,7 @@ public sealed class ServerAdministrationController(
         [FromQuery] int pageSize = 30, [FromQuery] int? quality = null,
         [FromQuery] int? minimumItemLevel = null, [FromQuery] int? maximumItemLevel = null,
         [FromQuery] int? minimumRequiredLevel = null, [FromQuery] int? maximumRequiredLevel = null,
+        [FromQuery] string? targetNames = null, [FromQuery] string suitability = "off",
         CancellationToken cancellationToken = default)
     {
         if (!IsLocalRequest()) return NotFound();
@@ -94,6 +95,32 @@ public sealed class ServerAdministrationController(
             return BadRequest("Level filters cannot be negative.");
         if (minimumItemLevel > maximumItemLevel || minimumRequiredLevel > maximumRequiredLevel)
             return BadRequest("A minimum level cannot be greater than its maximum.");
+        if (suitability is not ("off" or "any" or "all"))
+            return BadRequest("Unknown suitability filter.");
+
+        var requestedTargetNames = (targetNames ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries
+            | StringSplitOptions.TrimEntries).Distinct(StringComparer.OrdinalIgnoreCase).Take(50).ToArray();
+        await using var connection = connectionFactory.CreateConnection();
+        var identity = HttpContext.AdministrationIdentity();
+        var targets = requestedTargetNames.Length == 0
+            ? []
+            : (await connection.QueryAsync<ItemTargetRow>(new CommandDefinition("""
+                SELECT characterData.guid AS Guid, characterData.name AS Name,
+                       characterData.class AS CharacterClass, characterData.race AS Race,
+                       characterData.level AS CharacterLevel
+                FROM acore_characters.characters characterData
+                WHERE characterData.name IN @TargetNames
+                  AND (@AllAccounts OR characterData.account IN @AllowedAccounts);
+                """, new
+                {
+                    TargetNames = requestedTargetNames,
+                    AllAccounts = identity?.AccountScope == "All",
+                    AllowedAccounts = identity?.GameAccountIds ?? []
+                }, cancellationToken: cancellationToken))).AsList();
+        var suitabilityFilter = suitability == "off" || targets.Count == 0
+            ? ""
+            : $" AND ({string.Join(suitability == "all" ? " AND " : " OR ",
+                targets.Select(ItemCompatibilitySql))})";
         var normalizedSearch = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
         var where = $"""
             WHERE item.name <> ''
@@ -104,12 +131,16 @@ public sealed class ServerAdministrationController(
               AND (@MinimumRequiredLevel IS NULL OR item.RequiredLevel >= @MinimumRequiredLevel)
               AND (@MaximumRequiredLevel IS NULL OR item.RequiredLevel <= @MaximumRequiredLevel)
               {categoryFilter}
+              {suitabilityFilter}
             """;
         var sql = $"""
             SELECT COUNT(*) FROM acore_world.item_template item {where};
             SELECT item.entry AS ItemId, item.name AS Name, item.class AS ItemClass,
                    item.subclass AS ItemSubclass, item.Quality AS Quality,
-                   item.ItemLevel AS ItemLevel, item.RequiredLevel AS RequiredLevel
+                   item.ItemLevel AS ItemLevel, item.RequiredLevel AS RequiredLevel,
+                   item.InventoryType AS InventoryType,
+                   CAST(item.AllowableClass AS SIGNED) AS AllowableClass,
+                   CAST(item.AllowableRace AS SIGNED) AS AllowableRace
             FROM acore_world.item_template item
             {where}
             ORDER BY item.name, item.entry
@@ -122,10 +153,38 @@ public sealed class ServerAdministrationController(
             MinimumRequiredLevel = minimumRequiredLevel, MaximumRequiredLevel = maximumRequiredLevel,
             PageSize = pageSize, Offset = (page - 1) * pageSize
         };
-        await using var connection = connectionFactory.CreateConnection();
         using var results = await connection.QueryMultipleAsync(new CommandDefinition(sql, parameters, cancellationToken: cancellationToken));
         var total = await results.ReadSingleAsync<int>();
         var items = (await results.ReadAsync<AdministrationItem>()).AsList();
+        Dictionary<(ulong Guid, int SlotGroup), int> equippedLevels = [];
+        if (targets.Count > 0 && items.Count > 0)
+        {
+            var equipped = await connection.QueryAsync<EquippedItemLevelRow>(new CommandDefinition("""
+                SELECT inventory.guid AS Guid, template.InventoryType AS InventoryType,
+                       MAX(template.ItemLevel) AS ItemLevel
+                FROM acore_characters.character_inventory inventory
+                INNER JOIN acore_characters.item_instance instance ON instance.guid = inventory.item
+                INNER JOIN acore_world.item_template template ON template.entry = instance.itemEntry
+                WHERE inventory.guid IN @Guids AND inventory.bag = 0 AND inventory.slot < 19
+                GROUP BY inventory.guid, template.InventoryType;
+                """, new { Guids = targets.Select(target => target.Guid).ToArray() },
+                cancellationToken: cancellationToken));
+            equippedLevels = equipped
+                .GroupBy(row => (row.Guid, InventorySlotGroup(row.InventoryType)))
+                .ToDictionary(group => group.Key, group => group.Max(row => row.ItemLevel));
+        }
+        foreach (var item in items)
+        {
+            var suitable = targets.Where(target => ItemCompatible(item, target)).ToArray();
+            item.TargetCount = targets.Count;
+            item.SuitableTargetCount = suitable.Length;
+            item.SuitableTargetNames = suitable.Select(target => target.Name).ToArray();
+            item.IncompatibleTargetNames = targets.Except(suitable).Select(target => target.Name).ToArray();
+            var slotGroup = InventorySlotGroup(item.InventoryType);
+            item.LikelyUpgradeTargetCount = slotGroup == 0 ? 0 : suitable.Count(target =>
+                !equippedLevels.TryGetValue((target.Guid, slotGroup), out var equippedLevel)
+                || item.ItemLevel > equippedLevel);
+        }
         return Ok(new AdministrationItemSearchResult(items, page, pageSize, total,
             total == 0 ? 0 : (int)Math.Ceiling(total / (double)pageSize)));
     }
@@ -535,6 +594,75 @@ public sealed class ServerAdministrationController(
         "miscellaneous" => "AND item.class = 15",
         "glyphs" => "AND item.class = 16",
         _ => null
+    };
+
+    private static string ItemCompatibilitySql(ItemTargetRow target)
+    {
+        var classMask = 1L << (target.CharacterClass - 1);
+        var raceMask = 1L << (target.Race - 1);
+        var weaponSubclasses = string.Join(',', WeaponSubclassesForClass(target.CharacterClass));
+        var armorSubclasses = string.Join(',', ArmorSubclassesForClass(
+            target.CharacterClass, target.CharacterLevel));
+        return $"""
+            (item.RequiredLevel <= {target.CharacterLevel}
+             AND (CAST(item.AllowableClass AS SIGNED) IN (-1, 0)
+                  OR (CAST(item.AllowableClass AS SIGNED) & {classMask}) <> 0)
+             AND (CAST(item.AllowableRace AS SIGNED) IN (-1, 0)
+                  OR (CAST(item.AllowableRace AS SIGNED) & {raceMask}) <> 0)
+             AND (item.class NOT IN (2, 4)
+                  OR (item.class = 2 AND item.subclass IN ({weaponSubclasses}))
+                  OR (item.class = 4 AND item.subclass IN ({armorSubclasses}))))
+            """;
+    }
+
+    private static bool ItemCompatible(AdministrationItem item, ItemTargetRow target)
+    {
+        var classMask = 1L << (target.CharacterClass - 1);
+        var raceMask = 1L << (target.Race - 1);
+        return item.RequiredLevel <= target.CharacterLevel
+            && (item.AllowableClass is -1 or 0 || (item.AllowableClass & classMask) != 0)
+            && (item.AllowableRace is -1 or 0 || (item.AllowableRace & raceMask) != 0)
+            && (item.ItemClass != 2
+                || WeaponSubclassesForClass(target.CharacterClass).Contains(item.ItemSubclass))
+            && (item.ItemClass != 4
+                || ArmorSubclassesForClass(target.CharacterClass, target.CharacterLevel)
+                    .Contains(item.ItemSubclass));
+    }
+
+    private static int[] WeaponSubclassesForClass(int characterClass) => characterClass switch
+    {
+        1 => [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 13, 15, 16, 18],
+        2 => [0, 1, 4, 5, 6, 7, 8],
+        3 => [0, 1, 2, 3, 6, 7, 8, 10, 13, 15, 18],
+        4 => [0, 2, 3, 4, 7, 13, 15, 16, 18],
+        5 => [4, 10, 15, 19],
+        6 => [0, 1, 4, 5, 6, 7, 8],
+        7 => [0, 1, 4, 5, 10, 13, 15],
+        8 or 9 => [7, 10, 15, 19],
+        11 => [4, 5, 6, 10, 13, 15],
+        _ => [0]
+    };
+
+    private static int[] ArmorSubclassesForClass(int characterClass, int characterLevel) =>
+        characterClass switch
+        {
+            1 => characterLevel >= 40 ? [0, 1, 2, 3, 4, 6] : [0, 1, 2, 3, 6],
+            2 => characterLevel >= 40 ? [0, 1, 2, 3, 4, 6, 7] : [0, 1, 2, 3, 6, 7],
+            3 => characterLevel >= 40 ? [0, 1, 2, 3] : [0, 1, 2],
+            7 => characterLevel >= 40 ? [0, 1, 2, 3, 6, 9] : [0, 1, 2, 6, 9],
+            4 => [0, 1, 2],
+            11 => [0, 1, 2, 8],
+            5 or 8 or 9 => [0, 1],
+            6 => [0, 1, 2, 3, 4, 10],
+            _ => [0]
+        };
+
+    private static int InventorySlotGroup(int inventoryType) => inventoryType switch
+    {
+        1 => 1, 2 => 2, 3 => 3, 4 => 4, 5 or 20 => 5, 6 => 6, 7 => 7,
+        8 => 8, 9 => 9, 10 => 10, 11 => 11, 12 => 12, 13 or 17 or 21 => 13,
+        14 or 22 or 23 => 14, 15 or 25 or 26 or 28 => 15, 16 => 16, 19 => 19,
+        _ => 0
     };
 
     [HttpGet("settings/playerbots")]
@@ -1145,19 +1273,145 @@ public sealed class ServerAdministrationController(
             .FirstOrDefault(value => value.DungeonId == request.DungeonId);
         if (dungeon is null) return NotFound();
         await using var connection = connectionFactory.CreateConnection();
+        var identity = HttpContext.AdministrationIdentity();
         IReadOnlyList<DungeonPartyCharacterRow> characters = characterGuids.Length == 0
             ? []
             : (await connection.QueryAsync<DungeonPartyCharacterRow>(
                 new CommandDefinition("""
-                    SELECT class CharacterClass, level CharacterLevel
-                    FROM acore_characters.characters WHERE guid IN @Guids
-                    """, new { Guids = characterGuids },
+                    SELECT guid Guid, name Name, class CharacterClass,
+                           race Race, level CharacterLevel
+                    FROM acore_characters.characters
+                    WHERE guid IN @Guids
+                      AND (@AllAccounts OR account IN @AllowedAccounts)
+                    """, new
+                    {
+                        Guids = characterGuids,
+                        AllAccounts = identity?.AccountScope == "All",
+                        AllowedAccounts = identity?.GameAccountIds ?? []
+                    },
                     cancellationToken: cancellationToken))).AsList();
         return Ok(await dungeonGuideService.GetAsync(
             dungeon,
             characters.Select(character => new DungeonGuideService.Character(
-                character.CharacterClass, character.CharacterLevel)).ToArray(),
+                character.Guid, character.Name, character.CharacterClass,
+                character.Race, character.CharacterLevel)).ToArray(),
             cancellationToken));
+    }
+
+    [HttpPost("dungeon-library/wishlist-plan")]
+    public async Task<ActionResult<DungeonWishlistPlan>> GetDungeonWishlistPlan(
+        DungeonWishlistPlanRequest request, CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        var itemIds = request.ItemIds.Distinct().Take(100).ToArray();
+        var characterGuids = request.CharacterGuids.Distinct().Take(5).ToArray();
+        if (request.ItemIds.Distinct().Count() > 100)
+            return BadRequest(new AdministrationResult(false, "Wishlist is limited to 100 items."));
+        if (request.CharacterGuids.Distinct().Count() > 5)
+            return BadRequest(new AdministrationResult(false, "Select no more than five characters."));
+        if (itemIds.Length == 0) return Ok(new DungeonWishlistPlan([], []));
+
+        await using var connection = connectionFactory.CreateConnection();
+        var identity = HttpContext.AdministrationIdentity();
+        var targets = characterGuids.Length == 0
+            ? []
+            : (await connection.QueryAsync<ItemTargetRow>(new CommandDefinition("""
+                SELECT guid Guid, name Name, class CharacterClass, race Race,
+                       level CharacterLevel
+                FROM acore_characters.characters
+                WHERE guid IN @Guids
+                  AND (@AllAccounts OR account IN @AllowedAccounts);
+                """, new
+                {
+                    Guids = characterGuids,
+                    AllAccounts = identity?.AccountScope == "All",
+                    AllowedAccounts = identity?.GameAccountIds ?? []
+                }, cancellationToken: cancellationToken))).AsList();
+        var items = (await connection.QueryAsync<WishlistItemRow>(new CommandDefinition("""
+            SELECT entry ItemId, name Name, Quality, ItemLevel, RequiredLevel,
+                   class ItemClass, subclass ItemSubclass, InventoryType,
+                   CAST(AllowableClass AS SIGNED) AllowableClass,
+                   CAST(AllowableRace AS SIGNED) AllowableRace
+            FROM acore_world.item_template WHERE entry IN @ItemIds;
+            """, new { ItemIds = itemIds }, cancellationToken: cancellationToken))).AsList();
+        var sources = (await connection.QueryAsync<WishlistSourceRow>(new CommandDefinition("""
+            SELECT loot.Item ItemId, boss.entry BossCreatureId, boss.name BossName,
+                   COALESCE(MIN(spawn.map), 0) MapId, ABS(loot.Chance) DropChance
+            FROM acore_world.creature_template boss
+            JOIN acore_world.creature_loot_template loot ON loot.Entry=boss.lootid
+            LEFT JOIN acore_world.creature spawn ON spawn.id=boss.entry
+            WHERE loot.Item IN @ItemIds AND loot.Item<>0
+            GROUP BY loot.Item, boss.entry, boss.name, loot.Chance
+            UNION ALL
+            SELECT referenceLoot.Item, boss.entry, boss.name,
+                   COALESCE(MIN(spawn.map), 0), ABS(referenceLoot.Chance)
+            FROM acore_world.creature_template boss
+            JOIN acore_world.creature_loot_template parentLoot
+              ON parentLoot.Entry=boss.lootid AND parentLoot.Reference<>0
+            JOIN acore_world.reference_loot_template referenceLoot
+              ON referenceLoot.Entry=parentLoot.Reference
+            LEFT JOIN acore_world.creature spawn ON spawn.id=boss.entry
+            WHERE referenceLoot.Item IN @ItemIds AND referenceLoot.Item<>0
+            GROUP BY referenceLoot.Item, boss.entry, boss.name, referenceLoot.Chance;
+            """, new { ItemIds = itemIds }, cancellationToken: cancellationToken))).AsList();
+        var ownership = targets.Count == 0
+            ? []
+            : (await connection.QueryAsync<WishlistOwnershipRow>(new CommandDefinition("""
+                SELECT inventory.guid CharacterGuid, instance.itemEntry ItemId,
+                       MAX(inventory.bag=0 AND inventory.slot<19) Equipped
+                FROM acore_characters.character_inventory inventory
+                JOIN acore_characters.item_instance instance ON instance.guid=inventory.item
+                WHERE inventory.guid IN @Guids AND instance.itemEntry IN @ItemIds
+                GROUP BY inventory.guid, instance.itemEntry;
+                """, new
+                {
+                    Guids = targets.Select(target => target.Guid).ToArray(),
+                    ItemIds = itemIds
+                }, cancellationToken: cancellationToken))).AsList();
+
+        var dungeonOutput = await soapClient.ExecuteAsync("webadmin dungeon list", cancellationToken);
+        var dungeons = ParseDungeons(dungeonOutput);
+        var planItems = items.Select(item =>
+        {
+            var compatibilityItem = new AdministrationItem
+            {
+                ItemId = item.ItemId, Name = item.Name, ItemClass = item.ItemClass,
+                ItemSubclass = item.ItemSubclass, Quality = item.Quality,
+                ItemLevel = item.ItemLevel, RequiredLevel = item.RequiredLevel,
+                InventoryType = item.InventoryType, AllowableClass = item.AllowableClass,
+                AllowableRace = item.AllowableRace
+            };
+            var itemSources = sources.Where(source => source.ItemId == item.ItemId)
+                .GroupBy(source => (source.BossCreatureId, source.MapId))
+                .Select(group => group.OrderByDescending(source => source.DropChance).First())
+                .Select(source => new DungeonWishlistSource(
+                    source.BossCreatureId, source.BossName, source.MapId,
+                    source.DropChance, source.DropChance > 0 ? 100d / source.DropChance : null))
+                .OrderByDescending(source => source.DropChance).ToArray();
+            var characterStates = targets.Select(target =>
+            {
+                var owned = ownership.FirstOrDefault(value =>
+                    value.CharacterGuid == target.Guid && value.ItemId == item.ItemId);
+                return new DungeonWishlistCharacter(
+                    (uint)target.Guid, target.Name, ItemCompatible(compatibilityItem, target),
+                    owned is not null, owned?.Equipped == true);
+            }).ToArray();
+            return new DungeonWishlistPlanItem(
+                item.ItemId, item.Name, item.Quality, item.ItemLevel,
+                itemSources, characterStates);
+        }).OrderBy(item => item.Name).ToArray();
+        var runs = planItems.SelectMany(item => item.Sources.Select(source => (item, source)))
+            .Where(value => value.source.MapId != 0)
+            .GroupBy(value => value.source.MapId)
+            .Select(group => new DungeonWishlistRun(
+                group.Key,
+                dungeons.Where(dungeon => dungeon.MapId == group.Key)
+                    .Select(dungeon => dungeon.Name).Distinct().ToArray(),
+                group.Select(value => value.item.ItemId).Distinct().Count(),
+                group.Select(value => value.item.Name).Distinct().OrderBy(name => name).ToArray()))
+            .OrderByDescending(run => run.WantedItemCount)
+            .ThenBy(run => run.DungeonNames.FirstOrDefault() ?? "").ToArray();
+        return Ok(new DungeonWishlistPlan(planItems, runs));
     }
 
     [HttpGet("parties/{leaderName}/dungeons/{dungeonId}/readiness")]
@@ -1782,8 +2036,10 @@ public sealed class ServerAdministrationController(
 
     private sealed class DungeonPartyCharacterRow
     {
+        public uint Guid { get; init; }
         public string Name { get; init; } = "";
         public int CharacterClass { get; init; }
+        public int Race { get; init; }
         public int CharacterLevel { get; init; }
     }
 
@@ -1875,6 +2131,52 @@ public sealed class ServerAdministrationController(
     {
         public string Name { get; init; } = "";
         public bool PotentiallyHostile { get; init; }
+    }
+
+    private sealed class ItemTargetRow
+    {
+        public ulong Guid { get; init; }
+        public string Name { get; init; } = "";
+        public byte CharacterClass { get; init; }
+        public byte Race { get; init; }
+        public byte CharacterLevel { get; init; }
+    }
+
+    private sealed class EquippedItemLevelRow
+    {
+        public ulong Guid { get; init; }
+        public int InventoryType { get; init; }
+        public int ItemLevel { get; init; }
+    }
+
+    private sealed class WishlistItemRow
+    {
+        public uint ItemId { get; init; }
+        public string Name { get; init; } = "";
+        public byte Quality { get; init; }
+        public ushort ItemLevel { get; init; }
+        public byte RequiredLevel { get; init; }
+        public byte ItemClass { get; init; }
+        public byte ItemSubclass { get; init; }
+        public byte InventoryType { get; init; }
+        public long AllowableClass { get; init; }
+        public long AllowableRace { get; init; }
+    }
+
+    private sealed class WishlistSourceRow
+    {
+        public uint ItemId { get; init; }
+        public uint BossCreatureId { get; init; }
+        public string BossName { get; init; } = "";
+        public uint MapId { get; init; }
+        public double DropChance { get; init; }
+    }
+
+    private sealed class WishlistOwnershipRow
+    {
+        public ulong CharacterGuid { get; init; }
+        public uint ItemId { get; init; }
+        public bool Equipped { get; init; }
     }
 
     private static bool IsAllianceRace(byte characterRace) =>

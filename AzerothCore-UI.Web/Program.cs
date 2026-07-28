@@ -47,6 +47,7 @@ builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddTransient<AzerothCore_UI.Web.Services.AdministrationActorHandler>();
 builder.Services.AddScoped<AzerothCore_UI.Web.Services.SelectedCharacterStore>();
+builder.Services.AddScoped<AzerothCore_UI.Web.Services.DungeonWishlistStore>();
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {

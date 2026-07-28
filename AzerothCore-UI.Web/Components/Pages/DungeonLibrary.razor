@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "adventures.dungeons")]
 @inject AccountsApiClient Api
+@inject AzerothCore_UI.Web.Services.DungeonWishlistStore WishlistStore
 
 <PageTitle>Dungeon library</PageTitle>
 <h1>Dungeon library</h1>
@@ -13,6 +14,81 @@
 @if (!string.IsNullOrWhiteSpace(message))
 {
     <div class="alert alert-danger">@message</div>
+}
+
+@if (wishlistItemIds.Count > 0)
+{
+    <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span>Loot farming planner</span>
+            @if (wishlistLoading)
+            {
+                <span class="spinner-border spinner-border-sm"></span>
+            }
+        </div>
+        <div class="card-body">
+            @if (wishlistPlan?.RecommendedRuns.FirstOrDefault() is { } bestRun)
+            {
+                <div class="alert alert-info py-2">
+                    <strong>Most efficient run:</strong>
+                    @(bestRun.DungeonNames.Count > 0
+                        ? string.Join(" / ", bestRun.DungeonNames)
+                        : $"Map {bestRun.MapId}")
+                    covers @bestRun.WantedItemCount wishlisted item(s):
+                    @string.Join(", ", bestRun.ItemNames).
+                </div>
+            }
+            @if (wishlistPlan is not null)
+            {
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                        <tr><th>Wanted item</th><th>Drops from</th><th>Estimated runs</th><th>Characters</th><th></th></tr>
+                        </thead>
+                        <tbody>
+                        @foreach (var wanted in wishlistPlan.Items)
+                        {
+                            var bestSource = wanted.Sources.OrderByDescending(source => source.DropChance).FirstOrDefault();
+                            <tr class="@(wanted.Characters.Any(character => character.Owned) ? "table-success" : null)">
+                                <td>
+                                    <span class="@LootQualityClass(wanted.Quality) fw-semibold">@wanted.Name</span>
+                                    <span class="small text-muted"> #@wanted.ItemId · iLvl @wanted.ItemLevel</span>
+                                </td>
+                                <td>
+                                    @if (bestSource is null)
+                                    {
+                                        <span class="text-muted">No creature drop found</span>
+                                    }
+                                    else
+                                    {
+                                        <span>@bestSource.BossName</span>
+                                        <div class="small text-muted">
+                                            @DungeonNames(bestSource.MapId) · @bestSource.DropChance.ToString("0.##")%
+                                        </div>
+                                    }
+                                </td>
+                                <td>@(bestSource?.EstimatedRuns is { } runs ? $"≈ {runs:0.#}" : "—")</td>
+                                <td>
+                                    @foreach (var character in wanted.Characters.Where(value => value.Usable))
+                                    {
+                                        <span class="badge @(character.Equipped ? "text-bg-success" : character.Owned ? "text-bg-info" : "text-bg-secondary") me-1">
+                                            @character.CharacterName
+                                            @(character.Equipped ? "equipped" : character.Owned ? "owned" : "wants")
+                                        </span>
+                                    }
+                                </td>
+                                <td class="text-end">
+                                    <button class="btn btn-sm btn-outline-danger"
+                                            @onclick="() => ToggleWishlistAsync(wanted.ItemId)">Remove</button>
+                                </td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
 }
 
 <div class="row g-3">
@@ -33,8 +109,22 @@
         </div>
 
         <div class="card">
-            <div class="card-header">Dungeons</div>
+            <div class="card-header d-flex justify-content-between">
+                <span>Dungeons</span>
+                @if (rankingLoading)
+                {
+                    <span class="spinner-border spinner-border-sm" title="Comparing dungeon loot"></span>
+                }
+            </div>
             <div class="card-body">
+                @if (BestGearDungeon is not null)
+                {
+                    <div class="alert alert-success py-2 small">
+                        <strong>Best gearing run:</strong> @BestGearDungeon.Name
+                        · @GearScore(BestGearDungeon.DungeonId) likely upgrade match(es)
+                        across the selected characters.
+                    </div>
+                }
                 <input class="form-control form-control-sm mb-2"
                        placeholder="Find dungeon…" @bind="dungeonSearch"
                        @bind:event="oninput" />
@@ -114,6 +204,21 @@
                                 Selected-character loot only
                             </label>
                         </div>
+                        <div class="form-check form-switch mb-0">
+                            <input id="library-upgrades-only" class="form-check-input"
+                                   type="checkbox" @bind="showUpgradesOnly"
+                                   disabled="@(selectedCharacterGuids.Count == 0)" />
+                            <label class="form-check-label" for="library-upgrades-only">
+                                Upgrades only
+                            </label>
+                        </div>
+                        <div class="form-check form-switch mb-0">
+                            <input id="library-wishlist-only" class="form-check-input"
+                                   type="checkbox" @bind="showWishlistOnly" />
+                            <label class="form-check-label" for="library-wishlist-only">
+                                Wishlist only (@wishlistItemIds.Count)
+                            </label>
+                        </div>
                         <input class="form-control form-control-sm flex-grow-1"
                                style="min-width: 12rem" placeholder="Filter loot by name…"
                                @bind="lootSearch" @bind:event="oninput" />
@@ -145,6 +250,8 @@
                                                 <th>Required</th>
                                                 <th>Item level</th>
                                                 <th>Drop</th>
+                                                <th>Characters</th>
+                                                <th></th>
                                             </tr>
                                             </thead>
                                             <tbody>
@@ -165,6 +272,10 @@
                                                         {
                                                             <span class="badge text-bg-warning ms-1">Quest</span>
                                                         }
+                                                        @if (wishlistItemIds.Contains(item.ItemId))
+                                                        {
+                                                            <span class="badge text-bg-info ms-1">Wishlisted</span>
+                                                        }
                                                         <DungeonLootStats Item="item" />
                                                     </td>
                                                     <td>@(item.RequiredLevel > 0
@@ -172,6 +283,22 @@
                                                     <td>@item.ItemLevel</td>
                                                     <td>@(item.DropChance > 0
                                                         ? $"{item.DropChance:0.##}%" : "Loot group")</td>
+                                                    <td>
+                                                        @foreach (var recommendation in item.Recommendations.Where(value => value.Usable))
+                                                        {
+                                                            <span class="badge @(recommendation.LikelyUpgrade ? "text-bg-primary" : "text-bg-secondary") me-1"
+                                                                  title="@recommendation.Reason">
+                                                                @recommendation.CharacterName@(recommendation.LikelyUpgrade ? " ↑" : "")
+                                                            </span>
+                                                        }
+                                                    </td>
+                                                    <td class="text-end">
+                                                        <button class="btn btn-sm @(wishlistItemIds.Contains(item.ItemId) ? "btn-info" : "btn-outline-secondary")"
+                                                                title="@(wishlistItemIds.Contains(item.ItemId) ? "Remove from wishlist" : "Add to wishlist")"
+                                                                @onclick="() => ToggleWishlistAsync(item.ItemId)">
+                                                            @(wishlistItemIds.Contains(item.ItemId) ? "★" : "☆")
+                                                        </button>
+                                                    </td>
                                                 </tr>
                                             }
                                             </tbody>
@@ -193,10 +320,15 @@
     private IReadOnlySet<string> selectedCharacterGuids =
         new HashSet<string>(StringComparer.Ordinal);
     private DungeonGuide? guide;
+    private DungeonWishlistPlan? wishlistPlan;
     private uint selectedDungeonId;
     private string dungeonSearch = "", lootSearch = "";
     private string? message;
     private bool loading = true, showRelevantLootOnly = true;
+    private bool showUpgradesOnly, showWishlistOnly, rankingLoading;
+    private bool wishlistLoading;
+    private HashSet<uint> wishlistItemIds = [];
+    private readonly Dictionary<uint, int> dungeonGearScores = [];
 
     private IReadOnlyList<CharacterPickerItem> CharacterItems => characters
         .Select(character => new CharacterPickerItem(
@@ -229,9 +361,16 @@
     private IEnumerable<DungeonDestination> FilteredDungeons => dungeons
         .Where(dungeon => string.IsNullOrWhiteSpace(dungeonSearch)
             || dungeon.Name.Contains(dungeonSearch, StringComparison.OrdinalIgnoreCase))
-        .OrderBy(dungeon => RecommendedDungeonIds.Contains(dungeon.DungeonId) ? 0 : 1)
+        .OrderByDescending(dungeon => GearScore(dungeon.DungeonId))
+        .ThenBy(dungeon => RecommendedDungeonIds.Contains(dungeon.DungeonId) ? 0 : 1)
         .ThenBy(dungeon => dungeon.MinimumLevel)
         .ThenBy(dungeon => dungeon.Name);
+
+    private DungeonDestination? BestGearDungeon => dungeonGearScores.Count == 0
+        ? null
+        : dungeons.Where(dungeon => GearScore(dungeon.DungeonId) > 0)
+            .OrderByDescending(dungeon => GearScore(dungeon.DungeonId))
+            .ThenBy(dungeon => dungeon.MinimumLevel).FirstOrDefault();
 
     private int VisibleLootCount => guide?.Bosses.Sum(boss => VisibleLoot(boss).Length) ?? 0;
 
@@ -249,11 +388,23 @@
         finally { loading = false; }
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        wishlistItemIds = await WishlistStore.GetAsync();
+        await LoadWishlistPlanAsync();
+        StateHasChanged();
+    }
+
     private async Task SelectCharactersAsync(IReadOnlySet<string> values)
     {
         selectedCharacterGuids = values;
         showRelevantLootOnly = values.Count > 0;
+        showUpgradesOnly = false;
+        dungeonGearScores.Clear();
         if (selectedDungeonId != 0) await LoadGuideAsync();
+        if (values.Count > 0) await RefreshGearScoresAsync();
+        await LoadWishlistPlanAsync();
     }
 
     private async Task SelectDungeonAsync(uint dungeonId)
@@ -285,9 +436,76 @@
 
     private DungeonLootItem[] VisibleLoot(DungeonBossGuide boss) => boss.Loot
         .Where(item => (!showRelevantLootOnly || item.SuggestedForParty)
+            && (!showUpgradesOnly || item.Recommendations.Any(value => value.LikelyUpgrade))
+            && (!showWishlistOnly || wishlistItemIds.Contains(item.ItemId))
             && (string.IsNullOrWhiteSpace(lootSearch)
                 || item.Name.Contains(lootSearch, StringComparison.OrdinalIgnoreCase)))
         .ToArray();
+
+    private int GearScore(uint dungeonId) =>
+        dungeonGearScores.GetValueOrDefault(dungeonId);
+
+    private async Task RefreshGearScoresAsync()
+    {
+        rankingLoading = true;
+        try
+        {
+            var guids = selectedCharacterGuids
+                .Select(value => uint.TryParse(value, out var guid) ? guid : 0)
+                .Where(value => value != 0).ToArray();
+            foreach (var dungeon in dungeons
+                         .Where(value => RecommendedDungeonIds.Contains(value.DungeonId))
+                         .Take(5))
+            {
+                var candidateGuide = dungeon.DungeonId == selectedDungeonId
+                    ? guide
+                    : await Api.GetDungeonLibraryGuideAsync(new(dungeon.DungeonId, guids));
+                if (candidateGuide is null) continue;
+                dungeonGearScores[dungeon.DungeonId] = candidateGuide.Bosses
+                    .SelectMany(boss => boss.Loot)
+                    .SelectMany(item => item.Recommendations
+                        .Where(recommendation => recommendation.LikelyUpgrade)
+                        .Select(recommendation => (item.ItemId, recommendation.CharacterGuid)))
+                    .Distinct().Count();
+            }
+        }
+        catch (Exception exception) { message = exception.Message; }
+        finally { rankingLoading = false; }
+    }
+
+    private async Task ToggleWishlistAsync(uint itemId)
+    {
+        if (!wishlistItemIds.Add(itemId)) wishlistItemIds.Remove(itemId);
+        await WishlistStore.SetAsync(wishlistItemIds);
+        await LoadWishlistPlanAsync();
+    }
+
+    private async Task LoadWishlistPlanAsync()
+    {
+        if (wishlistItemIds.Count == 0)
+        {
+            wishlistPlan = null;
+            return;
+        }
+        wishlistLoading = true;
+        try
+        {
+            wishlistPlan = await Api.GetDungeonWishlistPlanAsync(new(
+                wishlistItemIds.ToArray(),
+                selectedCharacterGuids
+                    .Select(value => uint.TryParse(value, out var guid) ? guid : 0)
+                    .Where(value => value != 0).ToArray()));
+        }
+        catch (Exception exception) { message = exception.Message; }
+        finally { wishlistLoading = false; }
+    }
+
+    private string DungeonNames(uint mapId)
+    {
+        var names = dungeons.Where(dungeon => dungeon.MapId == mapId)
+            .Select(dungeon => dungeon.Name).Distinct().ToArray();
+        return names.Length == 0 ? $"Map {mapId}" : string.Join(" / ", names);
+    }
 
     private static string ClassName(int value) => value switch
     {

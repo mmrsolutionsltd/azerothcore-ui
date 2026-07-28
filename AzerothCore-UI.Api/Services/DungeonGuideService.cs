@@ -6,13 +6,28 @@ namespace AzerothCore_UI.Api.Services;
 
 public sealed class DungeonGuideService(AzerothCoreConnectionFactory connections)
 {
-    public sealed record Character(int CharacterClass, int CharacterLevel);
+    public sealed record Character(
+        uint Guid, string Name, int CharacterClass, int Race, int CharacterLevel);
 
     public async Task<DungeonGuide> GetAsync(
         DungeonDestination dungeon, IReadOnlyList<Character> characters,
         CancellationToken cancellationToken)
     {
         await using var connection = connections.CreateConnection();
+        var equippedLevels = characters.Count == 0
+            ? new Dictionary<(uint Guid, int SlotGroup), int>()
+            : (await connection.QueryAsync<EquippedItemRow>(new CommandDefinition("""
+                SELECT inventory.guid Guid, template.InventoryType,
+                       MAX(template.ItemLevel) ItemLevel
+                FROM acore_characters.character_inventory inventory
+                JOIN acore_characters.item_instance instance ON instance.guid=inventory.item
+                JOIN acore_world.item_template template ON template.entry=instance.itemEntry
+                WHERE inventory.guid IN @Guids AND inventory.bag=0 AND inventory.slot<19
+                GROUP BY inventory.guid, template.InventoryType
+                """, new { Guids = characters.Select(character => character.Guid).ToArray() },
+                cancellationToken: cancellationToken)))
+                .GroupBy(row => (row.Guid, InventorySlotGroup(row.InventoryType)))
+                .ToDictionary(group => group.Key, group => group.Max(row => row.ItemLevel));
         var endEntry = await connection.QuerySingleOrDefaultAsync<uint?>(
             new CommandDefinition("""
                 SELECT MAX(entry) FROM acore_world.instance_encounters
@@ -51,6 +66,7 @@ public sealed class DungeonGuideService(AzerothCoreConnectionFactory connections
                        item.class ItemClass, item.subclass ItemSubclass,
                        item.InventoryType InventoryType,
                        CAST(item.AllowableClass AS SIGNED) AllowableClass,
+                       CAST(item.AllowableRace AS SIGNED) AllowableRace,
                        item.armor Armor, item.dmg_min1 MinimumDamage,
                        item.dmg_max1 MaximumDamage, item.delay DelayMilliseconds,
                        item.holy_res HolyResistance, item.fire_res FireResistance,
@@ -79,6 +95,7 @@ public sealed class DungeonGuideService(AzerothCoreConnectionFactory connections
                        item.ItemLevel, item.RequiredLevel, item.class,
                        item.subclass, item.InventoryType,
                        CAST(item.AllowableClass AS SIGNED),
+                       CAST(item.AllowableRace AS SIGNED),
                        item.armor, item.dmg_min1, item.dmg_max1, item.delay,
                        item.holy_res, item.fire_res, item.nature_res,
                        item.frost_res, item.shadow_res, item.arcane_res,
@@ -126,7 +143,8 @@ public sealed class DungeonGuideService(AzerothCoreConnectionFactory connections
                         row.StatValues(),
                         row.HolyResistance, row.FireResistance,
                         row.NatureResistance, row.FrostResistance,
-                        row.ShadowResistance, row.ArcaneResistance)
+                        row.ShadowResistance, row.ArcaneResistance),
+                    Recommendations = Recommendations(row, characters, equippedLevels)
                 })
                 .OrderByDescending(item => item.SuggestedForParty)
                 .ThenByDescending(item => item.Quality)
@@ -139,10 +157,76 @@ public sealed class DungeonGuideService(AzerothCoreConnectionFactory connections
     }
 
     private static bool IsSuggested(LootRow item, IReadOnlyList<Character> characters) =>
-        characters.Count == 0 || characters.Any(character =>
-            (item.AllowableClass is -1 or 0
-                || (item.AllowableClass & (1L << (character.CharacterClass - 1))) != 0)
-            && item.RequiredLevel <= character.CharacterLevel + 5);
+        characters.Count == 0 || characters.Any(character => IsUsable(item, character));
+
+    private static IReadOnlyList<DungeonLootRecommendation> Recommendations(
+        LootRow item, IReadOnlyList<Character> characters,
+        IReadOnlyDictionary<(uint Guid, int SlotGroup), int> equippedLevels)
+    {
+        var slotGroup = InventorySlotGroup(item.InventoryType);
+        return characters.Select(character =>
+        {
+            var usable = IsUsable(item, character);
+            int? equippedLevel = null;
+            if (slotGroup != 0
+                && equippedLevels.TryGetValue((character.Guid, slotGroup), out var value))
+                equippedLevel = value;
+            var upgrade = usable && slotGroup != 0
+                && (equippedLevel is null || item.ItemLevel > equippedLevel);
+            var reason = !usable ? "Not usable by this class, race or level."
+                : slotGroup == 0 ? "Usable, but not equippable gear."
+                : upgrade ? equippedLevel is null
+                    ? "No item is equipped in the matching slot."
+                    : $"Item level {item.ItemLevel} exceeds equipped item level {equippedLevel}."
+                : $"Equipped item level {equippedLevel} is equal or higher.";
+            return new DungeonLootRecommendation(
+                character.Guid, character.Name, usable, upgrade, equippedLevel, reason);
+        }).ToArray();
+    }
+
+    private static bool IsUsable(LootRow item, Character character)
+    {
+        var classMask = 1L << (character.CharacterClass - 1);
+        var raceMask = 1L << (character.Race - 1);
+        return item.RequiredLevel <= character.CharacterLevel
+            && (item.AllowableClass is -1 or 0 || (item.AllowableClass & classMask) != 0)
+            && (item.AllowableRace is -1 or 0 || (item.AllowableRace & raceMask) != 0)
+            && (item.ItemClass != 2
+                || WeaponSubclasses(character.CharacterClass).Contains(item.ItemSubclass))
+            && (item.ItemClass != 4
+                || ArmorSubclasses(character.CharacterClass, character.CharacterLevel)
+                    .Contains(item.ItemSubclass));
+    }
+
+    private static int[] WeaponSubclasses(int characterClass) => characterClass switch
+    {
+        1 => [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 13, 15, 16, 18],
+        2 => [0, 1, 4, 5, 6, 7, 8],
+        3 => [0, 1, 2, 3, 6, 7, 8, 10, 13, 15, 18],
+        4 => [0, 2, 3, 4, 7, 13, 15, 16, 18],
+        5 => [4, 10, 15, 19], 6 => [0, 1, 4, 5, 6, 7, 8],
+        7 => [0, 1, 4, 5, 10, 13, 15], 8 or 9 => [7, 10, 15, 19],
+        11 => [4, 5, 6, 10, 13, 15], _ => [0]
+    };
+
+    private static int[] ArmorSubclasses(int characterClass, int level) => characterClass switch
+    {
+        1 => level >= 40 ? [0, 1, 2, 3, 4, 6] : [0, 1, 2, 3, 6],
+        2 => level >= 40 ? [0, 1, 2, 3, 4, 6, 7] : [0, 1, 2, 3, 6, 7],
+        3 => level >= 40 ? [0, 1, 2, 3] : [0, 1, 2],
+        4 => [0, 1, 2], 5 or 8 or 9 => [0, 1],
+        6 => [0, 1, 2, 3, 4, 10],
+        7 => level >= 40 ? [0, 1, 2, 3, 6, 9] : [0, 1, 2, 6, 9],
+        11 => [0, 1, 2, 8], _ => [0]
+    };
+
+    private static int InventorySlotGroup(int inventoryType) => inventoryType switch
+    {
+        1 => 1, 2 => 2, 3 => 3, 4 => 4, 5 or 20 => 5, 6 => 6, 7 => 7,
+        8 => 8, 9 => 9, 10 => 10, 11 => 11, 12 => 12, 13 or 17 or 21 => 13,
+        14 or 22 or 23 => 14, 15 or 25 or 26 or 28 => 15, 16 => 16, 19 => 19,
+        _ => 0
+    };
 
     private sealed class EncounterRow
     {
@@ -163,6 +247,7 @@ public sealed class DungeonGuideService(AzerothCoreConnectionFactory connections
         public int ItemSubclass { get; init; }
         public int InventoryType { get; init; }
         public long AllowableClass { get; init; }
+        public long AllowableRace { get; init; }
         public double DropChance { get; init; }
         public bool QuestRequired { get; init; }
         public int Armor { get; init; }
@@ -204,5 +289,12 @@ public sealed class DungeonGuideService(AzerothCoreConnectionFactory connections
             (StatType7, StatValue7), (StatType8, StatValue8),
             (StatType9, StatValue9), (StatType10, StatValue10)
         ];
+    }
+
+    private sealed class EquippedItemRow
+    {
+        public uint Guid { get; init; }
+        public int InventoryType { get; init; }
+        public int ItemLevel { get; init; }
     }
 }

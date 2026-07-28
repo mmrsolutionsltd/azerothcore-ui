@@ -246,6 +246,7 @@ public sealed class AccountsApiClient(HttpClient httpClient)
         string? search, string category, int page, int? quality = null,
         int? minimumItemLevel = null, int? maximumItemLevel = null,
         int? minimumRequiredLevel = null, int? maximumRequiredLevel = null,
+        IReadOnlyCollection<string>? targetNames = null, string suitability = "off",
         CancellationToken cancellationToken = default)
     {
         var uri = $"api/server-administration/items?search={Uri.EscapeDataString(search ?? "")}"
@@ -254,7 +255,9 @@ public sealed class AccountsApiClient(HttpClient httpClient)
             + OptionalQuery("minimumItemLevel", minimumItemLevel)
             + OptionalQuery("maximumItemLevel", maximumItemLevel)
             + OptionalQuery("minimumRequiredLevel", minimumRequiredLevel)
-            + OptionalQuery("maximumRequiredLevel", maximumRequiredLevel);
+            + OptionalQuery("maximumRequiredLevel", maximumRequiredLevel)
+            + $"&targetNames={Uri.EscapeDataString(string.Join(',', targetNames ?? []))}"
+            + $"&suitability={Uri.EscapeDataString(suitability)}";
         return await httpClient.GetFromJsonAsync<AdministrationItemSearchResult>(uri, cancellationToken)
             ?? new AdministrationItemSearchResult([], page, 30, 0, 0);
     }
@@ -401,6 +404,20 @@ public sealed class AccountsApiClient(HttpClient httpClient)
                 null, response.StatusCode);
         }
         return await response.Content.ReadFromJsonAsync<DungeonGuide>();
+    }
+    public async Task<DungeonWishlistPlan?> GetDungeonWishlistPlanAsync(
+        DungeonWishlistPlanRequest request)
+    {
+        using var response = await httpClient.PostAsJsonAsync(
+            "api/server-administration/dungeon-library/wishlist-plan", request);
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<AdministrationResult>();
+            throw new HttpRequestException(
+                error?.Message ?? "Could not load the loot farming plan.",
+                null, response.StatusCode);
+        }
+        return await response.Content.ReadFromJsonAsync<DungeonWishlistPlan>();
     }
     public Task<DungeonReadiness?> GetDungeonReadinessAsync(string leaderName, uint dungeonId) =>
         GetAdministrationAsync<DungeonReadiness>(

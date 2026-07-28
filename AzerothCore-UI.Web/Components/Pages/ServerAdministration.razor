@@ -816,7 +816,7 @@ else
                     </div>
                     <div class="modal-body">
                         <div class="row g-2 mb-2">
-                            <div class="col-md-6">
+                            <div class="col-lg-4 col-md-6">
                                 <label class="form-label" for="item-search">Item name</label>
                                 <input id="item-search" class="form-control" value="@itemSearch" @oninput="OnItemSearchAsync" placeholder="Start typing an item name…" autocomplete="off" autofocus />
                             </div>
@@ -843,7 +843,7 @@ else
                             </div>
                         </div>
                         <div class="row g-2 mb-3">
-                            <div class="col-md-6">
+                            <div class="col-lg-4 col-md-6">
                                 <label class="form-label">Item level range</label>
                                 <div class="input-group">
                                     <span class="input-group-text">≥</span>
@@ -852,13 +852,27 @@ else
                                     <InputNumber class="form-control" @bind-Value="maximumItemLevel" @bind-Value:after="OnItemFiltersChangedAsync" min="0" placeholder="Max" aria-label="Maximum item level" />
                                 </div>
                             </div>
-                            <div class="col-md-6">
+                            <div class="col-lg-4 col-md-6">
                                 <label class="form-label">Required level range</label>
                                 <div class="input-group">
                                     <span class="input-group-text">≥</span>
                                     <InputNumber class="form-control" @bind-Value="minimumRequiredLevel" @bind-Value:after="OnItemFiltersChangedAsync" min="0" max="255" placeholder="Min" aria-label="Minimum required level" />
                                     <span class="input-group-text">≤</span>
                                     <InputNumber class="form-control" @bind-Value="maximumRequiredLevel" @bind-Value:after="OnItemFiltersChangedAsync" min="0" max="255" placeholder="Max" aria-label="Maximum required level" />
+                                </div>
+                            </div>
+                            <div class="col-lg-4">
+                                <label class="form-label" for="item-suitability">Selected-character suitability</label>
+                                <select id="item-suitability" class="form-select" @bind="itemSuitability" @bind:after="OnItemFiltersChangedAsync"
+                                        disabled="@(selectedActionPlayerNames.Count == 0)">
+                                    <option value="all">Suitable for every target</option>
+                                    <option value="any">Suitable for at least one target</option>
+                                    <option value="off">Do not filter by targets</option>
+                                </select>
+                                <div class="form-text">
+                                    @(selectedActionPlayerNames.Count == 0
+                                        ? "Select action targets to enable this filter."
+                                        : $"{selectedActionPlayerNames.Count} action target(s) selected.")
                                 </div>
                             </div>
                         </div>
@@ -874,7 +888,7 @@ else
                         {
                             <div class="table-responsive">
                                 <table class="table table-hover align-middle">
-                                    <thead><tr><th>Name</th><th>ID</th><th>Quality</th><th>Item level</th><th>Required level</th></tr></thead>
+                                    <thead><tr><th>Name</th><th>ID</th><th>Quality</th><th>Item level</th><th>Required level</th><th>Targets</th></tr></thead>
                                     <tbody>
                                     @foreach (var item in itemResults.Items)
                                     {
@@ -884,6 +898,27 @@ else
                                             @onkeydown="args => SelectItemFromKeyboard(args, item)">
                                             <td class="fw-semibold @ItemQualityClass(item.Quality)">@item.Name</td>
                                             <td>@item.ItemId</td><td>@ItemQualityName(item.Quality)</td><td>@item.ItemLevel</td><td>@item.RequiredLevel</td>
+                                            <td>
+                                                @if (item.TargetCount == 0)
+                                                {
+                                                    <span class="text-muted">—</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge @(item.SuitableTargetCount == item.TargetCount ? "text-bg-success" : item.SuitableTargetCount > 0 ? "text-bg-warning" : "text-bg-danger")"
+                                                          title="Suitable: @string.Join(", ", item.SuitableTargetNames). Incompatible: @string.Join(", ", item.IncompatibleTargetNames)">
+                                                        @item.SuitableTargetCount/@item.TargetCount suitable
+                                                    </span>
+                                                    @if (item.LikelyUpgradeTargetCount > 0)
+                                                    {
+                                                        <span class="badge text-bg-primary ms-1">Upgrade for @item.LikelyUpgradeTargetCount</span>
+                                                    }
+                                                    @if (item.Quality == 7)
+                                                    {
+                                                        <span class="badge text-bg-info ms-1">Heirloom</span>
+                                                    }
+                                                }
+                                            </td>
                                         </tr>
                                     }
                                     </tbody>

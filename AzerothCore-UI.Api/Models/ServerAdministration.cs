@@ -101,6 +101,14 @@ public sealed class AdministrationItem
     public byte Quality { get; init; }
     public ushort ItemLevel { get; init; }
     public byte RequiredLevel { get; init; }
+    public byte InventoryType { get; init; }
+    public long AllowableClass { get; init; }
+    public long AllowableRace { get; init; }
+    public int SuitableTargetCount { get; set; }
+    public int TargetCount { get; set; }
+    public int LikelyUpgradeTargetCount { get; set; }
+    public IReadOnlyList<string> SuitableTargetNames { get; set; } = [];
+    public IReadOnlyList<string> IncompatibleTargetNames { get; set; } = [];
 }
 
 public sealed record AdministrationItemSearchResult(
@@ -237,13 +245,34 @@ public sealed class DungeonLootItem
     public double MaximumDamage { get; init; }
     public int DelayMilliseconds { get; init; }
     public IReadOnlyList<DungeonItemStat> Stats { get; init; } = [];
+    public IReadOnlyList<DungeonLootRecommendation> Recommendations { get; init; } = [];
 }
 public sealed record DungeonItemStat(string Name, int Value, bool Rating = false);
+public sealed record DungeonLootRecommendation(
+    uint CharacterGuid, string CharacterName, bool Usable, bool LikelyUpgrade,
+    int? EquippedItemLevel, string Reason);
 public sealed record DungeonLibraryCharacter(
     uint Guid, string Name, string Username, int Level, int CharacterClass,
     bool Online);
 public sealed record DungeonLibraryGuideRequest(
     uint DungeonId, IReadOnlyList<uint> CharacterGuids);
+public sealed record DungeonWishlistPlanRequest(
+    IReadOnlyList<uint> ItemIds, IReadOnlyList<uint> CharacterGuids);
+public sealed record DungeonWishlistPlan(
+    IReadOnlyList<DungeonWishlistPlanItem> Items,
+    IReadOnlyList<DungeonWishlistRun> RecommendedRuns);
+public sealed record DungeonWishlistPlanItem(
+    uint ItemId, string Name, int Quality, int ItemLevel,
+    IReadOnlyList<DungeonWishlistSource> Sources,
+    IReadOnlyList<DungeonWishlistCharacter> Characters);
+public sealed record DungeonWishlistSource(
+    uint BossCreatureId, string BossName, uint MapId,
+    double DropChance, double? EstimatedRuns);
+public sealed record DungeonWishlistCharacter(
+    uint CharacterGuid, string CharacterName, bool Usable, bool Owned, bool Equipped);
+public sealed record DungeonWishlistRun(
+    uint MapId, IReadOnlyList<string> DungeonNames,
+    int WantedItemCount, IReadOnlyList<string> ItemNames);
 public sealed record LaunchDungeonRequest(string LeaderName, uint DungeonId, bool Confirmed);
 public sealed record TeleportToDungeonQuestGiverRequest(
     uint QuestId, uint SpawnId, IReadOnlyList<string> PlayerNames, bool Confirmed);

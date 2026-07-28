@@ -28,6 +28,7 @@ public partial class ServerAdministration
     private string itemSearch = "", itemCategory = "all";
     private int? itemQuality, minimumItemLevel, maximumItemLevel;
     private int? minimumRequiredLevel, maximumRequiredLevel;
+    private string itemSuitability = "all";
     private string? selectedItemName;
     private string partyLeader = "";
     private PartySnapshot? party;
@@ -482,7 +483,8 @@ public partial class ServerAdministration
             itemResults = await AccountsClient.GetAdministrationItemsAsync(
                 itemSearch, itemCategory, page, itemQuality,
                 minimumItemLevel, maximumItemLevel,
-                minimumRequiredLevel, maximumRequiredLevel, cancellationToken);
+                minimumRequiredLevel, maximumRequiredLevel,
+                selectedActionPlayerNames, itemSuitability, cancellationToken);
         }
         catch (OperationCanceledException) { }
         catch (HttpRequestException exception) { operationSucceeded = false; resultMessage = exception.Message; }
