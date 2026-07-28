@@ -1,0 +1,215 @@
+@page "/security-dashboard"
+@rendermode InteractiveServer
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "security.audit")]
+@inject AccountsApiClient Api
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@using SecurityDashboardModel = AzerothCore_UI.Web.Models.SecurityDashboard
+
+<PageTitle>Security dashboard</PageTitle>
+<h1>Security dashboard</h1>
+<p class="text-muted">
+    Website access, account state, suspicious public probes, and TLS health.
+</p>
+
+@if (!string.IsNullOrWhiteSpace(message))
+{
+    <div class="alert @(error ? "alert-danger" : "alert-success")">@message</div>
+}
+
+@if (dashboard is null)
+{
+    <p><em>Loading security status…</em></p>
+}
+else
+{
+    <div class="row g-3 mb-4">
+        @Metric("Successful logins", dashboard.SuccessfulLogins24Hours, "success")
+        @Metric("Failed logins", dashboard.FailedLogins24Hours,
+            dashboard.FailedLogins24Hours > 0 ? "warning" : "secondary")
+        @Metric("Denied actions", dashboard.DeniedActions24Hours,
+            dashboard.DeniedActions24Hours > 0 ? "warning" : "secondary")
+        @Metric("Locked users", dashboard.LockedUsers,
+            dashboard.LockedUsers > 0 ? "danger" : "success")
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header">Public TLS certificate</div>
+        <div class="card-body">
+            <div class="d-flex flex-wrap justify-content-between gap-2">
+                <div>
+                    <strong>@dashboard.Certificate.Hostname</strong>
+                    <div>@dashboard.Certificate.Message</div>
+                </div>
+                <span class="badge @(dashboard.Certificate.CurrentlyValid
+                    && dashboard.Certificate.DaysRemaining >= 14
+                        ? "text-bg-success" : "text-bg-danger") align-self-start">
+                    @(dashboard.Certificate.CurrentlyValid ? "Valid" : "Attention required")
+                </span>
+            </div>
+            @if (dashboard.Certificate.ExpiresAtUtc is not null)
+            {
+                <div class="small text-muted mt-2">
+                    Expires @dashboard.Certificate.ExpiresAtUtc.Value.ToLocalTime().ToString("f")
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between">
+            <span>Website users and recent sign-ins</span>
+            <span>@dashboard.EnabledUsers enabled</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0 align-middle">
+                <thead>
+                    <tr>
+                        <th>User</th><th>Role</th><th>Status</th><th>Last sign-in</th>
+                        <th>Failed attempts</th><th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                @foreach (var user in dashboard.Users)
+                {
+                    <tr>
+                        <td>@user.Username</td>
+                        <td>@user.Role</td>
+                        <td>
+                            @if (!user.Enabled)
+                            {
+                                <span class="badge text-bg-secondary">Disabled</span>
+                            }
+                            else if (user.LockoutUntilUtc > DateTime.UtcNow)
+                            {
+                                <span class="badge text-bg-danger">Locked</span>
+                            }
+                            else if (user.LastLoginAtUtc > DateTime.UtcNow.AddHours(-24))
+                            {
+                                <span class="badge text-bg-success">Recently active</span>
+                            }
+                            else
+                            {
+                                <span class="badge text-bg-light">Enabled</span>
+                            }
+                            @if (user.MustChangePassword)
+                            {
+                                <span class="badge text-bg-warning ms-1">Password change required</span>
+                            }
+                        </td>
+                        <td>@(user.LastLoginAtUtc?.ToLocalTime().ToString("g") ?? "Never")</td>
+                        <td>@user.FailedLoginCount</td>
+                        <td class="text-end">
+                            <AuthorizeView Policy="security.users">
+                                <Authorized>
+                                    <button class="btn btn-sm btn-outline-danger"
+                                            disabled="@(revokingUserId is not null)"
+                                            @onclick="() => RevokeAsync(user)">
+                                        Revoke sessions
+                                    </button>
+                                </Authorized>
+                            </AuthorizeView>
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+        <div class="card-footer small text-muted">
+            “Recently active” means a successful sign-in within 24 hours. Revocation invalidates
+            every existing browser session for that website user.
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between">
+            <span>Suspicious public probes · last 24 hours</span>
+            <span>@dashboard.SuspiciousProbes.Sum(probe => probe.RequestCount) requests</span>
+        </div>
+        @if (dashboard.SuspiciousProbes.Count == 0)
+        {
+            <div class="card-body text-muted">No recognised probe patterns were recorded.</div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0">
+                    <thead><tr><th>Address</th><th>Requests</th><th>Last seen</th><th>Last path</th><th>Status</th></tr></thead>
+                    <tbody>
+                    @foreach (var probe in dashboard.SuspiciousProbes)
+                    {
+                        <tr>
+                            <td>@probe.RemoteAddress</td>
+                            <td>@probe.RequestCount</td>
+                            <td class="text-nowrap">@probe.LastSeenUtc.ToLocalTime().ToString("g")</td>
+                            <td><code>@probe.LastPath</code></td>
+                            <td>@probe.LastStatusCode</td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary" @onclick="LoadAsync">Refresh</button>
+        <a class="btn btn-outline-primary" href="/activity-audit">Open full activity audit</a>
+    </div>
+}
+
+@code {
+    private SecurityDashboardModel? dashboard;
+    private string actor = "administrator";
+    private string? message;
+    private bool error;
+    private ulong? revokingUserId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        actor = (await AuthenticationStateProvider.GetAuthenticationStateAsync())
+            .User.Identity?.Name ?? "administrator";
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            dashboard = await Api.GetSecurityDashboardAsync();
+            error = false;
+        }
+        catch (Exception exception)
+        {
+            error = true;
+            message = exception.Message;
+        }
+    }
+
+    private async Task RevokeAsync(SecurityUserStatus user)
+    {
+        revokingUserId = user.Id;
+        try
+        {
+            await Api.RevokeAdministrationSessionsAsync(user.Id, actor);
+            error = false;
+            message = $"Revoked all sessions for {user.Username}.";
+            await LoadAsync();
+        }
+        catch (Exception exception)
+        {
+            error = true;
+            message = exception.Message;
+        }
+        finally { revokingUserId = null; }
+    }
+
+    private static RenderFragment Metric(string label, int value, string colour) =>
+        @<div class="col-sm-6 col-xl-3">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="text-muted">@label · 24h</div>
+                    <div class="display-6 text-@colour">@value</div>
+                </div>
+            </div>
+        </div>;
+}

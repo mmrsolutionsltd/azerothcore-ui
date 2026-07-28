@@ -23,6 +23,9 @@ webadmin group fill <leader>
 webadmin group launch <leader> <dungeonId>
 webadmin dungeon list
 webadmin creature spawn <anchorPlayer> <creatureId> <level> <despawnMinutes>
+webadmin companion inspect <leader>
+webadmin companion start <leader> <companion>
+webadmin companion dismiss <leader> <companion>
 ```
 
 The leader must be a real online player. Eligible bots are online random PlayerBots that
@@ -32,6 +35,11 @@ raid, LFG, battleground, and battlefield groups are not modified.
 Creature spawns are runtime-only temporary summons. Service NPCs, world bosses, instances,
 battlegrounds, transports, combat, flight, and levels outside 1-83 are rejected. An administrator
 may override a template's natural level range; the spawned creature's stats are recalculated.
+
+Questing companions are normal characters controlled as PlayerBots. The leader must be
+online, the companion offline, and they must be same-faction characters on different game
+accounts. Starting a companion assigns the leader as its master and PlayerBots handles
+party creation, following, combat, and quest synchronisation.
 
 The module source is copied into the AzerothCore `modules/mod-web-admin` directory and
 requires CMake regeneration plus a worldserver rebuild.

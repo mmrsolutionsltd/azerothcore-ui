@@ -101,6 +101,6 @@ try {
 
 if (-not (Get-NetFirewallRule -DisplayName "AzerothCore UI HTTPS" -ErrorAction SilentlyContinue)) {
     New-NetFirewallRule -DisplayName "AzerothCore UI HTTPS" -Direction Inbound `
-        -Action Allow -Protocol TCP -LocalPort 443 -Profile Private | Out-Null
+        -Action Allow -Protocol TCP -LocalPort 443 -Profile Any | Out-Null
 }
 Write-Output "Caddy is serving https://$Hostname and proxying only to the local Blazor service."

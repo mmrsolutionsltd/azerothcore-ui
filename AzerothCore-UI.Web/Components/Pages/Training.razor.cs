@@ -31,7 +31,9 @@ public partial class Training
     private IReadOnlyList<CharacterPickerItem> ProfessionStarterPickerItems => professionStarters
         .Select(character => new CharacterPickerItem(
             character.CharacterGuid.ToString(), character.CharacterName,
-            $"Level {character.CharacterLevel} · {character.PrimaryProfessionCount}/2 primary",
+            character.AvailableProfessions.Count > 0
+                ? $"Level {character.CharacterLevel} · {character.PrimaryProfessionCount}/2 primary"
+                : $"Level {character.CharacterLevel} · none currently available",
             character.Online))
         .ToArray();
     private IReadOnlyList<CharacterPickerItem> ProfessionManagementPickerItems => professionManagement
@@ -336,5 +338,39 @@ public partial class Training
         professionStarters = await AccountsClient.GetProfessionStartersAsync();
         professionManagement = await AccountsClient.GetProfessionManagementAsync();
         characters = await AccountsClient.GetAvailableTrainingAsync();
+    }
+
+    private async Task RefreshTrainingAsync()
+    {
+        if (activeTraining is not null) return;
+        activeTraining = "refresh";
+        actionMessage = null;
+        var previousStarter = selectedCharacterGuid;
+        var previousManagement = selectedManagementCharacterGuid;
+        try
+        {
+            await RefreshProfessionDataAsync();
+            selectedCharacterGuid = professionStarters.Any(item => item.CharacterGuid == previousStarter)
+                ? previousStarter
+                : professionStarters.OrderByDescending(item => item.Online)
+                    .Select(item => item.CharacterGuid).FirstOrDefault();
+            selectedManagementCharacterGuid =
+                professionManagement.Any(item => item.CharacterGuid == previousManagement)
+                    ? previousManagement
+                    : professionManagement.OrderByDescending(item => item.Online)
+                        .Select(item => item.CharacterGuid).FirstOrDefault();
+            SelectDefaultProfession();
+            actionSucceeded = true;
+            actionMessage = "Character and online status information refreshed.";
+        }
+        catch (HttpRequestException exception)
+        {
+            actionSucceeded = false;
+            actionMessage = exception.Message;
+        }
+        finally
+        {
+            activeTraining = null;
+        }
     }
 }

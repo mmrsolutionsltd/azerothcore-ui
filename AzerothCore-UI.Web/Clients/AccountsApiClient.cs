@@ -56,21 +56,47 @@ public sealed class AccountsApiClient(HttpClient httpClient)
             $"api/administration-users/{id}/revoke-sessions?actor={Uri.EscapeDataString(actor)}",
             new { });
 
-    public async Task<IReadOnlyList<AdministrationAuditEntry>> GetAdministrationAuditAsync() =>
+    public async Task<IReadOnlyList<AdministrationAuditEntry>> GetAdministrationAuditAsync(
+        string? username = null,
+        string? action = null,
+        string? outcome = null,
+        string? search = null,
+        DateTime? fromUtc = null,
+        int limit = 200)
+    {
+        var query = new List<string> { $"limit={Math.Clamp(limit, 1, 1000)}" };
+        AddQuery(query, "username", username);
+        AddQuery(query, "action", action);
+        AddQuery(query, "outcome", outcome);
+        AddQuery(query, "search", search);
+        if (fromUtc is not null)
+            query.Add($"fromUtc={Uri.EscapeDataString(fromUtc.Value.ToUniversalTime().ToString("O"))}");
+        return
         await httpClient.GetFromJsonAsync<AdministrationAuditEntry[]>(
-            "api/administration-users/audit") ?? [];
+            $"api/administration-users/audit?{string.Join("&", query)}") ?? [];
+    }
+
+    private static void AddQuery(List<string> query, string name, string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+            query.Add($"{name}={Uri.EscapeDataString(value.Trim())}");
+    }
 
     public async Task<IReadOnlyList<AdministrationPermission>> GetAdministrationPermissionsAsync() =>
         await httpClient.GetFromJsonAsync<AdministrationPermission[]>(
             "api/administration-users/permissions") ?? [];
 
+    public async Task<SecurityDashboard?> GetSecurityDashboardAsync() =>
+        await httpClient.GetFromJsonAsync<SecurityDashboard>("api/security-dashboard");
+
     public async Task<IReadOnlyList<AdministrationRole>> GetAdministrationRolesAsync() =>
         await httpClient.GetFromJsonAsync<AdministrationRole[]>(
             "api/administration-users/roles") ?? [];
 
-    public async Task<IReadOnlyList<GameAccountOption>> GetGameAccountOptionsAsync() =>
+    public async Task<IReadOnlyList<GameAccountOption>> GetGameAccountOptionsAsync(
+        bool includeBots = false) =>
         await httpClient.GetFromJsonAsync<GameAccountOption[]>(
-            "api/administration-users/game-accounts") ?? [];
+            $"api/administration-users/game-accounts?includeBots={includeBots.ToString().ToLowerInvariant()}") ?? [];
 
     public async Task<IReadOnlyList<uint>> GetAdministrationUserGameAccountsAsync(ulong id) =>
         await httpClient.GetFromJsonAsync<uint[]>(
@@ -211,21 +237,46 @@ public sealed class AccountsApiClient(HttpClient httpClient)
 
     public async Task<ServerStatus?> GetServerStatusAsync() =>
         await httpClient.GetFromJsonAsync<ServerStatus>("api/server-administration/status");
+    public async Task<ToolAvailability?> GetToolAvailabilityAsync() =>
+        await httpClient.GetFromJsonAsync<ToolAvailability>(
+            "api/server-administration/availability");
     public async Task<IReadOnlyList<AdministrationPlayer>> GetAdministrationPlayersAsync() =>
         await httpClient.GetFromJsonAsync<AdministrationPlayer[]>("api/server-administration/players") ?? [];
     public async Task<AdministrationItemSearchResult> GetAdministrationItemsAsync(
-        string? search, string category, int page, CancellationToken cancellationToken = default)
+        string? search, string category, int page, int? quality = null,
+        int? minimumItemLevel = null, int? maximumItemLevel = null,
+        int? minimumRequiredLevel = null, int? maximumRequiredLevel = null,
+        CancellationToken cancellationToken = default)
     {
-        var uri = $"api/server-administration/items?search={Uri.EscapeDataString(search ?? "")}&category={Uri.EscapeDataString(category)}&page={page}&pageSize=30";
+        var uri = $"api/server-administration/items?search={Uri.EscapeDataString(search ?? "")}"
+            + $"&category={Uri.EscapeDataString(category)}&page={page}&pageSize=30"
+            + OptionalQuery("quality", quality)
+            + OptionalQuery("minimumItemLevel", minimumItemLevel)
+            + OptionalQuery("maximumItemLevel", maximumItemLevel)
+            + OptionalQuery("minimumRequiredLevel", minimumRequiredLevel)
+            + OptionalQuery("maximumRequiredLevel", maximumRequiredLevel);
         return await httpClient.GetFromJsonAsync<AdministrationItemSearchResult>(uri, cancellationToken)
             ?? new AdministrationItemSearchResult([], page, 30, 0, 0);
     }
+
+    private static string OptionalQuery(string name, int? value) =>
+        value.HasValue ? $"&{name}={value.Value}" : "";
     public async Task<TeleportLocationSearchResult> GetTeleportLocationsAsync(
         string? search, int page, CancellationToken cancellationToken = default)
     {
         var uri = $"api/server-administration/teleport-locations?search={Uri.EscapeDataString(search ?? "")}&page={page}&pageSize=30";
         return await httpClient.GetFromJsonAsync<TeleportLocationSearchResult>(uri, cancellationToken)
             ?? new TeleportLocationSearchResult([], page, 30, 0, 0);
+    }
+    public async Task<NpcTeleportSearchResult> GetNpcTeleportsAsync(
+        string characterName, string? search, int page,
+        CancellationToken cancellationToken = default)
+    {
+        var uri = $"api/server-administration/npc-teleports" +
+                  $"?characterName={Uri.EscapeDataString(characterName)}" +
+                  $"&search={Uri.EscapeDataString(search ?? "")}&page={page}&pageSize=30";
+        return await GetAdministrationAsync<NpcTeleportSearchResult>(uri, cancellationToken)
+            ?? new NpcTeleportSearchResult([], page, 30, 0, 0);
     }
     public async Task<AdministrationCreatureSearchResult> GetAdministrationCreaturesAsync(
         string? search, string filter, uint family, int? minimumLevel, int? maximumLevel,
@@ -313,6 +364,8 @@ public sealed class AccountsApiClient(HttpClient httpClient)
     public Task<AdministrationResult?> MailItemAsync(MailItemRequest request) => PostAsync("api/server-administration/items/mail", request);
     public Task<AdministrationResult?> GiveMoneyAsync(GiveMoneyRequest request) => PostAsync("api/server-administration/money/give", request);
     public Task<AdministrationResult?> TeleportAsync(TeleportPlayerRequest request) => PostAsync("api/server-administration/players/teleport", request);
+    public Task<AdministrationResult?> TeleportToNpcAsync(TeleportPlayerToNpcRequest request) =>
+        PostAsync("api/server-administration/players/teleport-to-npc", request);
     public Task<AdministrationResult?> TeleportToPlayerAsync(PlayerRelativeTeleportRequest request) => PostAsync("api/server-administration/players/teleport-to-player", request);
     public Task<PartySnapshot?> GetPartyAsync(string leaderName) =>
         GetAdministrationAsync<PartySnapshot>($"api/server-administration/parties/{Uri.EscapeDataString(leaderName)}");
@@ -320,15 +373,58 @@ public sealed class AccountsApiClient(HttpClient httpClient)
     public Task<AdministrationResult?> RemovePartyBotAsync(PartyBotRequest request) => PostAsync("api/server-administration/parties/bots/remove", request);
     public Task<AdministrationResult?> ClearPartyBotsAsync(PartyLeaderRequest request) => PostAsync("api/server-administration/parties/bots/clear", request);
     public Task<AdministrationResult?> FillPartyWithBotsAsync(PartyLeaderRequest request) => PostAsync("api/server-administration/parties/bots/fill", request);
+    public Task<QuestingCompanionStatus?> GetQuestingCompanionsAsync(string leaderName) =>
+        GetAdministrationAsync<QuestingCompanionStatus>(
+            $"api/server-administration/questing-companions/{Uri.EscapeDataString(leaderName)}");
+    public Task<AdministrationResult?> StartQuestingCompanionAsync(
+        QuestingCompanionRequest request) =>
+        PostAsync("api/server-administration/questing-companions/start", request);
+    public Task<AdministrationResult?> DismissQuestingCompanionAsync(
+        QuestingCompanionRequest request) =>
+        PostAsync("api/server-administration/questing-companions/dismiss", request);
     public async Task<IReadOnlyList<DungeonDestination>> GetDungeonsAsync() =>
         await GetAdministrationAsync<DungeonDestination[]>("api/server-administration/dungeons") ?? [];
+    public async Task<IReadOnlyList<DungeonLibraryCharacter>>
+        GetDungeonLibraryCharactersAsync() =>
+        await GetAdministrationAsync<DungeonLibraryCharacter[]>(
+            "api/server-administration/dungeon-library/characters") ?? [];
+    public async Task<DungeonGuide?> GetDungeonLibraryGuideAsync(
+        DungeonLibraryGuideRequest request)
+    {
+        using var response = await httpClient.PostAsJsonAsync(
+            "api/server-administration/dungeon-library/guide", request);
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<AdministrationResult>();
+            throw new HttpRequestException(
+                error?.Message ?? "Could not load the dungeon guide.",
+                null, response.StatusCode);
+        }
+        return await response.Content.ReadFromJsonAsync<DungeonGuide>();
+    }
     public Task<DungeonReadiness?> GetDungeonReadinessAsync(string leaderName, uint dungeonId) =>
         GetAdministrationAsync<DungeonReadiness>(
             $"api/server-administration/parties/{Uri.EscapeDataString(leaderName)}/dungeons/{dungeonId}/readiness");
+    public Task<DungeonGuide?> GetDungeonGuideAsync(string leaderName, uint dungeonId) =>
+        GetAdministrationAsync<DungeonGuide>(
+            $"api/server-administration/parties/{Uri.EscapeDataString(leaderName)}/dungeons/{dungeonId}/guide");
+    public Task<AdministrationResult?> TeleportToDungeonQuestGiverAsync(
+        TeleportToDungeonQuestGiverRequest request) =>
+        PostAsync("api/server-administration/dungeon-quests/teleport", request);
+    public Task<AdministrationResult?> ReturnDungeonQuestPlayersAsync(
+        ReturnDungeonQuestPlayersRequest request) =>
+        PostAsync("api/server-administration/dungeon-quests/return", request);
+    public Task<AdministrationResult?> ReturnPlayersAsync(ReturnDungeonQuestPlayersRequest request) =>
+        PostAsync("api/server-administration/players/return", request);
     public Task<AdministrationResult?> LaunchPartyAsync(LaunchDungeonRequest request) =>
         PostAsync("api/server-administration/parties/launch", request);
     public Task<AdministrationResult?> SpawnCreatureAsync(SpawnCreatureRequest request) =>
         PostAsync("api/server-administration/creatures/spawn", request);
+    public async Task<IReadOnlyList<UtilityNpc>> GetUtilityNpcsAsync() =>
+        await GetAdministrationAsync<UtilityNpc[]>(
+            "api/server-administration/players/utility-npcs") ?? [];
+    public Task<AdministrationResult?> SummonUtilityNpcAsync(SummonUtilityNpcRequest request) =>
+        PostAsync("api/server-administration/players/utility-npcs/summon", request);
     public Task<AdministrationResult?> SetAccountGmAsync(SetAccountGmRequest request) =>
         PostAsync("api/server-administration/accounts/gm", request);
     public Task<AdministrationResult?> SetPlayerSpeedAsync(SetPlayerSpeedRequest request) =>
@@ -341,6 +437,11 @@ public sealed class AccountsApiClient(HttpClient httpClient)
         GetAdministrationAsync<WeaponTrainingStatus[]>($"api/server-administration/players/{Uri.EscapeDataString(playerName)}/weapon-training");
     public Task<AdministrationResult?> GrantWeaponTrainingAsync(GrantWeaponTrainingRequest request) =>
         PostAsync("api/server-administration/players/weapon-training", request);
+    public Task<GuildBankStatus?> GetGuildBankAsync(string playerName) =>
+        GetAdministrationAsync<GuildBankStatus>(
+            $"api/server-administration/players/{Uri.EscapeDataString(playerName)}/guild-bank");
+    public Task<AdministrationResult?> UnlockGuildBankTabAsync(UnlockGuildBankTabRequest request) =>
+        PostAsync("api/server-administration/players/guild-bank/unlock-tab", request);
 
     private async Task<AdministrationResult?> PostAsync<T>(string uri, T request)
     {

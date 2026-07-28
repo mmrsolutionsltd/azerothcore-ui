@@ -323,7 +323,6 @@ public sealed class TrainingController(
                     primaryCount,
                     available);
             })
-            .Where(character => character.AvailableProfessions.Count > 0)
             .OrderByDescending(character => character.Online)
             .ThenBy(character => character.CharacterName)
             .ToArray());

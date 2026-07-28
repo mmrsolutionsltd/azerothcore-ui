@@ -1,0 +1,7 @@
+.text-purple {
+    color: #a335ee;
+}
+
+details > summary {
+    cursor: pointer;
+}

@@ -31,6 +31,7 @@ builder.Services.AddSingleton<AzerothCore_UI.Api.Data.AzerothCoreConnectionFacto
 builder.Services.AddSingleton<AzerothCore_UI.Api.Data.AdministrationAccountStore>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Security.AdministrationPasswordHasher>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Security.AdministrationRequestAuthorizer>();
+builder.Services.AddSingleton<AzerothCore_UI.Api.Security.AdministrationActivityAudit>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Data.SpellMetadataProvider>();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Services.AzerothCoreSoapClient>();
@@ -39,6 +40,8 @@ builder.Services.AddSingleton<AzerothCore_UI.Api.Services.AzerothCoreConfigurati
 builder.Services.AddSingleton<AzerothCore_UI.Api.Services.AzerothCoreDiagnosticsService>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Services.DatabaseBackupService>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Services.DatabaseBackupScheduler>();
+builder.Services.AddSingleton<AzerothCore_UI.Api.Services.SecurityDashboardService>();
+builder.Services.AddSingleton<AzerothCore_UI.Api.Services.DungeonGuideService>();
 builder.Services.AddHostedService<AzerothCore_UI.Api.Services.DatabaseBackupWorker>();
 builder.Services.AddHealthChecks()
     .AddCheck<AzerothCore_UI.Api.Services.ApiReadinessHealthCheck>("api-readiness");
@@ -104,6 +107,58 @@ app.Use(async (context, next) =>
 
 app.Use(async (context, next) =>
 {
+    if (!context.Request.Path.StartsWithSegments("/api")
+        || context.Request.Method is "GET" or "HEAD" or "OPTIONS"
+        || context.Request.Path.StartsWithSegments(
+            "/api/administration-users/validate-session"))
+    {
+        await next();
+        return;
+    }
+
+    var activityAudit = context.RequestServices.GetRequiredService<
+        AzerothCore_UI.Api.Security.AdministrationActivityAudit>();
+    var requestBody = await activityAudit.ReadRequestBodyAsync(context.Request);
+    var started = Stopwatch.GetTimestamp();
+    Exception? failure = null;
+    try
+    {
+        await next();
+    }
+    catch (Exception exception)
+    {
+        failure = exception;
+        throw;
+    }
+    finally
+    {
+        var statusCode = failure is null
+            ? context.Response.StatusCode
+            : StatusCodes.Status500InternalServerError;
+        var actor = context.Request.Headers["X-AzerothCore-Actor"].ToString();
+        var role = context.Request.Headers["X-AzerothCore-Role"].ToString();
+        app.Logger.LogWarning(
+            "ADMIN AUDIT: {Method} {Path} by {Actor} ({Role}) returned {StatusCode} in {ElapsedMs:F1} ms. TraceId: {TraceId}",
+            context.Request.Method, context.Request.Path,
+            string.IsNullOrWhiteSpace(actor) ? "web-service" : actor,
+            string.IsNullOrWhiteSpace(role) ? "unknown" : role,
+            statusCode,
+            Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+            context.TraceIdentifier);
+        var isExistingSecuritySuccess =
+            context.Request.Path.StartsWithSegments("/api/administration-users")
+            && statusCode is >= 200 and < 400;
+        if (!isExistingSecuritySuccess)
+            await activityAudit.RecordAsync(
+                context,
+                requestBody,
+                statusCode,
+                Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+    }
+});
+
+app.Use(async (context, next) =>
+{
     if (context.Request.Path.StartsWithSegments("/api"))
     {
         var authorizer = context.RequestServices.GetRequiredService<
@@ -120,28 +175,6 @@ app.Use(async (context, next) =>
         }
     }
     await next();
-});
-
-app.Use(async (context, next) =>
-{
-    var started = Stopwatch.GetTimestamp();
-    await next();
-    if (context.Request.Path.StartsWithSegments("/api")
-        && context.Request.Method is not ("GET" or "HEAD" or "OPTIONS")
-        && !context.Request.Path.StartsWithSegments(
-            "/api/administration-users/validate-session"))
-    {
-        var actor = context.Request.Headers["X-AzerothCore-Actor"].ToString();
-        var role = context.Request.Headers["X-AzerothCore-Role"].ToString();
-        app.Logger.LogWarning(
-            "ADMIN AUDIT: {Method} {Path} by {Actor} ({Role}) returned {StatusCode} in {ElapsedMs:F1} ms. TraceId: {TraceId}",
-            context.Request.Method, context.Request.Path,
-            string.IsNullOrWhiteSpace(actor) ? "web-service" : actor,
-            string.IsNullOrWhiteSpace(role) ? "unknown" : role,
-            context.Response.StatusCode,
-            Stopwatch.GetElapsedTime(started).TotalMilliseconds,
-            context.TraceIdentifier);
-    }
 });
 
 app.UseAuthorization();

@@ -14,3 +14,49 @@
 .party-candidates {
     max-height: 22rem;
 }
+
+.player-actions-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+}
+
+.player-action-panel {
+    min-width: 0;
+}
+
+.picker-result-row {
+    cursor: pointer;
+}
+
+.picker-result-row:focus-visible {
+    outline: 0.2rem solid rgba(13, 110, 253, 0.5);
+    outline-offset: -0.2rem;
+}
+
+@media (min-width: 992px) {
+    .player-actions-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (min-width: 1600px) {
+    .player-actions-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+@media (min-width: 2300px) {
+    .player-actions-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+}
+
+@media (min-width: 3400px) {
+    .player-actions-grid {
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+    }
+}
+.text-purple {
+    color: #a335ee;
+}

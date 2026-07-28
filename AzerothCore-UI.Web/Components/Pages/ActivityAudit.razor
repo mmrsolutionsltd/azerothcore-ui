@@ -1,0 +1,139 @@
+@page "/activity-audit"
+@rendermode InteractiveServer
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "security.audit")]
+@inject AccountsApiClient Api
+
+<PageTitle>Activity audit</PageTitle>
+<h1>Activity audit</h1>
+<p class="text-muted">
+    Search website security events, gameplay administration, server changes, failures,
+    and denied attempts.
+</p>
+
+@if (!string.IsNullOrWhiteSpace(errorMessage))
+{
+    <div class="alert alert-danger">@errorMessage</div>
+}
+
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-lg-3">
+                <label class="form-label" for="audit-user">Website user</label>
+                <input id="audit-user" class="form-control" @bind="username"
+                       placeholder="Any user" />
+            </div>
+            <div class="col-lg-3">
+                <label class="form-label" for="audit-action">Action or path</label>
+                <input id="audit-action" class="form-control" @bind="action"
+                       placeholder="e.g. give, teleport, Login" />
+            </div>
+            <div class="col-lg-2">
+                <label class="form-label" for="audit-outcome">Outcome</label>
+                <select id="audit-outcome" class="form-select" @bind="outcome">
+                    <option value="">Any outcome</option>
+                    <option value="Succeeded">Succeeded</option>
+                    <option value="Failed">Failed</option>
+                </select>
+            </div>
+            <div class="col-lg-2">
+                <label class="form-label" for="audit-period">Period</label>
+                <select id="audit-period" class="form-select" @bind="periodHours">
+                    <option value="24">Last 24 hours</option>
+                    <option value="168">Last 7 days</option>
+                    <option value="720">Last 30 days</option>
+                    <option value="0">All retained activity</option>
+                </select>
+            </div>
+            <div class="col-lg-2 d-flex align-items-end gap-2">
+                <button class="btn btn-primary" disabled="@isLoading"
+                        @onclick="LoadAsync">Search</button>
+                <button class="btn btn-outline-secondary" disabled="@isLoading"
+                        @onclick="ClearAsync">Clear</button>
+            </div>
+            <div class="col-12">
+                <label class="form-label" for="audit-search">Detail contains</label>
+                <input id="audit-search" class="form-control" @bind="search"
+                       placeholder="Character, item ID, target, status, trace ID..." />
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (isLoading)
+{
+    <p><em>Loading activity…</em></p>
+}
+else if (entries.Count == 0)
+{
+    <div class="alert alert-secondary">No matching activity was found.</div>
+}
+else
+{
+    <div class="d-flex justify-content-between mb-2">
+        <strong>@entries.Count entries</strong>
+        <span class="text-muted">Newest first; up to 500 results</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>When</th><th>User</th><th>Action</th><th>Outcome</th>
+                    <th>Address</th><th>Detail</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var entry in entries)
+                {
+                    <tr>
+                        <td class="text-nowrap">@entry.OccurredAtUtc.ToLocalTime().ToString("g")</td>
+                        <td>@entry.Username</td>
+                        <td><code>@entry.Action</code></td>
+                        <td>
+                            <span class="badge @(entry.Outcome == "Succeeded"
+                                ? "text-bg-success" : "text-bg-danger")">@entry.Outcome</span>
+                        </td>
+                        <td>@entry.RemoteAddress</td>
+                        <td class="small text-break">@entry.Detail</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<AdministrationAuditEntry> entries = [];
+    private string username = "", action = "", outcome = "", search = "";
+    private int periodHours = 168;
+    private bool isLoading;
+    private string? errorMessage;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        try
+        {
+            DateTime? fromUtc =
+                periodHours > 0 ? DateTime.UtcNow.AddHours(-periodHours) : null;
+            entries = await Api.GetAdministrationAuditAsync(
+                username, action, outcome, search, fromUtc, 500);
+            errorMessage = null;
+        }
+        catch (Exception exception)
+        {
+            entries = [];
+            errorMessage = exception.Message;
+        }
+        finally { isLoading = false; }
+    }
+
+    private Task ClearAsync()
+    {
+        username = action = outcome = search = "";
+        periodHours = 168;
+        return LoadAsync();
+    }
+}

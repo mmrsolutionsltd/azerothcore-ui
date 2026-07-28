@@ -9,6 +9,8 @@ public sealed class AdministrationPermissionResolverTests
     [InlineData("/api/accounts", "players.accounts")]
     [InlineData("/api/characters/42", "players.characters")]
     [InlineData("/api/quest-helper/add", "adventures.quests")]
+    [InlineData("/api/server-administration/questing-companions/start", "adventures.quests")]
+    [InlineData("/api/server-administration/dungeon-library/guide", "adventures.dungeons")]
     [InlineData("/api/server-administration/items/give", "players.actions")]
     [InlineData("/api/server-administration/settings/rates", "server.settings")]
     [InlineData("/api/server-administration/restart", "server.control")]
@@ -26,5 +28,12 @@ public sealed class AdministrationPermissionResolverTests
     {
         Assert.Null(AdministrationPermissionResolver.RequiredPermission(
             "GET", "/health/ready"));
+    }
+
+    [Fact]
+    public void AllowsAuthenticatedToolsToReadMinimalAvailability()
+    {
+        Assert.Null(AdministrationPermissionResolver.RequiredPermission(
+            "GET", "/api/server-administration/availability"));
     }
 }

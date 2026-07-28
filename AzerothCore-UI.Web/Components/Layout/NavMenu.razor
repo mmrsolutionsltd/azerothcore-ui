@@ -2,7 +2,14 @@
 
 <div class="top-row ps-3 navbar navbar-dark">
     <div class="container-fluid">
-        <a class="navbar-brand" href="">AzerothCore Admin</a>
+        <div class="brand-block">
+            <a class="navbar-brand" href="">AzerothCore Admin</a>
+            <AuthorizeView Policy="PasswordChange">
+                <Authorized Context="signedIn">
+                    <div class="signed-in-user">@signedIn.User.Identity?.Name</div>
+                </Authorized>
+            </AuthorizeView>
+        </div>
     </div>
 </div>
 
@@ -25,8 +32,10 @@
         </NavGroup>
 
         <NavGroup Title="Adventures" GroupKey="adventures"
-                  OpenByDefault="@IsGroupActive("quest-helper", "dungeon-assistant", "trainers", "weapon-training", "training")">
+                  OpenByDefault="@IsGroupActive("quest-helper", "questing-companions", "dungeon-library", "dungeon-assistant", "trainers", "weapon-training", "training")">
             <NavItem Href="quest-helper" Policy="adventures.quests" Icon="bi-list-nested-nav-menu">Quest helper</NavItem>
+            <NavItem Href="questing-companions" Policy="adventures.quests" Icon="bi-person-fill-nav-menu">Questing companions</NavItem>
+            <NavItem Href="dungeon-library" Policy="adventures.dungeons" Icon="bi-list-nested-nav-menu">Dungeon library</NavItem>
             <NavItem Href="dungeon-assistant" Policy="adventures.dungeons" Icon="bi-list-nested-nav-menu">Dungeon assistant</NavItem>
             <NavItem Href="trainers" Policy="adventures.training" Icon="bi-person-fill-nav-menu">Trainer finder</NavItem>
             <NavItem Href="weapon-training" Policy="adventures.training" Icon="bi-plus-square-fill-nav-menu">Weapon training</NavItem>
@@ -40,7 +49,9 @@
         </NavGroup>
 
         <NavGroup Title="Administration" GroupKey="administration"
-                          OpenByDefault="@IsGroupActive("diagnostics", "database-backups", "modules")">
+                          OpenByDefault="@IsGroupActive("diagnostics", "database-backups", "modules", "activity-audit", "security-dashboard")">
+            <NavItem Href="security-dashboard" Policy="security.audit" Icon="bi-list-nested-nav-menu">Security dashboard</NavItem>
+            <NavItem Href="activity-audit" Policy="security.audit" Icon="bi-list-nested-nav-menu">Activity audit</NavItem>
             <NavItem Href="diagnostics" Policy="server.diagnostics" Icon="bi-list-nested-nav-menu">Server health</NavItem>
             <NavItem Href="database-backups" Policy="server.backups" Icon="bi-list-nested-nav-menu">Database backups</NavItem>
             <NavItem Href="modules" Policy="server.settings" Icon="bi-list-nested-nav-menu">Modules</NavItem>

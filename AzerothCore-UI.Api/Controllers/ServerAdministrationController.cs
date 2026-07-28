@@ -16,11 +16,34 @@ public sealed class ServerAdministrationController(
     AzerothCoreConfigurationManager configurationManager,
     AzerothCoreConnectionFactory connectionFactory,
     SpellMetadataProvider spellMetadataProvider,
+    DungeonGuideService dungeonGuideService,
     ILogger<ServerAdministrationController> logger) : ControllerBase
 {
+    private static readonly UtilityNpc[] UtilityNpcs =
+    [
+        new(12959, "Nergal", "General goods", "Basic supplies and somewhere to sell unwanted items.", 52),
+        new(12958, "Gigget Zipcoil", "Trade supplies", "Common trade and profession supplies.", 52),
+        new(4085, "Nizzik", "Armour and repair", "Armour merchant who buys items and repairs equipment.", 24),
+        new(3534, "Wallace the Blind", "Weapons and repair", "Weaponsmith who buys items and repairs equipment.", 19),
+        new(5411, "Krinkle Goodsteel", "Blacksmithing supplies", "Blacksmithing supplies, sales and repairs.", 40),
+        new(22479, "Sab'aoth", "Reagents and poisons", "Spell reagents and poison supplies.", 68),
+        new(19572, "Gant", "Food and drink", "Food, drink and somewhere to sell unwanted items.", 65),
+        new(14337, "Field Repair Bot 74A", "Repair bot", "Portable sales and repair service.", 50)
+    ];
+
     [HttpGet("status")]
     public async Task<ActionResult<ServerStatus>> GetStatus(CancellationToken cancellationToken) =>
         IsLocalRequest() ? Ok(await serverManager.GetStatusAsync(cancellationToken)) : NotFound();
+
+    [HttpGet("availability")]
+    public async Task<ActionResult<ToolAvailability>> GetToolAvailability(
+        CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        var status = await serverManager.GetStatusAsync(cancellationToken);
+        return Ok(new ToolAvailability(
+            status.WorldServer.IsRunning, status.SoapConfigured, status.SoapReachable));
+    }
 
     [HttpGet("players")]
     public async Task<ActionResult<IReadOnlyList<AdministrationPlayer>>> GetPlayers(CancellationToken cancellationToken)
@@ -55,15 +78,33 @@ public sealed class ServerAdministrationController(
     [HttpGet("items")]
     public async Task<ActionResult<AdministrationItemSearchResult>> GetItems(
         [FromQuery] string? search, [FromQuery] string category = "all", [FromQuery] int page = 1,
-        [FromQuery] int pageSize = 30, CancellationToken cancellationToken = default)
+        [FromQuery] int pageSize = 30, [FromQuery] int? quality = null,
+        [FromQuery] int? minimumItemLevel = null, [FromQuery] int? maximumItemLevel = null,
+        [FromQuery] int? minimumRequiredLevel = null, [FromQuery] int? maximumRequiredLevel = null,
+        CancellationToken cancellationToken = default)
     {
         if (!IsLocalRequest()) return NotFound();
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 10, 100);
         var categoryFilter = GetItemCategoryFilter(category);
         if (categoryFilter is null) return BadRequest("Unknown item category.");
+        if (quality is < 0 or > 7) return BadRequest("Unknown item quality.");
+        if (minimumItemLevel is < 0 || maximumItemLevel is < 0
+            || minimumRequiredLevel is < 0 || maximumRequiredLevel is < 0)
+            return BadRequest("Level filters cannot be negative.");
+        if (minimumItemLevel > maximumItemLevel || minimumRequiredLevel > maximumRequiredLevel)
+            return BadRequest("A minimum level cannot be greater than its maximum.");
         var normalizedSearch = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
-        var where = $"WHERE item.name <> '' AND (@Search IS NULL OR item.name LIKE CONCAT('%', @Search, '%')) {categoryFilter}";
+        var where = $"""
+            WHERE item.name <> ''
+              AND (@Search IS NULL OR item.name LIKE CONCAT('%', @Search, '%'))
+              AND (@Quality IS NULL OR item.Quality = @Quality)
+              AND (@MinimumItemLevel IS NULL OR item.ItemLevel >= @MinimumItemLevel)
+              AND (@MaximumItemLevel IS NULL OR item.ItemLevel <= @MaximumItemLevel)
+              AND (@MinimumRequiredLevel IS NULL OR item.RequiredLevel >= @MinimumRequiredLevel)
+              AND (@MaximumRequiredLevel IS NULL OR item.RequiredLevel <= @MaximumRequiredLevel)
+              {categoryFilter}
+            """;
         var sql = $"""
             SELECT COUNT(*) FROM acore_world.item_template item {where};
             SELECT item.entry AS ItemId, item.name AS Name, item.class AS ItemClass,
@@ -74,7 +115,13 @@ public sealed class ServerAdministrationController(
             ORDER BY item.name, item.entry
             LIMIT @PageSize OFFSET @Offset;
             """;
-        var parameters = new { Search = normalizedSearch, PageSize = pageSize, Offset = (page - 1) * pageSize };
+        var parameters = new
+        {
+            Search = normalizedSearch, Quality = quality,
+            MinimumItemLevel = minimumItemLevel, MaximumItemLevel = maximumItemLevel,
+            MinimumRequiredLevel = minimumRequiredLevel, MaximumRequiredLevel = maximumRequiredLevel,
+            PageSize = pageSize, Offset = (page - 1) * pageSize
+        };
         await using var connection = connectionFactory.CreateConnection();
         using var results = await connection.QueryMultipleAsync(new CommandDefinition(sql, parameters, cancellationToken: cancellationToken));
         var total = await results.ReadSingleAsync<int>();
@@ -115,6 +162,79 @@ public sealed class ServerAdministrationController(
             total == 0 ? 0 : (int)Math.Ceiling(total / (double)pageSize)));
     }
 
+    [HttpGet("npc-teleports")]
+    public async Task<ActionResult<NpcTeleportSearchResult>> GetNpcTeleports(
+        [FromQuery] string characterName, [FromQuery] string? search,
+        [FromQuery] int page = 1, [FromQuery] int pageSize = 30,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        var character = AzerothCoreSoapClient.RequirePlayerName(characterName);
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 10, 100);
+        var normalizedSearch = search?.Trim() ?? string.Empty;
+        if (normalizedSearch.Length < 2)
+            return Ok(new NpcTeleportSearchResult([], page, pageSize, 0, 0));
+
+        await using var connection = connectionFactory.CreateConnection();
+        var context = await connection.QuerySingleOrDefaultAsync<TrainerCharacterContext>(
+            new CommandDefinition("""
+                SELECT race AS CharacterRace, class AS CharacterClass, map AS MapId,
+                       position_x AS PositionX, position_y AS PositionY
+                FROM acore_characters.characters
+                WHERE name = @Character LIMIT 1;
+                """, new { Character = character }, cancellationToken: cancellationToken));
+        if (context is null)
+            return NotFound(new AdministrationResult(false, "That character does not exist."));
+
+        const string sql = """
+            SELECT COUNT(*)
+            FROM acore_world.creature spawn
+            INNER JOIN acore_world.creature_template template ON template.entry = spawn.id
+            WHERE spawn.map IN (0, 1, 530, 571, 609)
+              AND template.name NOT LIKE '[UNUSED]%'
+              AND template.name LIKE CONCAT('%', @Search, '%');
+
+            SELECT spawn.guid AS SpawnId, template.entry AS CreatureId,
+                   template.name AS Name, COALESCE(template.subname, '') AS Subname,
+                   spawn.map AS MapId, spawn.zoneId AS ZoneId, spawn.areaId AS AreaId,
+                   spawn.map = @MapId AS SameMap,
+                   faction.ID IS NULL
+                     OR (faction.EnemyGroup & @PlayerFactionGroup) <> 0
+                     OR (@PlayerEnemyGroup & faction.FactionGroup) <> 0
+                     AS PotentiallyHostile,
+                   CASE WHEN spawn.map = @MapId
+                        THEN SQRT(POW(spawn.position_x - @PositionX, 2)
+                            + POW(spawn.position_y - @PositionY, 2))
+                        ELSE NULL END AS Distance
+            FROM acore_world.creature spawn
+            INNER JOIN acore_world.creature_template template ON template.entry = spawn.id
+            LEFT JOIN acore_world.factiontemplate_dbc faction ON faction.ID = template.faction
+            WHERE spawn.map IN (0, 1, 530, 571, 609)
+              AND template.name NOT LIKE '[UNUSED]%'
+              AND template.name LIKE CONCAT('%', @Search, '%')
+            ORDER BY SameMap DESC, Distance IS NULL, Distance, template.name, spawn.guid
+            LIMIT @PageSize OFFSET @Offset;
+            """;
+        var parameters = new
+        {
+            Search = normalizedSearch,
+            PlayerFactionGroup = IsAllianceRace(context.CharacterRace) ? 3 : 5,
+            PlayerEnemyGroup = IsAllianceRace(context.CharacterRace) ? 12 : 10,
+            context.MapId,
+            context.PositionX,
+            context.PositionY,
+            PageSize = pageSize,
+            Offset = (page - 1) * pageSize
+        };
+        using var results = await connection.QueryMultipleAsync(new CommandDefinition(
+            sql, parameters, cancellationToken: cancellationToken));
+        var total = await results.ReadSingleAsync<int>();
+        var npcs = (await results.ReadAsync<NpcTeleportSpawn>()).AsList();
+        return Ok(new NpcTeleportSearchResult(npcs, page, pageSize, total,
+            total == 0 ? 0 : (int)Math.Ceiling(total / (double)pageSize)));
+    }
+
     [HttpGet("trainers")]
     public async Task<ActionResult<TrainerSearchResult>> GetTrainers(
         [FromQuery] string characterName, [FromQuery] string? search,
@@ -132,7 +252,8 @@ public sealed class ServerAdministrationController(
 
         await using var connection = connectionFactory.CreateConnection();
         var context = await connection.QuerySingleOrDefaultAsync<TrainerCharacterContext>(new CommandDefinition("""
-            SELECT class AS CharacterClass, map AS MapId, position_x AS PositionX, position_y AS PositionY
+            SELECT race AS CharacterRace, class AS CharacterClass, map AS MapId,
+                   position_x AS PositionX, position_y AS PositionY
             FROM acore_characters.characters
             WHERE name = @CharacterName LIMIT 1;
             """, new { CharacterName = character }, cancellationToken: cancellationToken));
@@ -146,7 +267,8 @@ public sealed class ServerAdministrationController(
                 SELECT creature.guid AS SpawnId, template.entry AS CreatureId,
                        template.name AS Name, COALESCE(template.subname, '') AS Subname,
                        CASE
-                           WHEN trainer.Type = 0 AND trainer.Requirement BETWEEN 1 AND 11 THEN 'class'
+                           WHEN trainer.Type = 0 AND trainer.Requirement BETWEEN 1 AND 11
+                                AND template.entry NOT BETWEEN 26324 AND 26332 THEN 'class'
                            WHEN template.subname REGEXP '^(Alchemy|Blacksmithing|Enchanting|Engineering|Herbalism|Inscription|Jewelcrafting|Leatherworking|Mining|Skinning|Tailoring|Cooking|First Aid|Fishing) Trainer' THEN 'profession'
                            WHEN template.subname LIKE '%Weapon Master%' THEN 'weapon'
                            WHEN template.subname LIKE '%Riding Trainer%' OR template.subname LIKE '%Riding Instructor%' THEN 'riding'
@@ -158,7 +280,8 @@ public sealed class ServerAdministrationController(
                        CASE WHEN creature.map = @MapId
                            THEN SQRT(POW(creature.position_x - @PositionX, 2) + POW(creature.position_y - @PositionY, 2))
                            ELSE NULL END AS Distance,
-                       trainer.Type AS TrainerType, trainer.Requirement AS TrainerRequirement
+                       trainer.Type AS TrainerType, trainer.Requirement AS TrainerRequirement,
+                       template.faction AS Faction
                 FROM acore_world.creature creature
                 INNER JOIN acore_world.creature_template template ON template.entry = creature.id
                 LEFT JOIN acore_world.creature_default_trainer defaultTrainer ON defaultTrainer.CreatureId = template.entry
@@ -171,6 +294,7 @@ public sealed class ServerAdministrationController(
             FROM trainer_spawns trainerSpawn
             WHERE trainerSpawn.Category IN ('class', 'profession', 'weapon', 'riding', 'stable')
               AND (trainerSpawn.Category <> 'class' OR trainerSpawn.TrainerRequirement = @CharacterClass)
+              AND trainerSpawn.Faction NOT IN @HostileFactions
               AND (@Search IS NULL OR trainerSpawn.Name LIKE CONCAT('%', @Search, '%')
                    OR trainerSpawn.Subname LIKE CONCAT('%', @Search, '%'))
               {categoryFilter}
@@ -180,6 +304,7 @@ public sealed class ServerAdministrationController(
         var parameters = new
         {
             Category = normalizedCategory, Search = normalizedSearch, context.CharacterClass,
+            HostileFactions = GetHostileTrainerFactions(context.CharacterRace),
             context.MapId, context.PositionX, context.PositionY
         };
         var matchingTrainers = (await connection.QueryAsync<TrainerSpawn>(new CommandDefinition(
@@ -204,6 +329,15 @@ public sealed class ServerAdministrationController(
 
         await using (var connection = connectionFactory.CreateConnection())
         {
+            var characterContext = await connection.QuerySingleOrDefaultAsync<TrainerCharacterContext>(
+                new CommandDefinition("""
+                    SELECT race AS CharacterRace, class AS CharacterClass
+                    FROM acore_characters.characters
+                    WHERE name = @Player LIMIT 1;
+                    """, new { Player = player }, cancellationToken: cancellationToken));
+            if (characterContext is null)
+                return NotFound(new AdministrationResult(false, "That character does not exist."));
+
             var trainerName = await connection.QuerySingleOrDefaultAsync<string>(new CommandDefinition("""
                 SELECT template.name
                 FROM acore_world.creature creature
@@ -211,16 +345,24 @@ public sealed class ServerAdministrationController(
                 LEFT JOIN acore_world.creature_default_trainer defaultTrainer ON defaultTrainer.CreatureId = template.entry
                 LEFT JOIN acore_world.trainer trainer ON trainer.Id = defaultTrainer.TrainerId
                 WHERE creature.guid = @SpawnId AND template.name NOT LIKE '[UNUSED]%'
+                  AND template.faction NOT IN @HostileFactions
                   AND (
-                      (trainer.Type = 0 AND trainer.Requirement BETWEEN 1 AND 11)
+                      (trainer.Type = 0 AND trainer.Requirement BETWEEN 1 AND 11
+                       AND trainer.Requirement = @CharacterClass
+                       AND template.entry NOT BETWEEN 26324 AND 26332)
                       OR template.subname REGEXP '^(Alchemy|Blacksmithing|Enchanting|Engineering|Herbalism|Inscription|Jewelcrafting|Leatherworking|Mining|Skinning|Tailoring|Cooking|First Aid|Fishing) Trainer'
                       OR template.subname LIKE '%Weapon Master%'
                       OR template.subname LIKE '%Riding Trainer%'
                       OR template.subname LIKE '%Riding Instructor%'
                       OR template.subname LIKE '%Stable Master%'
-                  )
+                )
                 LIMIT 1;
-                """, new { request.SpawnId }, cancellationToken: cancellationToken));
+                """, new
+                {
+                    request.SpawnId,
+                    characterContext.CharacterClass,
+                    HostileFactions = GetHostileTrainerFactions(characterContext.CharacterRace)
+                }, cancellationToken: cancellationToken));
             if (trainerName is null)
                 return NotFound(new AdministrationResult(false, "That trainer spawn does not exist."));
         }
@@ -592,6 +734,46 @@ public sealed class ServerAdministrationController(
         return Ok(new AdministrationResult(true, "Teleport command completed.", output));
     }
 
+    [HttpPost("players/teleport-to-npc")]
+    public async Task<ActionResult<AdministrationResult>> TeleportToNpc(
+        TeleportPlayerToNpcRequest request, CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        var player = AzerothCoreSoapClient.RequirePlayerName(request.PlayerName);
+        if (request.SpawnId == 0)
+            return BadRequest(new AdministrationResult(false, "An NPC spawn is required."));
+
+        await using var connection = connectionFactory.CreateConnection();
+        var npc = await connection.QuerySingleOrDefaultAsync<NpcTeleportRiskRow>(new CommandDefinition("""
+            SELECT template.name AS Name,
+                   faction.ID IS NULL
+                     OR (faction.EnemyGroup & CASE
+                         WHEN characterData.race IN (1, 3, 4, 7, 11) THEN 3 ELSE 5 END) <> 0
+                     OR (CASE WHEN characterData.race IN (1, 3, 4, 7, 11) THEN 12 ELSE 10 END
+                         & faction.FactionGroup) <> 0 AS PotentiallyHostile
+            FROM acore_world.creature spawn
+            INNER JOIN acore_world.creature_template template ON template.entry = spawn.id
+            LEFT JOIN acore_world.factiontemplate_dbc faction ON faction.ID = template.faction
+            INNER JOIN acore_characters.characters characterData
+                ON characterData.name = @PlayerName
+            WHERE spawn.guid = @SpawnId AND spawn.map IN (0, 1, 530, 571, 609)
+              AND template.name NOT LIKE '[UNUSED]%'
+            LIMIT 1;
+            """, new { request.SpawnId, PlayerName = player }, cancellationToken: cancellationToken));
+        if (npc is null)
+            return NotFound(new AdministrationResult(false, "That outdoor NPC spawn does not exist."));
+        if (npc.PotentiallyHostile && !request.Confirmed)
+            return BadRequest(new AdministrationResult(false,
+                "This NPC may be hostile. Confirm the hostile NPC teleport first."));
+
+        var output = await soapClient.ExecuteAsync(
+            AzerothCoreSoapClient.BuildNpcTeleportCommand(
+                player, request.SpawnId, npc.PotentiallyHostile && request.Confirmed), cancellationToken);
+        Audit("TeleportToNpc", player,
+            $"Spawn={request.SpawnId};Npc={npc.Name};PotentiallyHostile={npc.PotentiallyHostile}");
+        return Ok(new AdministrationResult(true, $"Teleported to {npc.Name}.", output));
+    }
+
     [HttpPost("players/teleport-to-player")]
     [HttpPost("players/summon-to-player")]
     public async Task<ActionResult<AdministrationResult>> PlayerRelativeTeleport(
@@ -622,6 +804,33 @@ public sealed class ServerAdministrationController(
         Audit("SpawnCreature", anchor,
             $"Creature={request.CreatureId};Level={request.Level};DespawnMinutes={request.DespawnMinutes}");
         return Ok(new AdministrationResult(true, "Temporary creature spawned beside the player.", output));
+    }
+
+    [HttpGet("players/utility-npcs")]
+    public ActionResult<IReadOnlyList<UtilityNpc>> GetUtilityNpcs() =>
+        IsLocalRequest() ? Ok(UtilityNpcs) : NotFound();
+
+    [HttpPost("players/utility-npcs/summon")]
+    public async Task<ActionResult<AdministrationResult>> SummonUtilityNpc(
+        SummonUtilityNpcRequest request, CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        if (!request.Confirmed)
+            return BadRequest(new AdministrationResult(false, "Confirm the utility NPC summon first."));
+        var player = AzerothCoreSoapClient.RequirePlayerName(request.PlayerName);
+        var npc = UtilityNpcs.SingleOrDefault(value => value.CreatureId == request.CreatureId);
+        if (npc is null)
+            return BadRequest(new AdministrationResult(false, "That utility NPC is not allowlisted."));
+        if (request.DespawnMinutes is < 1 or > 30)
+            return BadRequest(new AdministrationResult(false, "Despawn time must be between 1 and 30 minutes."));
+
+        var output = await soapClient.ExecuteAsync(
+            $"webadmin creature spawn {player} {npc.CreatureId} {npc.Level} {request.DespawnMinutes}",
+            cancellationToken);
+        Audit("SummonUtilityNpc", player,
+            $"Creature={npc.CreatureId};Service={npc.Service};DespawnMinutes={request.DespawnMinutes}");
+        return Ok(new AdministrationResult(
+            true, $"{npc.Name} summoned for up to {request.DespawnMinutes} minutes.", output));
     }
 
     [HttpPost("accounts/gm")]
@@ -738,11 +947,49 @@ public sealed class ServerAdministrationController(
         return Ok(new AdministrationResult(true, "Weapon training granted.", output));
     }
 
+    [HttpGet("players/{playerName}/guild-bank")]
+    public async Task<ActionResult<GuildBankStatus>> GetGuildBank(
+        string playerName, CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        var player = AzerothCoreSoapClient.RequirePlayerName(playerName);
+        var output = await soapClient.ExecuteAsync($"webadmin guild inspect {player}", cancellationToken);
+        var line = output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+            .FirstOrDefault(value => value.StartsWith("WEBADMIN_GUILD\t", StringComparison.Ordinal));
+        var fields = line?.Split('\t');
+        if (fields is null || fields.Length < 7
+            || !uint.TryParse(fields[1], out var guildId)
+            || !int.TryParse(fields[4], out var isGuildMaster)
+            || !int.TryParse(fields[5], out var tabs)
+            || !uint.TryParse(fields[6], out var nextCost))
+            throw new InvalidOperationException(
+                "The worldserver returned no guild-bank data. Rebuild and install the latest mod-web-admin module.");
+        return Ok(new GuildBankStatus(guildId, fields[2], fields[3], isGuildMaster != 0,
+            tabs, 6, nextCost));
+    }
+
+    [HttpPost("players/guild-bank/unlock-tab")]
+    public async Task<ActionResult<AdministrationResult>> UnlockGuildBankTab(
+        UnlockGuildBankTabRequest request, CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        if (!request.Confirmed)
+            return BadRequest(new AdministrationResult(false, "Confirm the guild-bank tab unlock first."));
+        var player = AzerothCoreSoapClient.RequirePlayerName(request.PlayerName);
+        var output = await soapClient.ExecuteAsync($"webadmin guild unlocktab {player}", cancellationToken);
+        Audit("UnlockGuildBankTab", player, "Free admin unlock");
+        return Ok(new AdministrationResult(true, "Guild bank tab unlocked without charging the character.", output));
+    }
+
     [HttpGet("parties/{leaderName}")]
     public async Task<ActionResult<PartySnapshot>> GetParty(string leaderName, CancellationToken cancellationToken)
     {
         if (!IsLocalRequest()) return NotFound();
         var leader = AzerothCoreSoapClient.RequirePlayerName(leaderName);
+        await using var connection = connectionFactory.CreateConnection();
+        if (!await IsCharacterOnlineAsync(connection, leader, cancellationToken))
+            return Conflict(new AdministrationResult(false,
+                "The selected party leader is offline. Log in and inspect the party again."));
         var output = await soapClient.ExecuteAsync($"webadmin group inspect {leader}", cancellationToken);
         return Ok(ParsePartySnapshot(leader, output));
     }
@@ -763,6 +1010,84 @@ public sealed class ServerAdministrationController(
     public Task<ActionResult<AdministrationResult>> FillPartyWithBots(PartyLeaderRequest request, CancellationToken cancellationToken) =>
         ExecutePartyCommand("fill", request.LeaderName, null, "Party auto-fill completed.", cancellationToken);
 
+    [HttpGet("questing-companions/{leaderName}")]
+    public async Task<ActionResult<QuestingCompanionStatus>> GetQuestingCompanions(
+        string leaderName, CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        var leader = AzerothCoreSoapClient.RequirePlayerName(leaderName);
+        await using var connection = connectionFactory.CreateConnection();
+        var leaderRow = await connection.QuerySingleOrDefaultAsync<CompanionLeaderRow>(
+            new CommandDefinition("""
+                SELECT account AccountId, race CharacterRace
+                FROM acore_characters.characters
+                WHERE name=@Leader AND online<>0
+                """, new { Leader = leader }, cancellationToken: cancellationToken));
+        if (leaderRow is null)
+            return Conflict(new AdministrationResult(false,
+                "The selected leader must be online."));
+        var identity = HttpContext.AdministrationIdentity();
+        var candidates = (await connection.QueryAsync<QuestingCompanionCandidate>(
+            new CommandDefinition("""
+                SELECT c.name Name, a.username Username, c.level Level,
+                       c.class CharacterClass, c.race Race, c.online<>0 Online,
+                       CASE
+                         WHEN c.race IN (1,3,4,7,11)
+                           THEN @LeaderRace IN (1,3,4,7,11)
+                         ELSE @LeaderRace IN (2,5,6,8,10)
+                       END SameFaction,
+                       c.account=@LeaderAccount SameAccount
+                FROM acore_characters.characters c
+                JOIN acore_auth.account a ON a.id=c.account
+                WHERE c.name<>@Leader
+                  AND a.username NOT LIKE CONCAT(@BotPrefix, '%')
+                  AND (@AllAccounts OR c.account IN @AllowedAccounts)
+                ORDER BY c.online, SameFaction DESC, SameAccount, c.level DESC, c.name
+                """, new
+                {
+                    Leader = leader,
+                    LeaderRace = leaderRow.CharacterRace,
+                    LeaderAccount = leaderRow.AccountId,
+                    BotPrefix = "rndbot",
+                    AllAccounts = identity?.AccountScope == "All",
+                    AllowedAccounts = identity?.GameAccountIds ?? []
+                }, cancellationToken: cancellationToken))).AsList();
+        var output = await soapClient.ExecuteAsync(
+            $"webadmin companion inspect {leader}", cancellationToken);
+        return Ok(new QuestingCompanionStatus(
+            leader, ParseActiveCompanions(output), candidates));
+    }
+
+    [HttpPost("questing-companions/start")]
+    public async Task<ActionResult<AdministrationResult>> StartQuestingCompanion(
+        QuestingCompanionRequest request, CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        var leader = AzerothCoreSoapClient.RequirePlayerName(request.LeaderName);
+        var companion = AzerothCoreSoapClient.RequirePlayerName(request.CompanionName);
+        await ValidateCompanionPairAsync(leader, companion, true, cancellationToken);
+        var output = await soapClient.ExecuteAsync(
+            $"webadmin companion start {leader} {companion}", cancellationToken);
+        Audit("StartQuestingCompanion", companion, $"Leader={leader}");
+        return Ok(new AdministrationResult(
+            true, $"{companion} is logging in and joining {leader}.", output));
+    }
+
+    [HttpPost("questing-companions/dismiss")]
+    public async Task<ActionResult<AdministrationResult>> DismissQuestingCompanion(
+        QuestingCompanionRequest request, CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        var leader = AzerothCoreSoapClient.RequirePlayerName(request.LeaderName);
+        var companion = AzerothCoreSoapClient.RequirePlayerName(request.CompanionName);
+        await ValidateCompanionPairAsync(leader, companion, false, cancellationToken);
+        var output = await soapClient.ExecuteAsync(
+            $"webadmin companion dismiss {leader} {companion}", cancellationToken);
+        Audit("DismissQuestingCompanion", companion, $"Leader={leader}");
+        return Ok(new AdministrationResult(
+            true, $"{companion} is logging out.", output));
+    }
+
     [HttpGet("dungeons")]
     public async Task<ActionResult<IReadOnlyList<DungeonDestination>>> GetDungeons(CancellationToken cancellationToken)
     {
@@ -774,12 +1099,77 @@ public sealed class ServerAdministrationController(
         return Ok(dungeons.OrderBy(dungeon => dungeon.MinimumLevel).ThenBy(dungeon => dungeon.Name));
     }
 
+    [HttpGet("dungeon-library/characters")]
+    public async Task<ActionResult<IReadOnlyList<DungeonLibraryCharacter>>>
+        GetDungeonLibraryCharacters(CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        await using var connection = connectionFactory.CreateConnection();
+        var identity = HttpContext.AdministrationIdentity();
+        var rows = await connection.QueryAsync<DungeonLibraryCharacterRow>(
+            new CommandDefinition("""
+                SELECT characterData.guid Guid, characterData.name Name,
+                       account.username Username, characterData.level Level,
+                       characterData.class CharacterClass,
+                       characterData.online<>0 Online
+                FROM acore_characters.characters characterData
+                JOIN acore_auth.account account ON account.id=characterData.account
+                WHERE characterData.name<>''
+                  AND account.username NOT LIKE CONCAT(@BotPrefix, '%')
+                  AND UPPER(account.username)<>'AHBOT'
+                  AND (@AllAccounts OR characterData.account IN @AllowedAccounts)
+                ORDER BY characterData.online DESC, characterData.level, characterData.name
+                """, new
+                {
+                    BotPrefix = "rndbot",
+                    AllAccounts = identity?.AccountScope == "All",
+                    AllowedAccounts = identity?.GameAccountIds ?? []
+                }, cancellationToken: cancellationToken));
+        return Ok(rows.Select(row => new DungeonLibraryCharacter(
+            row.Guid, row.Name, row.Username, row.Level,
+            row.CharacterClass, row.Online)).ToArray());
+    }
+
+    [HttpPost("dungeon-library/guide")]
+    public async Task<ActionResult<DungeonGuide>> GetDungeonLibraryGuide(
+        DungeonLibraryGuideRequest request, CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        var characterGuids = request.CharacterGuids.Distinct().Take(5).ToArray();
+        if (request.CharacterGuids.Distinct().Count() > 5)
+            return BadRequest(new AdministrationResult(
+                false, "Select no more than five characters."));
+        var dungeonOutput = await soapClient.ExecuteAsync(
+            "webadmin dungeon list", cancellationToken);
+        var dungeon = ParseDungeons(dungeonOutput)
+            .FirstOrDefault(value => value.DungeonId == request.DungeonId);
+        if (dungeon is null) return NotFound();
+        await using var connection = connectionFactory.CreateConnection();
+        IReadOnlyList<DungeonPartyCharacterRow> characters = characterGuids.Length == 0
+            ? []
+            : (await connection.QueryAsync<DungeonPartyCharacterRow>(
+                new CommandDefinition("""
+                    SELECT class CharacterClass, level CharacterLevel
+                    FROM acore_characters.characters WHERE guid IN @Guids
+                    """, new { Guids = characterGuids },
+                    cancellationToken: cancellationToken))).AsList();
+        return Ok(await dungeonGuideService.GetAsync(
+            dungeon,
+            characters.Select(character => new DungeonGuideService.Character(
+                character.CharacterClass, character.CharacterLevel)).ToArray(),
+            cancellationToken));
+    }
+
     [HttpGet("parties/{leaderName}/dungeons/{dungeonId}/readiness")]
     public async Task<ActionResult<DungeonReadiness>> GetDungeonReadiness(
         string leaderName, uint dungeonId, CancellationToken cancellationToken)
     {
         if (!IsLocalRequest()) return NotFound();
         var leader = AzerothCoreSoapClient.RequirePlayerName(leaderName);
+        await using var connection = connectionFactory.CreateConnection();
+        if (!await IsCharacterOnlineAsync(connection, leader, cancellationToken))
+            return Conflict(new AdministrationResult(false,
+                "The selected party leader is offline. Log in and inspect the party again."));
         var partyOutput = await soapClient.ExecuteAsync($"webadmin group inspect {leader}", cancellationToken);
         var party = ParsePartySnapshot(leader, partyOutput);
         var dungeonOutput = await soapClient.ExecuteAsync("webadmin dungeon list", cancellationToken);
@@ -788,7 +1178,14 @@ public sealed class ServerAdministrationController(
 
         var playerNames = party.Members.Where(member => !member.IsPlayerBot)
             .Select(member => member.Name).ToArray();
-        await using var connection = connectionFactory.CreateConnection();
+        var questPlayers = playerNames.Length == 0
+            ? []
+            : (await connection.QueryAsync<DungeonQuestPlayerRow>(new CommandDefinition("""
+                SELECT guid AS CharacterGuid, name AS PlayerName, race AS CharacterRace,
+                       class AS CharacterClass, level AS CharacterLevel, online AS Online
+                FROM acore_characters.characters
+                WHERE name IN @PlayerNames;
+                """, new { PlayerNames = playerNames }, cancellationToken: cancellationToken))).AsList();
         const string lockoutSql = """
             SELECT characterData.name AS PlayerName, instanceData.map AS MapId,
                    instanceData.difficulty AS Difficulty,
@@ -803,15 +1200,31 @@ public sealed class ServerAdministrationController(
               AND instanceData.resettime > UNIX_TIMESTAMP()
             ORDER BY characterData.name, instanceData.difficulty;
             """;
-        var lockouts = playerNames.Length == 0
+        IReadOnlyList<DungeonLockout> lockouts = playerNames.Length == 0
             ? []
-            : (await connection.QueryAsync<DungeonLockout>(new CommandDefinition(
+            : (await connection.QueryAsync<DungeonLockoutRow>(new CommandDefinition(
                 lockoutSql, new { PlayerNames = playerNames, dungeon.MapId },
-                cancellationToken: cancellationToken))).AsList();
+                cancellationToken: cancellationToken)))
+                .Select(row => new DungeonLockout(
+                    row.PlayerName, row.MapId, row.Difficulty, row.ResetAtUtc))
+                .ToArray();
 
         const string questSql = """
-            SELECT DISTINCT quest.ID AS QuestId, quest.LogTitle AS Title, quest.MinLevel AS MinimumLevel
+            SELECT DISTINCT quest.ID AS QuestId, quest.LogTitle AS Title, quest.MinLevel AS MinimumLevel,
+                   quest.AllowableRaces, COALESCE(addon.AllowableClasses, 0) AS AllowableClasses,
+                   COALESCE(addon.PrevQuestID, 0) AS PreviousQuestId,
+                   COALESCE(previousQuest.LogTitle, '') AS PreviousQuestTitle,
+                   quest.RequiredFactionId1, quest.RequiredFactionValue1,
+                   quest.RequiredFactionId2, quest.RequiredFactionValue2,
+                   COALESCE(addon.RequiredMinRepFaction, 0) AS RequiredMinRepFaction,
+                   COALESCE(addon.RequiredMinRepValue, 0) AS RequiredMinRepValue,
+                   COALESCE(addon.RequiredMaxRepFaction, 0) AS RequiredMaxRepFaction,
+                   COALESCE(addon.RequiredMaxRepValue, 0) AS RequiredMaxRepValue,
+                   quest.StartItem
             FROM acore_world.quest_template quest
+            LEFT JOIN acore_world.quest_template_addon addon ON addon.ID = quest.ID
+            LEFT JOIN acore_world.quest_template previousQuest
+                ON previousQuest.ID = ABS(COALESCE(addon.PrevQuestID, 0))
             INNER JOIN acore_world.creature spawn
                 ON spawn.id IN (quest.RequiredNpcOrGo1, quest.RequiredNpcOrGo2,
                                 quest.RequiredNpcOrGo3, quest.RequiredNpcOrGo4)
@@ -825,28 +1238,328 @@ public sealed class ServerAdministrationController(
         var quests = new List<DungeonQuest>();
         foreach (var quest in questRows)
         {
+            var partyRace = questPlayers.FirstOrDefault()?.CharacterRace ?? (byte)0;
+            var giver = await connection.QueryFirstOrDefaultAsync<DungeonQuestGiverRow>(new CommandDefinition("""
+                SELECT spawn.guid AS SpawnId, template.entry AS CreatureId, template.name AS Name,
+                       spawn.map AS MapId, spawn.zoneId AS ZoneId
+                FROM acore_world.creature_queststarter starter
+                INNER JOIN acore_world.creature_template template ON template.entry = starter.id
+                INNER JOIN acore_world.creature spawn ON spawn.id = template.entry
+                WHERE starter.quest = @QuestId
+                  AND template.faction NOT IN @HostileFactions
+                ORDER BY spawn.map, spawn.guid
+                LIMIT 1;
+                """, new
+                {
+                    quest.QuestId,
+                    HostileFactions = GetHostileTrainerFactions(partyRace)
+                }, cancellationToken: cancellationToken));
+            var prerequisiteQuestId = (uint)Math.Abs(quest.PreviousQuestId);
+            var prerequisiteGiver = prerequisiteQuestId == 0
+                ? null
+                : await connection.QueryFirstOrDefaultAsync<DungeonQuestGiverRow>(new CommandDefinition("""
+                    SELECT spawn.guid AS SpawnId, template.entry AS CreatureId, template.name AS Name,
+                           spawn.map AS MapId, spawn.zoneId AS ZoneId
+                    FROM acore_world.creature_queststarter starter
+                    INNER JOIN acore_world.creature_template template ON template.entry = starter.id
+                    INNER JOIN acore_world.creature spawn ON spawn.id = template.entry
+                    WHERE starter.quest = @QuestId
+                      AND template.faction NOT IN @HostileFactions
+                    ORDER BY spawn.map, spawn.guid
+                    LIMIT 1;
+                    """, new
+                    {
+                        QuestId = prerequisiteQuestId,
+                        HostileFactions = GetHostileTrainerFactions(partyRace)
+                    }, cancellationToken: cancellationToken));
+
             const string statusSql = """
                 SELECT characterData.name AS PlayerName,
                        CASE WHEN rewarded.quest IS NOT NULL THEN 2
-                            WHEN progress.quest IS NOT NULL THEN 1 ELSE 0 END AS QuestState
+                            WHEN progress.quest IS NOT NULL THEN 1 ELSE 0 END AS QuestState,
+                       prerequisite.quest IS NOT NULL AS PrerequisiteCompleted,
+                       COALESCE(reputation1.standing, 0) AS Reputation1,
+                       COALESCE(reputation2.standing, 0) AS Reputation2,
+                       COALESCE(reputationMinimum.standing, 0) AS ReputationMinimum,
+                       COALESCE(reputationMaximum.standing, 0) AS ReputationMaximum
                 FROM acore_characters.characters characterData
                 LEFT JOIN acore_characters.character_queststatus progress
                     ON progress.guid = characterData.guid AND progress.quest = @QuestId
                 LEFT JOIN acore_characters.character_queststatus_rewarded rewarded
                     ON rewarded.guid = characterData.guid AND rewarded.quest = @QuestId
+                LEFT JOIN acore_characters.character_queststatus_rewarded prerequisite
+                    ON prerequisite.guid = characterData.guid AND prerequisite.quest = @PreviousQuestId
+                LEFT JOIN acore_characters.character_reputation reputation1
+                    ON reputation1.guid = characterData.guid AND reputation1.faction = @RequiredFactionId1
+                LEFT JOIN acore_characters.character_reputation reputation2
+                    ON reputation2.guid = characterData.guid AND reputation2.faction = @RequiredFactionId2
+                LEFT JOIN acore_characters.character_reputation reputationMinimum
+                    ON reputationMinimum.guid = characterData.guid AND reputationMinimum.faction = @RequiredMinRepFaction
+                LEFT JOIN acore_characters.character_reputation reputationMaximum
+                    ON reputationMaximum.guid = characterData.guid AND reputationMaximum.faction = @RequiredMaxRepFaction
                 WHERE characterData.name IN @PlayerNames;
                 """;
             var states = playerNames.Length == 0
                 ? []
                 : (await connection.QueryAsync<DungeonQuestState>(new CommandDefinition(
-                    statusSql, new { quest.QuestId, PlayerNames = playerNames },
+                    statusSql, new
+                    {
+                        quest.QuestId,
+                        PreviousQuestId = prerequisiteQuestId,
+                        quest.RequiredFactionId1,
+                        quest.RequiredFactionId2,
+                        quest.RequiredMinRepFaction,
+                        quest.RequiredMaxRepFaction,
+                        PlayerNames = playerNames
+                    },
                     cancellationToken: cancellationToken))).AsList();
+            var playerStatuses = questPlayers.Select(player =>
+            {
+                var state = states.FirstOrDefault(item =>
+                    item.PlayerName.Equals(player.PlayerName, StringComparison.OrdinalIgnoreCase));
+                return EvaluateDungeonQuestStatus(player, quest, state, giver is not null);
+            }).ToArray();
             quests.Add(new DungeonQuest(quest.QuestId, quest.Title, quest.MinimumLevel,
                 states.Where(state => state.QuestState == 1).Select(state => state.PlayerName).ToArray(),
-                states.Where(state => state.QuestState == 2).Select(state => state.PlayerName).ToArray()));
+                states.Where(state => state.QuestState == 2).Select(state => state.PlayerName).ToArray(),
+                giver is null ? null : new DungeonQuestGiver(
+                    giver.SpawnId, giver.CreatureId, giver.Name, giver.MapId, giver.ZoneId),
+                playerStatuses,
+                prerequisiteQuestId == 0 ? null : new DungeonQuestPrerequisite(
+                    prerequisiteQuestId,
+                    string.IsNullOrWhiteSpace(quest.PreviousQuestTitle)
+                        ? $"Quest {prerequisiteQuestId}" : quest.PreviousQuestTitle,
+                    prerequisiteGiver is null ? null : new DungeonQuestGiver(
+                        prerequisiteGiver.SpawnId, prerequisiteGiver.CreatureId,
+                        prerequisiteGiver.Name, prerequisiteGiver.MapId, prerequisiteGiver.ZoneId))));
         }
 
         return Ok(DungeonReadinessEvaluator.Evaluate(party, dungeon, lockouts, quests));
+    }
+
+    [HttpGet("parties/{leaderName}/dungeons/{dungeonId}/guide")]
+    public async Task<ActionResult<DungeonGuide>> GetDungeonGuide(
+        string leaderName, uint dungeonId, CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        var leader = AzerothCoreSoapClient.RequirePlayerName(leaderName);
+        var dungeonOutput = await soapClient.ExecuteAsync(
+            "webadmin dungeon list", cancellationToken);
+        var dungeon = ParseDungeons(dungeonOutput)
+            .FirstOrDefault(value => value.DungeonId == dungeonId);
+        if (dungeon is null) return NotFound();
+        var partyOutput = await soapClient.ExecuteAsync(
+            $"webadmin group inspect {leader}", cancellationToken);
+        var party = ParsePartySnapshot(leader, partyOutput);
+        await using var connection = connectionFactory.CreateConnection();
+        var partyCharacters = (await connection.QueryAsync<DungeonPartyCharacterRow>(
+            new CommandDefinition("""
+                SELECT name Name, class CharacterClass, level CharacterLevel
+                FROM acore_characters.characters WHERE name IN @Names
+                """, new { Names = party.Members.Select(member => member.Name).ToArray() },
+                cancellationToken: cancellationToken))).AsList();
+        var endEntry = await connection.QuerySingleOrDefaultAsync<uint?>(
+            new CommandDefinition("""
+                SELECT MAX(entry) FROM acore_world.instance_encounters
+                WHERE lastEncounterDungeon=@DungeonId
+                """, new { DungeonId = dungeonId },
+                cancellationToken: cancellationToken));
+        IReadOnlyList<DungeonEncounterRow> encounters;
+        if (endEntry is not null)
+        {
+            encounters = (await connection.QueryAsync<DungeonEncounterRow>(
+                new CommandDefinition("""
+                    SELECT entry EncounterEntry, creditEntry CreatureId, comment Name
+                    FROM acore_world.instance_encounters
+                    WHERE creditType=0 AND entry BETWEEN
+                      (SELECT COALESCE(MAX(entry), 0) + 1
+                       FROM acore_world.instance_encounters
+                       WHERE entry < @EndEntry AND lastEncounterDungeon<>0)
+                      AND @EndEntry
+                    ORDER BY entry
+                    """, new { EndEntry = endEntry.Value },
+                    cancellationToken: cancellationToken))).AsList();
+        }
+        else
+        {
+            encounters = (await connection.QueryAsync<DungeonEncounterRow>(
+                new CommandDefinition("""
+                    SELECT 0 EncounterEntry, template.entry CreatureId,
+                           template.name Name
+                    FROM acore_world.creature creature
+                    JOIN acore_world.creature_template template
+                      ON template.entry=creature.id
+                    WHERE creature.map=@MapId AND template.rank=3
+                      AND template.lootid<>0
+                    GROUP BY template.entry, template.name, template.minlevel
+                    ORDER BY template.minlevel, template.name
+                    """, new { dungeon.MapId },
+                    cancellationToken: cancellationToken))).AsList();
+        }
+        var bossIds = encounters.Select(encounter => encounter.CreatureId)
+            .Distinct().ToArray();
+        IReadOnlyList<DungeonLootRow> lootRows = bossIds.Length == 0
+            ? []
+            : (await connection.QueryAsync<DungeonLootRow>(
+                new CommandDefinition("""
+                    SELECT template.entry BossCreatureId, item.entry ItemId,
+                           item.name Name, item.Quality Quality,
+                           item.ItemLevel ItemLevel, item.RequiredLevel RequiredLevel,
+                           item.class ItemClass, item.subclass ItemSubclass,
+                           item.InventoryType InventoryType,
+                           CAST(item.AllowableClass AS SIGNED) AllowableClass,
+                           ABS(loot.Chance) DropChance,
+                           loot.QuestRequired<>0 QuestRequired
+                    FROM acore_world.creature_template template
+                    JOIN acore_world.creature_loot_template loot
+                      ON loot.Entry=template.lootid
+                    JOIN acore_world.item_template item ON item.entry=loot.Item
+                    WHERE template.entry IN @BossIds AND loot.Item<>0
+                      AND (item.Quality>=2 OR loot.QuestRequired<>0)
+                    UNION ALL
+                    SELECT template.entry, item.entry, item.name, item.Quality,
+                           item.ItemLevel, item.RequiredLevel, item.class,
+                           item.subclass, item.InventoryType,
+                           CAST(item.AllowableClass AS SIGNED),
+                           ABS(referenceLoot.Chance),
+                           referenceLoot.QuestRequired<>0
+                    FROM acore_world.creature_template template
+                    JOIN acore_world.creature_loot_template parentLoot
+                      ON parentLoot.Entry=template.lootid
+                    JOIN acore_world.reference_loot_template referenceLoot
+                      ON referenceLoot.Entry=parentLoot.Reference
+                    JOIN acore_world.item_template item
+                      ON item.entry=referenceLoot.Item
+                    WHERE template.entry IN @BossIds
+                      AND parentLoot.Reference<>0 AND referenceLoot.Item<>0
+                      AND (item.Quality>=2 OR referenceLoot.QuestRequired<>0)
+                    """, new { BossIds = bossIds },
+                    cancellationToken: cancellationToken))).AsList();
+        var catalog = DungeonGuideCatalog.Find(dungeon.Name);
+        var bosses = encounters.Select((encounter, index) =>
+        {
+            var loot = lootRows
+                .Where(row => row.BossCreatureId == encounter.CreatureId)
+                .GroupBy(row => row.ItemId)
+                .Select(group => group.OrderByDescending(row => row.DropChance).First())
+                .Select(row => new DungeonLootItem
+                {
+                    ItemId = row.ItemId,
+                    Name = row.Name,
+                    Quality = row.Quality,
+                    ItemLevel = row.ItemLevel,
+                    RequiredLevel = row.RequiredLevel,
+                    ItemClass = row.ItemClass,
+                    ItemSubclass = row.ItemSubclass,
+                    InventoryType = row.InventoryType,
+                    AllowableClass = row.AllowableClass,
+                    DropChance = row.DropChance,
+                    QuestRequired = row.QuestRequired,
+                    SuggestedForParty = IsLootSuggested(row, partyCharacters)
+                })
+                .OrderByDescending(item => item.SuggestedForParty)
+                .ThenByDescending(item => item.Quality)
+                .ThenBy(item => item.Name)
+                .ToArray();
+            return new DungeonBossGuide(
+                index + 1, encounter.CreatureId, encounter.Name,
+                DungeonGuideCatalog.Tactics(catalog, encounter.Name), loot);
+        }).ToArray();
+        return Ok(new DungeonGuide(
+            dungeon.DungeonId, dungeon.Name, catalog.Overview, catalog.Route,
+            catalog.Notes, bosses));
+    }
+
+    [HttpPost("dungeon-quests/teleport")]
+    public async Task<ActionResult<AdministrationResult>> TeleportToDungeonQuestGiver(
+        TeleportToDungeonQuestGiverRequest request, CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        if (!request.Confirmed)
+            return BadRequest(new AdministrationResult(false, "Confirm the quest-giver teleport first."));
+        if (request.QuestId == 0 || request.SpawnId == 0)
+            return BadRequest(new AdministrationResult(false, "A quest and quest giver are required."));
+
+        var playerNames = request.PlayerNames
+            .Select(AzerothCoreSoapClient.RequirePlayerName)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(5)
+            .ToArray();
+        if (playerNames.Length == 0)
+            return BadRequest(new AdministrationResult(false, "Select at least one online player."));
+
+        await using var connection = connectionFactory.CreateConnection();
+        var players = (await connection.QueryAsync<DungeonQuestPlayerRow>(new CommandDefinition("""
+            SELECT guid AS CharacterGuid, name AS PlayerName, race AS CharacterRace,
+                   class AS CharacterClass, level AS CharacterLevel, online AS Online
+            FROM acore_characters.characters
+            WHERE name IN @PlayerNames;
+            """, new { PlayerNames = playerNames }, cancellationToken: cancellationToken))).AsList();
+        if (players.Count != playerNames.Length || players.Any(player => !player.Online))
+            return BadRequest(new AdministrationResult(false, "Every selected real player must be online."));
+
+        var giver = await connection.QuerySingleOrDefaultAsync<DungeonQuestGiverValidationRow>(
+            new CommandDefinition("""
+                SELECT template.faction AS Faction
+                FROM acore_world.creature_queststarter starter
+                INNER JOIN acore_world.creature spawn ON spawn.id = starter.id
+                INNER JOIN acore_world.creature_template template ON template.entry = spawn.id
+                WHERE starter.quest = @QuestId AND spawn.guid = @SpawnId
+                LIMIT 1;
+                """, new { request.QuestId, request.SpawnId }, cancellationToken: cancellationToken));
+        if (giver is null)
+            return NotFound(new AdministrationResult(false, "That NPC does not start the selected quest."));
+        if (players.Any(player => GetHostileTrainerFactions(player.CharacterRace).Contains(giver.Faction)))
+            return BadRequest(new AdministrationResult(false, "That quest giver is hostile to a selected player."));
+
+        var outputs = new List<string>();
+        foreach (var player in players)
+        {
+            outputs.Add(await soapClient.ExecuteAsync(
+                AzerothCoreSoapClient.BuildTrainerTeleportCommand(player.PlayerName, request.SpawnId),
+                cancellationToken));
+            Audit("TeleportToDungeonQuestGiver", player.PlayerName,
+                $"Quest={request.QuestId};Spawn={request.SpawnId}");
+        }
+
+        return Ok(new AdministrationResult(true,
+            $"Teleported {players.Count} player{(players.Count == 1 ? "" : "s")} to the quest giver.",
+            string.Join(Environment.NewLine, outputs)));
+    }
+
+    [HttpPost("dungeon-quests/return")]
+    [HttpPost("players/return")]
+    public async Task<ActionResult<AdministrationResult>> ReturnFromDungeonQuestGiver(
+        ReturnDungeonQuestPlayersRequest request, CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        if (!request.Confirmed)
+            return BadRequest(new AdministrationResult(false, "Confirm returning the players first."));
+        var playerNames = request.PlayerNames
+            .Select(AzerothCoreSoapClient.RequirePlayerName)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(5)
+            .ToArray();
+        if (playerNames.Length == 0)
+            return BadRequest(new AdministrationResult(false, "No players have a saved return location."));
+
+        await using var connection = connectionFactory.CreateConnection();
+        var onlineNames = (await connection.QueryAsync<string>(new CommandDefinition("""
+            SELECT name FROM acore_characters.characters
+            WHERE name IN @PlayerNames AND online = 1;
+            """, new { PlayerNames = playerNames }, cancellationToken: cancellationToken))).AsList();
+        if (onlineNames.Count != playerNames.Length)
+            return BadRequest(new AdministrationResult(false, "Every selected player must still be online."));
+
+        var outputs = new List<string>();
+        foreach (var player in playerNames)
+        {
+            outputs.Add(await soapClient.ExecuteAsync($"webadmin quest return {player}", cancellationToken));
+            Audit("ReturnFromDungeonQuestGiver", player, "SavedRecallLocation");
+        }
+        return Ok(new AdministrationResult(true,
+            $"Returned {playerNames.Length} player{(playerNames.Length == 1 ? "" : "s")}.",
+            string.Join(Environment.NewLine, outputs)));
     }
 
     [HttpPost("parties/launch")]
@@ -913,8 +1626,235 @@ public sealed class ServerAdministrationController(
         return dungeons;
     }
 
-    private sealed record DungeonQuestRow(uint QuestId, string Title, int MinimumLevel);
-    private sealed record DungeonQuestState(string PlayerName, int QuestState);
+    private static IReadOnlyList<ActiveQuestingCompanion> ParseActiveCompanions(
+        string output)
+    {
+        var companions = new List<ActiveQuestingCompanion>();
+        foreach (var line in output.Split(
+                     ['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (!line.StartsWith("WEBADMIN_COMPANION\t",
+                    StringComparison.Ordinal)) continue;
+            var fields = line.Split('\t');
+            if (fields.Length < 5
+                || !int.TryParse(fields[2], out var level)
+                || !int.TryParse(fields[3], out var characterClass)
+                || !int.TryParse(fields[4], out var inParty)) continue;
+            companions.Add(new(fields[1], level, characterClass, inParty != 0));
+        }
+        return companions;
+    }
+
+    private async Task ValidateCompanionPairAsync(
+        string leader, string companion, bool starting,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = connectionFactory.CreateConnection();
+        var pair = (await connection.QueryAsync<CompanionValidationRow>(
+            new CommandDefinition("""
+                SELECT name Name, account AccountId, race CharacterRace,
+                       online<>0 Online
+                FROM acore_characters.characters
+                WHERE name IN @Names
+                """, new { Names = new[] { leader, companion } },
+                cancellationToken: cancellationToken))).AsList();
+        var leaderRow = pair.FirstOrDefault(value =>
+            value.Name.Equals(leader, StringComparison.OrdinalIgnoreCase));
+        var companionRow = pair.FirstOrDefault(value =>
+            value.Name.Equals(companion, StringComparison.OrdinalIgnoreCase));
+        if (leaderRow is null || !leaderRow.Online)
+            throw new InvalidOperationException("The leader must be online.");
+        if (companionRow is null)
+            throw new InvalidOperationException("The companion character was not found.");
+        if (starting && companionRow.Online)
+            throw new InvalidOperationException("The companion is already online.");
+        if (leaderRow.AccountId == companionRow.AccountId)
+            throw new InvalidOperationException(
+                "The leader and companion must be on different game accounts.");
+        if (IsAllianceRace(leaderRow.CharacterRace)
+            != IsAllianceRace(companionRow.CharacterRace))
+            throw new InvalidOperationException(
+                "The leader and companion must belong to the same faction.");
+    }
+
+    private static bool IsAllianceRace(int race) =>
+        race is 1 or 3 or 4 or 7 or 11;
+
+    private static bool IsLootSuggested(
+        DungeonLootRow item, IReadOnlyList<DungeonPartyCharacterRow> party) =>
+        party.Any(character =>
+            (item.AllowableClass is -1 or 0
+                || (item.AllowableClass
+                    & (1L << (character.CharacterClass - 1))) != 0)
+            && item.RequiredLevel <= character.CharacterLevel + 5);
+
+    private static DungeonQuestPlayerStatus EvaluateDungeonQuestStatus(
+        DungeonQuestPlayerRow player, DungeonQuestRow quest, DungeonQuestState? state, bool hasGiver)
+    {
+        if (!player.Online)
+            return new(player.PlayerName, "Offline", "Player must be online to teleport.", false);
+        if (state?.QuestState == 2)
+            return new(player.PlayerName, "Completed", "Already completed.", false);
+        if (state?.QuestState == 1)
+            return new(player.PlayerName, "InProgress", "Already in the quest log.", false);
+        if (player.CharacterLevel < quest.MinimumLevel)
+            return new(player.PlayerName, "LevelTooLow", $"Requires level {quest.MinimumLevel}.", false);
+        if (!DungeonQuestEligibilityRules.MaskAllows(quest.AllowableRaces, player.CharacterRace))
+            return new(player.PlayerName, "WrongRace", "Unavailable to this race.", false);
+        if (!DungeonQuestEligibilityRules.MaskAllows(quest.AllowableClasses, player.CharacterClass))
+            return new(player.PlayerName, "WrongClass", "Unavailable to this class.", false);
+        if (quest.PreviousQuestId != 0 && state?.PrerequisiteCompleted != true)
+        {
+            var prerequisite = string.IsNullOrWhiteSpace(quest.PreviousQuestTitle)
+                ? $"quest {Math.Abs(quest.PreviousQuestId)}"
+                : quest.PreviousQuestTitle;
+            return new(player.PlayerName, "MissingPrerequisite", $"Complete {prerequisite} first.", false);
+        }
+        if (quest.RequiredFactionId1 != 0 && state is not null
+            && state.Reputation1 < quest.RequiredFactionValue1)
+            return new(player.PlayerName, "ReputationRequired",
+                $"Faction {quest.RequiredFactionId1}: {state.Reputation1:N0}/{quest.RequiredFactionValue1:N0}.", false);
+        if (quest.RequiredFactionId2 != 0 && state is not null
+            && state.Reputation2 < quest.RequiredFactionValue2)
+            return new(player.PlayerName, "ReputationRequired",
+                $"Faction {quest.RequiredFactionId2}: {state.Reputation2:N0}/{quest.RequiredFactionValue2:N0}.", false);
+        if (quest.RequiredMinRepFaction != 0 && state is not null
+            && state.ReputationMinimum < quest.RequiredMinRepValue)
+            return new(player.PlayerName, "ReputationRequired",
+                $"Faction {quest.RequiredMinRepFaction}: {state.ReputationMinimum:N0}/{quest.RequiredMinRepValue:N0}.", false);
+        if (quest.RequiredMaxRepFaction != 0 && state is not null
+            && state.ReputationMaximum > quest.RequiredMaxRepValue)
+            return new(player.PlayerName, "ReputationTooHigh",
+                $"Faction {quest.RequiredMaxRepFaction} must not exceed {quest.RequiredMaxRepValue:N0}.", false);
+        if (!hasGiver)
+            return new(player.PlayerName, quest.StartItem == 0 ? "NoNpcGiver" : "StartedByItem",
+                quest.StartItem == 0 ? "No compatible NPC quest giver was found." : $"Started by item {quest.StartItem}.", false);
+        return new(player.PlayerName, "Available", "Eligible to collect now.", true);
+    }
+
+    private static async Task<bool> IsCharacterOnlineAsync(
+        MySqlConnector.MySqlConnection connection, string playerName, CancellationToken cancellationToken) =>
+        await connection.ExecuteScalarAsync<long>(new CommandDefinition("""
+            SELECT COUNT(*) FROM acore_characters.characters
+            WHERE name = @PlayerName AND online = 1;
+            """, new { PlayerName = playerName }, cancellationToken: cancellationToken)) > 0;
+
+    private sealed class DungeonQuestRow
+    {
+        public uint QuestId { get; init; }
+        public string Title { get; init; } = string.Empty;
+        public byte MinimumLevel { get; init; }
+        public uint AllowableRaces { get; init; }
+        public uint AllowableClasses { get; init; }
+        public int PreviousQuestId { get; init; }
+        public string PreviousQuestTitle { get; init; } = string.Empty;
+        public ushort RequiredFactionId1 { get; init; }
+        public int RequiredFactionValue1 { get; init; }
+        public ushort RequiredFactionId2 { get; init; }
+        public int RequiredFactionValue2 { get; init; }
+        public ushort RequiredMinRepFaction { get; init; }
+        public int RequiredMinRepValue { get; init; }
+        public ushort RequiredMaxRepFaction { get; init; }
+        public int RequiredMaxRepValue { get; init; }
+        public uint StartItem { get; init; }
+    }
+
+    private sealed class CompanionLeaderRow
+    {
+        public uint AccountId { get; init; }
+        public int CharacterRace { get; init; }
+    }
+
+    private sealed class CompanionValidationRow
+    {
+        public string Name { get; init; } = "";
+        public uint AccountId { get; init; }
+        public int CharacterRace { get; init; }
+        public bool Online { get; init; }
+    }
+
+    private sealed class DungeonEncounterRow
+    {
+        public uint EncounterEntry { get; init; }
+        public uint CreatureId { get; init; }
+        public string Name { get; init; } = "";
+    }
+
+    private sealed class DungeonPartyCharacterRow
+    {
+        public string Name { get; init; } = "";
+        public int CharacterClass { get; init; }
+        public int CharacterLevel { get; init; }
+    }
+
+    private sealed class DungeonLibraryCharacterRow
+    {
+        public uint Guid { get; init; }
+        public string Name { get; init; } = "";
+        public string Username { get; init; } = "";
+        public int Level { get; init; }
+        public int CharacterClass { get; init; }
+        public bool Online { get; init; }
+    }
+
+    private sealed class DungeonLootRow
+    {
+        public uint BossCreatureId { get; init; }
+        public uint ItemId { get; init; }
+        public string Name { get; init; } = "";
+        public int Quality { get; init; }
+        public int ItemLevel { get; init; }
+        public int RequiredLevel { get; init; }
+        public int ItemClass { get; init; }
+        public int ItemSubclass { get; init; }
+        public int InventoryType { get; init; }
+        public long AllowableClass { get; init; }
+        public double DropChance { get; init; }
+        public bool QuestRequired { get; init; }
+    }
+
+    private sealed class DungeonQuestState
+    {
+        public string PlayerName { get; init; } = string.Empty;
+        public int QuestState { get; init; }
+        public bool PrerequisiteCompleted { get; init; }
+        public int Reputation1 { get; init; }
+        public int Reputation2 { get; init; }
+        public int ReputationMinimum { get; init; }
+        public int ReputationMaximum { get; init; }
+    }
+
+    private sealed class DungeonLockoutRow
+    {
+        public string PlayerName { get; init; } = string.Empty;
+        public ushort MapId { get; init; }
+        public byte Difficulty { get; init; }
+        public DateTime ResetAtUtc { get; init; }
+    }
+
+    private sealed class DungeonQuestPlayerRow
+    {
+        public uint CharacterGuid { get; init; }
+        public string PlayerName { get; init; } = string.Empty;
+        public byte CharacterRace { get; init; }
+        public byte CharacterClass { get; init; }
+        public byte CharacterLevel { get; init; }
+        public bool Online { get; init; }
+    }
+
+    private sealed class DungeonQuestGiverRow
+    {
+        public uint SpawnId { get; init; }
+        public uint CreatureId { get; init; }
+        public string Name { get; init; } = string.Empty;
+        public ushort MapId { get; init; }
+        public ushort ZoneId { get; init; }
+    }
+
+    private sealed class DungeonQuestGiverValidationRow
+    {
+        public ushort Faction { get; init; }
+    }
 
     private sealed class CharacterCollectibleContext
     {
@@ -924,11 +1864,26 @@ public sealed class ServerAdministrationController(
 
     private sealed class TrainerCharacterContext
     {
+        public byte CharacterRace { get; init; }
         public byte CharacterClass { get; init; }
         public ushort MapId { get; init; }
         public float PositionX { get; init; }
         public float PositionY { get; init; }
     }
+
+    private sealed class NpcTeleportRiskRow
+    {
+        public string Name { get; init; } = "";
+        public bool PotentiallyHostile { get; init; }
+    }
+
+    private static bool IsAllianceRace(byte characterRace) =>
+        characterRace is 1 or 3 or 4 or 7 or 11;
+
+    private static int[] GetHostileTrainerFactions(byte characterRace) =>
+        characterRace is 1 or 3 or 4 or 7 or 11
+            ? [29, 68, 104, 126, 1604, 1695, 1744]
+            : [11, 12, 55, 80, 875, 894, 1638, 1640, 1698, 1741];
 
     private bool IsLocalRequest() => HttpContext.Connection.RemoteIpAddress is { } address
         && IPAddress.IsLoopback(address);

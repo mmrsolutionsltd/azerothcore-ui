@@ -260,15 +260,52 @@ public sealed class AdministrationAccountStore(
         await connection.ExecuteAsync("DELETE FROM admin_user WHERE id=@id", new { id });
     }
 
-    public async Task<IReadOnlyList<AdministrationAuditEntry>> GetAuditAsync()
+    public async Task<IReadOnlyList<AdministrationAuditEntry>> GetAuditAsync(
+        string? username = null,
+        string? action = null,
+        string? outcome = null,
+        string? search = null,
+        DateTime? fromUtc = null,
+        int limit = 200)
     {
         await using var connection = Open();
         return (await connection.QueryAsync<AdministrationAuditEntry>("""
             SELECT id, username, action, outcome, remote_address RemoteAddress,
               detail, occurred_at_utc OccurredAtUtc
-            FROM admin_audit_log ORDER BY occurred_at_utc DESC LIMIT 200
-            """)).AsList();
+            FROM admin_audit_log
+            WHERE (@Username IS NULL OR username LIKE CONCAT('%', @Username, '%'))
+              AND (@Action IS NULL OR action LIKE CONCAT('%', @Action, '%'))
+              AND (@Outcome IS NULL OR outcome=@Outcome)
+              AND (@Search IS NULL OR action LIKE CONCAT('%', @Search, '%')
+                   OR detail LIKE CONCAT('%', @Search, '%')
+                   OR username LIKE CONCAT('%', @Search, '%'))
+              AND (@FromUtc IS NULL OR occurred_at_utc >= @FromUtc)
+            ORDER BY occurred_at_utc DESC LIMIT @Limit
+            """, new {
+                Username = NullIfWhiteSpace(username),
+                Action = NullIfWhiteSpace(action),
+                Outcome = NullIfWhiteSpace(outcome),
+                Search = NullIfWhiteSpace(search),
+                FromUtc = fromUtc,
+                Limit = Math.Clamp(limit, 1, 1000)
+            })).AsList();
     }
+
+    public async Task RecordActivityAsync(
+        ulong? userId,
+        string username,
+        string action,
+        string outcome,
+        string? remoteAddress,
+        string? detail)
+    {
+        await using var connection = Open();
+        await AuditAsync(connection, null, userId, username, action, outcome,
+            remoteAddress, detail);
+    }
+
+    private static string? NullIfWhiteSpace(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     public async Task<IReadOnlyList<AdministrationPermission>> GetPermissionsAsync()
     {

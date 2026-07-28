@@ -103,7 +103,14 @@ public sealed class AdministrationUsersController(
     }
 
     [HttpGet("audit")]
-    public Task<IReadOnlyList<AdministrationAuditEntry>> GetAudit() => store.GetAuditAsync();
+    public Task<IReadOnlyList<AdministrationAuditEntry>> GetAudit(
+        [FromQuery] string? username,
+        [FromQuery] string? action,
+        [FromQuery] string? outcome,
+        [FromQuery] string? search,
+        [FromQuery] DateTime? fromUtc,
+        [FromQuery] int limit = 200) =>
+        store.GetAuditAsync(username, action, outcome, search, fromUtc, limit);
 
     [HttpGet("permissions")]
     public Task<IReadOnlyList<AdministrationPermission>> GetPermissions() =>
@@ -150,17 +157,21 @@ public sealed class AdministrationUsersController(
     }
 
     [HttpGet("game-accounts")]
-    public async Task<IReadOnlyList<GameAccountOption>> GetGameAccounts()
+    public async Task<IReadOnlyList<GameAccountOption>> GetGameAccounts(
+        [FromQuery] bool includeBots = false)
     {
         var identity = HttpContext.AdministrationIdentity();
         await using var connection = connections.CreateConnection();
         var rows = await Dapper.SqlMapper.QueryAsync<GameAccountOption>(connection, """
             SELECT id, username FROM acore_auth.account
-            WHERE @AllAccounts OR id IN @AllowedAccounts
+            WHERE (@AllAccounts OR id IN @AllowedAccounts)
+              AND (@IncludeBots
+                OR (username NOT LIKE 'rndbot%' AND username <> 'AHBOT'))
             ORDER BY username
             """, new {
                 AllAccounts = identity?.AccountScope == "All",
-                AllowedAccounts = identity?.GameAccountIds ?? []
+                AllowedAccounts = identity?.GameAccountIds ?? [],
+                IncludeBots = includeBots
             });
         return rows.ToArray();
     }

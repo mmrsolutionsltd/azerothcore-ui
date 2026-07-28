@@ -85,12 +85,13 @@ public sealed class AdministrationRequestAuthorizer(
             foreach (var child in element.EnumerateArray())
                 Collect(child, targets, propertyName);
         else if (element.ValueKind == JsonValueKind.String
-            && propertyName is "playerName" or "anchorPlayerName" or "leaderName")
+            && propertyName is "playerName" or "anchorPlayerName" or "leaderName"
+                or "companionName")
             targets.PlayerNames.Add(element.GetString()!);
         else if (element.ValueKind == JsonValueKind.String && propertyName == "playerNames")
             targets.PlayerNames.Add(element.GetString()!);
         else if (element.ValueKind == JsonValueKind.Number
-            && propertyName is "characterGuid" or "guid"
+            && propertyName is "characterGuid" or "characterGuids" or "guid"
             && element.TryGetUInt32(out var guid))
             targets.CharacterGuids.Add(guid);
         else if (element.ValueKind == JsonValueKind.Number

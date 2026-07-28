@@ -1,4 +1,5 @@
 @using AzerothCore_UI.Web.Models
+@inject AzerothCore_UI.Web.Services.SelectedCharacterStore SelectedCharacterStore
 
 <div class="character-picker border rounded p-2">
     <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
@@ -70,6 +71,9 @@
     [Parameter, EditorRequired] public IReadOnlyList<CharacterPickerItem> Items { get; set; } = [];
     [Parameter] public bool Multiple { get; set; }
     [Parameter] public bool AllowBots { get; set; } = true;
+    [Parameter] public bool ShowOfflineInitially { get; set; }
+    [Parameter] public bool ShowBotsInitially { get; set; }
+    [Parameter] public bool RememberSelection { get; set; } = true;
     [Parameter] public int MaximumSelections { get; set; } = int.MaxValue;
     [Parameter] public string? SelectedValue { get; set; }
     [Parameter] public EventCallback<string?> SelectedValueChanged { get; set; }
@@ -78,6 +82,35 @@
     private readonly string pickerId = $"character-picker-{Guid.NewGuid():N}";
     private string search = "";
     private bool showOffline, showBots;
+    private bool restoredRememberedSelection;
+
+    protected override void OnInitialized()
+    {
+        showOffline = ShowOfflineInitially;
+        showBots = AllowBots && ShowBotsInitially;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (restoredRememberedSelection || Items.Count == 0 || !RememberSelection
+            || (Multiple ? SelectedValues.Count > 0
+                : !string.IsNullOrWhiteSpace(SelectedValue))
+            ) return;
+        restoredRememberedSelection = true;
+        var rememberedName = await SelectedCharacterStore.GetAsync();
+        var rememberedItem = Items.FirstOrDefault(item =>
+            !item.IsPlayerBot
+            && item.Name.Equals(rememberedName, StringComparison.OrdinalIgnoreCase));
+        if (rememberedItem is null) return;
+        if (Multiple)
+        {
+            var values = SelectedValues.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (values.Count < MaximumSelections && values.Add(rememberedItem.Value))
+                await SelectedValuesChanged.InvokeAsync(values);
+        }
+        else
+            await SelectedValueChanged.InvokeAsync(rememberedItem.Value);
+    }
     private IReadOnlyList<CharacterPickerItem> FilteredItems => Items
         .Where(item => (item.Online || showOffline)
             && (!item.IsPlayerBot || (AllowBots && showBots))
@@ -100,12 +133,21 @@
     {
         if (!Multiple)
         {
+            var selectedItem = Items.FirstOrDefault(item => item.Value == value);
+            if (selectedItem is { IsPlayerBot: false })
+                await SelectedCharacterStore.SetAsync(selectedItem.Name);
             await SelectedValueChanged.InvokeAsync(
                 string.Equals(SelectedValue, value, StringComparison.Ordinal) ? null : value);
             return;
         }
         var values = SelectedValues.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (!values.Remove(value) && values.Count < MaximumSelections) values.Add(value);
+        if (!values.Remove(value) && values.Count < MaximumSelections)
+        {
+            values.Add(value);
+            var selectedItem = Items.FirstOrDefault(item => item.Value == value);
+            if (RememberSelection && selectedItem is { IsPlayerBot: false })
+                await SelectedCharacterStore.SetAsync(selectedItem.Name);
+        }
         await SelectedValuesChanged.InvokeAsync(values);
     }
 

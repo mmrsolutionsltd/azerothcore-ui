@@ -21,18 +21,13 @@ function Set-ServiceDefinition(
     $existing = Get-Service -Name $Name -ErrorAction SilentlyContinue
     if ($existing) {
         if ($existing.Status -ne "Stopped") { Stop-Service -Name $Name -Force }
-        & sc.exe config $Name "binPath= $BinaryPath" "start= auto" | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            throw "Could not update the $Name Windows service definition."
-        }
+        $serviceRegistryPath = "HKLM:\SYSTEM\CurrentControlSet\Services\$Name"
+        Set-ItemProperty -LiteralPath $serviceRegistryPath `
+            -Name ImagePath -Value $BinaryPath
+        Set-Service -Name $Name -StartupType Automatic
     } else {
         New-Service -Name $Name -DisplayName $DisplayName -BinaryPathName $BinaryPath `
             -StartupType Automatic -DependsOn $DependsOn | Out-Null
-    }
-    & sc.exe failure $Name "reset= 86400" `
-        "actions= restart/5000/restart/15000/restart/60000" | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not configure recovery for the $Name Windows service."
     }
 }
 

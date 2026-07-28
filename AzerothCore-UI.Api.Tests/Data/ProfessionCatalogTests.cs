@@ -51,11 +51,11 @@ public sealed class ProfessionCatalogTests
     }
 
     [Fact]
-    public void CanLearn_EnforcesMinimumLevel()
+    public void CanLearn_AdminStarterProfessionsAreAvailableAtLevelOne()
     {
         IReadOnlySet<ushort> knownSkills = new HashSet<ushort>();
 
-        Assert.False(ProfessionCatalog.CanLearn(
-            ProfessionCatalog.All[164], 4, knownSkills));
+        Assert.All(ProfessionCatalog.All.Values, profession =>
+            Assert.True(ProfessionCatalog.CanLearn(profession, 1, knownSkills)));
     }
 }

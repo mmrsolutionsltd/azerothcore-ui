@@ -1,0 +1,304 @@
+@page "/dungeon-library"
+@rendermode InteractiveServer
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "adventures.dungeons")]
+@inject AccountsApiClient Api
+
+<PageTitle>Dungeon library</PageTitle>
+<h1>Dungeon library</h1>
+<p class="text-muted">
+    Browse routes, boss tactics and the exact loot configured on this server.
+    WoW characters do not need to be online.
+</p>
+
+@if (!string.IsNullOrWhiteSpace(message))
+{
+    <div class="alert alert-danger">@message</div>
+}
+
+<div class="row g-3">
+    <div class="col-12 col-xl-4">
+        <div class="card mb-3">
+            <div class="card-header">Characters for loot recommendations</div>
+            <div class="card-body">
+                <CharacterPicker Items="CharacterItems" Multiple="true"
+                                 AllowBots="false" ShowOfflineInitially="true"
+                                 MaximumSelections="5"
+                                 SelectedValues="selectedCharacterGuids"
+                                 SelectedValuesChanged="SelectCharactersAsync" />
+                <div class="small text-muted mt-2">
+                    Select up to five characters. Their class and level determine which
+                    drops are marked as relevant.
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">Dungeons</div>
+            <div class="card-body">
+                <input class="form-control form-control-sm mb-2"
+                       placeholder="Find dungeon…" @bind="dungeonSearch"
+                       @bind:event="oninput" />
+                <div class="table-responsive" style="max-height: 34rem">
+                    <table class="table table-sm table-hover align-middle">
+                        <tbody>
+                        @foreach (var dungeon in FilteredDungeons)
+                        {
+                            <tr class="@(dungeon.DungeonId == selectedDungeonId
+                                ? "table-primary" : null)"
+                                style="cursor: pointer"
+                                @onclick="() => SelectDungeonAsync(dungeon.DungeonId)">
+                                <td>
+                                    <strong>@dungeon.Name</strong>
+                                    <div class="small text-muted">
+                                        Levels @dungeon.MinimumLevel–@dungeon.MaximumLevel
+                                        · @dungeon.Difficulty
+                                    </div>
+                                </td>
+                                <td class="text-end">
+                                    @if (RecommendedDungeonIds.Contains(dungeon.DungeonId))
+                                    {
+                                        <span class="badge text-bg-success">Recommended</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12 col-xl-8">
+        @if (loading)
+        {
+            <div class="alert alert-info">Loading dungeon data…</div>
+        }
+        else if (guide is null)
+        {
+            <div class="alert alert-secondary">
+                Select a dungeon to view its route, encounters and loot.
+            </div>
+        }
+        else
+        {
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="h4 mb-1">@guide.Name</h2>
+                    <span class="small text-muted">
+                        @guide.Bosses.Count ordered encounter(s) · @VisibleLootCount visible drop(s)
+                    </span>
+                </div>
+                <div class="card-body">
+                    <p>@guide.Overview</p>
+                    <div class="alert alert-secondary">
+                        <strong>Recommended route:</strong> @guide.Route
+                    </div>
+                    @if (guide.ImportantNotes.Count > 0)
+                    {
+                        <h3 class="h6">Important notes</h3>
+                        <ul>
+                            @foreach (var note in guide.ImportantNotes)
+                            {
+                                <li>@note</li>
+                            }
+                        </ul>
+                    }
+
+                    <div class="d-flex flex-wrap gap-3 align-items-center mb-3">
+                        <div class="form-check form-switch mb-0">
+                            <input id="library-relevant-loot" class="form-check-input"
+                                   type="checkbox" @bind="showRelevantLootOnly"
+                                   disabled="@(selectedCharacterGuids.Count == 0)" />
+                            <label class="form-check-label" for="library-relevant-loot">
+                                Selected-character loot only
+                            </label>
+                        </div>
+                        <input class="form-control form-control-sm flex-grow-1"
+                               style="min-width: 12rem" placeholder="Filter loot by name…"
+                               @bind="lootSearch" @bind:event="oninput" />
+                    </div>
+
+                    @foreach (var boss in guide.Bosses)
+                    {
+                        var loot = VisibleLoot(boss);
+                        <details class="border rounded mb-2" open="@(boss.Order == 1)">
+                            <summary class="p-2 fw-semibold">
+                                @boss.Order. @boss.Name
+                                <span class="badge text-bg-secondary ms-1">@loot.Length loot</span>
+                            </summary>
+                            <div class="border-top p-3">
+                                <p class="small">@boss.Tactics</p>
+                                @if (loot.Length == 0)
+                                {
+                                    <div class="small text-muted">
+                                        No drops match the current character and search filters.
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="table-responsive">
+                                        <table class="table table-sm align-middle mb-0">
+                                            <thead>
+                                            <tr>
+                                                <th>Item</th>
+                                                <th>Required</th>
+                                                <th>Item level</th>
+                                                <th>Drop</th>
+                                            </tr>
+                                            </thead>
+                                            <tbody>
+                                            @foreach (var item in loot)
+                                            {
+                                                <tr>
+                                                    <td>
+                                                        <span class="@LootQualityClass(item.Quality)">
+                                                            @item.Name
+                                                        </span>
+                                                        <span class="small text-muted"> #@item.ItemId</span>
+                                                        @if (item.SuggestedForParty
+                                                            && selectedCharacterGuids.Count > 0)
+                                                        {
+                                                            <span class="badge text-bg-success ms-1">Relevant</span>
+                                                        }
+                                                        @if (item.QuestRequired)
+                                                        {
+                                                            <span class="badge text-bg-warning ms-1">Quest</span>
+                                                        }
+                                                        <DungeonLootStats Item="item" />
+                                                    </td>
+                                                    <td>@(item.RequiredLevel > 0
+                                                        ? item.RequiredLevel.ToString() : "—")</td>
+                                                    <td>@item.ItemLevel</td>
+                                                    <td>@(item.DropChance > 0
+                                                        ? $"{item.DropChance:0.##}%" : "Loot group")</td>
+                                                </tr>
+                                            }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
+                            </div>
+                        </details>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private IReadOnlyList<DungeonDestination> dungeons = [];
+    private IReadOnlyList<DungeonLibraryCharacter> characters = [];
+    private IReadOnlySet<string> selectedCharacterGuids =
+        new HashSet<string>(StringComparer.Ordinal);
+    private DungeonGuide? guide;
+    private uint selectedDungeonId;
+    private string dungeonSearch = "", lootSearch = "";
+    private string? message;
+    private bool loading = true, showRelevantLootOnly = true;
+
+    private IReadOnlyList<CharacterPickerItem> CharacterItems => characters
+        .Select(character => new CharacterPickerItem(
+            character.Guid.ToString(), character.Name,
+            $"Level {character.Level} {ClassName(character.CharacterClass)} · {character.Username}",
+            character.Online))
+        .ToArray();
+
+    private IReadOnlyList<DungeonLibraryCharacter> SelectedCharacters =>
+        characters.Where(character =>
+            selectedCharacterGuids.Contains(character.Guid.ToString())).ToArray();
+
+    private IReadOnlySet<uint> RecommendedDungeonIds
+    {
+        get
+        {
+            if (SelectedCharacters.Count == 0) return new HashSet<uint>();
+            var averageLevel = SelectedCharacters.Average(character => character.Level);
+            return dungeons.OrderBy(dungeon =>
+                    averageLevel < dungeon.MinimumLevel
+                        ? dungeon.MinimumLevel - averageLevel + 20
+                        : averageLevel > dungeon.MaximumLevel
+                            ? averageLevel - dungeon.MaximumLevel + 10 : 0)
+                .ThenBy(dungeon => Math.Abs(
+                    (dungeon.MinimumLevel + dungeon.MaximumLevel) / 2d - averageLevel))
+                .Take(5).Select(dungeon => dungeon.DungeonId).ToHashSet();
+        }
+    }
+
+    private IEnumerable<DungeonDestination> FilteredDungeons => dungeons
+        .Where(dungeon => string.IsNullOrWhiteSpace(dungeonSearch)
+            || dungeon.Name.Contains(dungeonSearch, StringComparison.OrdinalIgnoreCase))
+        .OrderBy(dungeon => RecommendedDungeonIds.Contains(dungeon.DungeonId) ? 0 : 1)
+        .ThenBy(dungeon => dungeon.MinimumLevel)
+        .ThenBy(dungeon => dungeon.Name);
+
+    private int VisibleLootCount => guide?.Bosses.Sum(boss => VisibleLoot(boss).Length) ?? 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var dungeonTask = Api.GetDungeonsAsync();
+            var characterTask = Api.GetDungeonLibraryCharactersAsync();
+            await Task.WhenAll(dungeonTask, characterTask);
+            dungeons = await dungeonTask;
+            characters = await characterTask;
+        }
+        catch (Exception exception) { message = exception.Message; }
+        finally { loading = false; }
+    }
+
+    private async Task SelectCharactersAsync(IReadOnlySet<string> values)
+    {
+        selectedCharacterGuids = values;
+        showRelevantLootOnly = values.Count > 0;
+        if (selectedDungeonId != 0) await LoadGuideAsync();
+    }
+
+    private async Task SelectDungeonAsync(uint dungeonId)
+    {
+        selectedDungeonId = dungeonId;
+        lootSearch = "";
+        await LoadGuideAsync();
+    }
+
+    private async Task LoadGuideAsync()
+    {
+        loading = true;
+        message = null;
+        try
+        {
+            guide = await Api.GetDungeonLibraryGuideAsync(new(
+                selectedDungeonId,
+                selectedCharacterGuids
+                    .Select(value => uint.TryParse(value, out var guid) ? guid : 0)
+                    .Where(guid => guid != 0).ToArray()));
+        }
+        catch (Exception exception)
+        {
+            guide = null;
+            message = exception.Message;
+        }
+        finally { loading = false; }
+    }
+
+    private DungeonLootItem[] VisibleLoot(DungeonBossGuide boss) => boss.Loot
+        .Where(item => (!showRelevantLootOnly || item.SuggestedForParty)
+            && (string.IsNullOrWhiteSpace(lootSearch)
+                || item.Name.Contains(lootSearch, StringComparison.OrdinalIgnoreCase)))
+        .ToArray();
+
+    private static string ClassName(int value) => value switch
+    {
+        1 => "Warrior", 2 => "Paladin", 3 => "Hunter", 4 => "Rogue",
+        5 => "Priest", 6 => "Death Knight", 7 => "Shaman", 8 => "Mage",
+        9 => "Warlock", 11 => "Druid", _ => $"Class {value}"
+    };
+
+    private static string LootQualityClass(int quality) => quality switch
+    {
+        >= 5 => "text-warning", 4 => "text-purple", 3 => "text-primary",
+        2 => "text-success", _ => ""
+    };
+}

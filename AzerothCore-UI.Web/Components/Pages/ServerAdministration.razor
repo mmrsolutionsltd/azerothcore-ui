@@ -99,13 +99,6 @@ else
         }
         @if (PlayerActionsOnly)
         {
-        <div class="card mb-4"><div class="card-body">
-            <h2 class="h5">Action targets</h2>
-            <CharacterPicker Items="@AdministrationPickerItems" Multiple="true" AllowBots="true"
-                             SelectedValues="@selectedActionPlayerNames"
-                             SelectedValuesChanged="SetSelectedActionPlayers" />
-            <div class="form-text mt-2">Applies to items, mail, money, saved-location teleport, move-to-anchor, and speed.</div>
-        </div></div>
         @if (batchActionResults.Count > 0)
         {
             <div class="card mb-4"><div class="card-body">
@@ -121,8 +114,15 @@ else
                 </ul>
             </div></div>
         }
-        <div class="row g-4">
-            <div class="col-lg-6">
+        <div class="player-actions-grid">
+            <div class="player-action-panel">
+                <h2 class="h5">Action targets</h2>
+                <CharacterPicker Items="@AdministrationPickerItems" Multiple="true" AllowBots="true"
+                                 SelectedValues="@selectedActionPlayerNames"
+                                 SelectedValuesChanged="SetSelectedActionPlayers" />
+                <div class="form-text mt-2">Applies to items, mail, money, saved-location teleport, move-to-anchor, and speed.</div>
+            </div>
+            <div class="player-action-panel">
                 <h2 class="h5">Give item</h2>
                 <div class="input-group mb-2">
                     <input class="form-control" value="@(itemId == 0 ? "No item selected" : $"{selectedItemName} (ID {itemId})")" readonly />
@@ -132,7 +132,7 @@ else
                 <button class="btn btn-primary" disabled="@(!CanUseSoap || selectedActionPlayerNames.Count == 0)" @onclick="GiveItemAsync">Give item</button>
                 <button class="btn btn-outline-primary ms-2" disabled="@(!CanUseSoap || selectedActionPlayerNames.Count == 0)" @onclick="MailItemAsync">Mail item</button>
             </div>
-            <div class="col-lg-6">
+            <div class="player-action-panel">
                 <h2 class="h5">Give money</h2>
                 <div class="row g-2 mb-2">
                     <div class="col-4">
@@ -151,15 +151,78 @@ else
                 <button class="btn btn-primary" disabled="@(!CanUseSoap || selectedActionPlayerNames.Count == 0)" @onclick="GiveMoneyAsync">Send money</button>
                 <p class="small text-muted mt-2">Delivered through in-game mail, including to an offline character.</p>
             </div>
-            <div class="col-lg-6">
-                <h2 class="h5">Teleport to saved location</h2>
+            <div class="player-action-panel">
+                <h2 class="h5">Teleport</h2>
+                <div class="btn-group btn-group-sm mb-2" role="group" aria-label="Teleport destination type">
+                    <button type="button" class="btn @(teleportMode == "place" ? "btn-primary" : "btn-outline-primary")"
+                            @onclick='() => SetTeleportMode("place")'>Place</button>
+                    <button type="button" class="btn @(teleportMode == "npc" ? "btn-primary" : "btn-outline-primary")"
+                            @onclick='() => SetTeleportMode("npc")'>NPC</button>
+                </div>
+                @if (teleportMode == "place")
+                {
                 <div class="input-group mb-2">
                     <input class="form-control" value="@(string.IsNullOrWhiteSpace(teleportLocation) ? "No location selected" : teleportLocation)" readonly />
                     <button class="btn btn-outline-secondary" type="button" @onclick="OpenLocationPickerAsync">Choose location…</button>
                 </div>
-                <button class="btn btn-primary" disabled="@(!CanUseSoap || selectedActionPlayerNames.Count == 0)" @onclick="TeleportAsync">Teleport</button>
+                <button class="btn btn-primary"
+                        disabled="@(!CanUseSoap || selectedActionPlayerNames.Count == 0 || string.IsNullOrWhiteSpace(teleportLocation))"
+                        @onclick="TeleportAsync">Teleport to place</button>
+                }
+                else
+                {
+                    <div class="input-group mb-2">
+                        <input class="form-control"
+                               value="@(selectedTeleportNpc is null ? "No NPC selected" : $"{selectedTeleportNpc.Name} — {MapName(selectedTeleportNpc.MapId)}")"
+                               readonly />
+                        <button class="btn btn-outline-secondary" type="button"
+                                disabled="@(selectedActionPlayerNames.Count == 0)"
+                                @onclick="OpenNpcTeleportPickerAsync">Choose NPC…</button>
+                    </div>
+                    @if (selectedTeleportNpc is not null)
+                    {
+                        <div class="small text-muted mb-2">
+                            @selectedTeleportNpc.Subname
+                            · entry @selectedTeleportNpc.CreatureId · spawn @selectedTeleportNpc.SpawnId
+                        </div>
+                        @if (selectedTeleportNpc.PotentiallyHostile)
+                        {
+                            <div class="alert alert-danger py-2 mb-2">
+                                This NPC may be hostile and could attack or kill the teleported character.
+                            </div>
+                            <div class="form-check mb-2">
+                                <input id="confirm-npc-teleport" class="form-check-input" type="checkbox"
+                                       @bind="confirmNpcTeleport" />
+                                <label class="form-check-label" for="confirm-npc-teleport">
+                                    Confirm teleporting to a potentially hostile NPC
+                                </label>
+                            </div>
+                        }
+                    }
+                    <button class="btn btn-primary"
+                            disabled="@(!CanUseSoap || selectedActionPlayerNames.Count == 0 ||
+                                selectedTeleportNpc is null ||
+                                (selectedTeleportNpc.PotentiallyHostile && !confirmNpcTeleport))"
+                            @onclick="TeleportToNpcAsync">Teleport to NPC</button>
+                    @if (npcReturnPlayerNames.Count > 0)
+                    {
+                        <div class="border rounded p-2 mt-2 small">
+                            <div>Return available: @string.Join(", ", npcReturnPlayerNames)</div>
+                            <div class="form-check mt-1">
+                                <input id="confirm-npc-return" class="form-check-input" type="checkbox"
+                                       @bind="confirmNpcReturn" />
+                                <label class="form-check-label" for="confirm-npc-return">
+                                    Confirm returning players
+                                </label>
+                            </div>
+                            <button class="btn btn-sm btn-outline-secondary mt-1"
+                                    disabled="@(!CanUseSoap || !confirmNpcReturn)"
+                                    @onclick="ReturnFromNpcAsync">Return players</button>
+                        </div>
+                    }
+                }
             </div>
-            <div class="col-lg-6">
+            <div class="player-action-panel">
                 <h2 class="h5">Player-relative movement</h2>
                 <label class="form-label">Single anchor player</label>
                 <CharacterPicker Items="@AdministrationPickerItems" AllowBots="true"
@@ -167,7 +230,7 @@ else
                 <button class="btn btn-primary" disabled="@(!CanUseSoap || selectedActionPlayerNames.Count == 0 || string.IsNullOrWhiteSpace(anchorPlayer))" @onclick="MoveToPlayerAsync">Move selected players to anchor</button>
                 <p class="small text-muted mt-2">All selected action targets and the anchor must be online. The anchor cannot also be a target. Battleground, arena, transport, and unsafe cross-instance movement is rejected.</p>
             </div>
-            <div class="col-lg-6">
+            <div class="player-action-panel">
                 <h2 class="h5">Movement speed</h2>
                 <label class="form-label" for="player-speed">Speed multiplier</label>
                 <div class="input-group mb-2"><input id="player-speed" class="form-control" type="number" min="0.5" max="10" step="0.25" @bind="playerSpeed" /><span class="input-group-text">x</span></div>
@@ -179,6 +242,90 @@ else
                 </div>
                 <button class="btn btn-primary" disabled="@(!CanUseSoap || selectedActionPlayerNames.Count == 0)" @onclick="SetPlayerSpeedAsync">Apply speed</button>
                 <p class="small text-muted mt-2">Changes walk, run, swim, and flight speed for the current online session. Use 1x to restore normal speed.</p>
+            </div>
+            <div class="player-action-panel">
+                <h2 class="h5">Guild bank</h2>
+                <p class="small text-muted">Select one online real-player guild master above, then inspect their guild.</p>
+                <button class="btn btn-outline-secondary mb-2"
+                        disabled="@(!CanUseSoap || SelectedActionPlayers.Count != 1 || SelectedActionPlayers[0].IsPlayerBot || isLoadingGuildBank)"
+                        @onclick="InspectGuildBankAsync">
+                    @(isLoadingGuildBank ? "Inspecting…" : "Inspect guild")
+                </button>
+                @if (guildBank is not null)
+                {
+                    <div class="border rounded p-3">
+                        <div><strong>@guildBank.GuildName</strong></div>
+                        <div class="small text-muted">
+                            @guildBank.PurchasedTabs / @guildBank.MaximumTabs bank tabs unlocked
+                            · selected character: @guildBank.PlayerName
+                        </div>
+                        @if (!guildBank.IsGuildMaster)
+                        {
+                            <div class="alert alert-warning py-2 mt-2 mb-0">Only the guild master can unlock a tab.</div>
+                        }
+                        else if (guildBank.PurchasedTabs >= guildBank.MaximumTabs)
+                        {
+                            <div class="alert alert-success py-2 mt-2 mb-0">All guild bank tabs are unlocked.</div>
+                        }
+                        else
+                        {
+                            <div class="small mt-2">
+                                Normal price: @FormatMoney(guildBank.NextTabCostCopper). The admin unlock will not charge the character.
+                            </div>
+                            <div class="form-check my-2">
+                                <input id="confirm-guild-tab" class="form-check-input" type="checkbox"
+                                       @bind="confirmGuildTabUnlock" />
+                                <label class="form-check-label" for="confirm-guild-tab">
+                                    Confirm free unlock of tab @(guildBank.PurchasedTabs + 1)
+                                </label>
+                            </div>
+                            <button class="btn btn-primary" disabled="@(!CanUseSoap || !confirmGuildTabUnlock)"
+                                    @onclick="UnlockGuildBankTabAsync">Unlock next tab</button>
+                        }
+                    </div>
+                }
+            </div>
+            <div class="player-action-panel">
+                <h2 class="h5">Summon a useful NPC</h2>
+                <p class="small text-muted">
+                    Temporarily summon a verified neutral vendor beside one selected online real player.
+                    The player must be stationary and out of combat.
+                </p>
+                <label class="form-label" for="utility-npc">Service</label>
+                <select id="utility-npc" class="form-select mb-2" @bind="selectedUtilityNpcId"
+                        @bind:after="() => confirmUtilityNpcSummon = false">
+                    @foreach (var npc in utilityNpcs)
+                    {
+                        <option value="@npc.CreatureId">@npc.Service — @npc.Name</option>
+                    }
+                </select>
+                @if (SelectedUtilityNpc is not null)
+                {
+                    <div class="small text-muted mb-2">@SelectedUtilityNpc.Description</div>
+                }
+                <label class="form-label" for="utility-npc-despawn">Despawn after</label>
+                <div class="input-group mb-2">
+                    <input id="utility-npc-despawn" class="form-control" type="number"
+                           min="1" max="30" @bind="utilityNpcDespawnMinutes" />
+                    <span class="input-group-text">minutes</span>
+                </div>
+                <div class="form-check mb-2">
+                    <input id="confirm-utility-npc" class="form-check-input" type="checkbox"
+                           @bind="confirmUtilityNpcSummon" />
+                    <label class="form-check-label" for="confirm-utility-npc">
+                        Confirm temporary neutral NPC summon
+                    </label>
+                </div>
+                <button class="btn btn-primary"
+                        disabled="@(!CanUseSoap || SelectedActionPlayers.Count != 1 ||
+                            SelectedActionPlayers[0].IsPlayerBot || SelectedActionPlayers[0].Online != true ||
+                            SelectedUtilityNpc is null || utilityNpcDespawnMinutes is < 1 or > 30 ||
+                            !confirmUtilityNpcSummon)"
+                        @onclick="SummonUtilityNpcAsync">Summon NPC</button>
+                <div class="form-text">
+                    Service NPCs may be used inside dungeons, but never in battlegrounds or arenas.
+                    At most three temporary web-spawned creatures may exist per player.
+                </div>
             </div>
         </div>
         }
@@ -333,20 +480,110 @@ else
                                             <div class="small mt-2">
                                                 @foreach (var quest in dungeonReadiness.RelevantQuests)
                                                 {
-                                                    <div class="mb-1">
-                                                        @quest.Title <span class="text-muted">(#@quest.QuestId, level @quest.MinimumLevel)</span>
-                                                        @if (quest.InProgressBy.Count > 0)
+                                                    var eligiblePlayers = quest.PlayerStatuses
+                                                        .Where(playerStatus => playerStatus.CanTeleport).ToArray();
+                                                    var prerequisitePlayers = quest.PlayerStatuses
+                                                        .Where(playerStatus => playerStatus.Status == "MissingPrerequisite").ToArray();
+                                                    <div class="border rounded p-2 mb-2">
+                                                        <div class="fw-semibold">
+                                                            @quest.Title <span class="text-muted fw-normal">(#@quest.QuestId, level @quest.MinimumLevel)</span>
+                                                        </div>
+                                                        @if (quest.QuestGiver is not null)
                                                         {
-                                                            <span class="badge text-bg-info">In progress: @string.Join(", ", quest.InProgressBy)</span>
+                                                            <div class="text-muted">
+                                                                Quest giver: @quest.QuestGiver.Name
+                                                                (map @quest.QuestGiver.MapId, zone @quest.QuestGiver.ZoneId)
+                                                            </div>
                                                         }
-                                                        @if (quest.CompletedBy.Count > 0)
+                                                        @foreach (var playerStatus in quest.PlayerStatuses)
                                                         {
-                                                            <span class="badge text-bg-secondary">Completed: @string.Join(", ", quest.CompletedBy)</span>
+                                                            <div class="d-flex flex-wrap align-items-center gap-1 mt-1">
+                                                                <span class="fw-semibold">@playerStatus.PlayerName</span>
+                                                                <span class="badge @QuestStatusBadgeClass(playerStatus.Status)">
+                                                                    @QuestStatusLabel(playerStatus.Status)
+                                                                </span>
+                                                                <span class="text-muted">@playerStatus.Detail</span>
+                                                            </div>
+                                                        }
+                                                        @if (quest.Prerequisite is not null && prerequisitePlayers.Length > 0)
+                                                        {
+                                                            <div class="border-start border-warning border-3 ps-2 mt-2">
+                                                                <div>
+                                                                    Required first: <strong>@quest.Prerequisite.Title</strong>
+                                                                    <span class="text-muted">(#@quest.Prerequisite.QuestId)</span>
+                                                                </div>
+                                                                @if (quest.Prerequisite.QuestGiver is not null)
+                                                                {
+                                                                    <div class="text-muted">
+                                                                        Quest giver: @quest.Prerequisite.QuestGiver.Name
+                                                                        (map @quest.Prerequisite.QuestGiver.MapId,
+                                                                        zone @quest.Prerequisite.QuestGiver.ZoneId)
+                                                                    </div>
+                                                                    <div class="form-check mt-1">
+                                                                        <input id="confirm-prerequisite-@quest.QuestId" class="form-check-input"
+                                                                               type="checkbox"
+                                                                               checked="@confirmedQuestTeleports.Contains(quest.Prerequisite.QuestId)"
+                                                                               @onchange="eventArgs => SetQuestTeleportConfirmation(
+                                                                                   quest.Prerequisite.QuestId, eventArgs.Value is true)" />
+                                                                        <label class="form-check-label" for="confirm-prerequisite-@quest.QuestId">
+                                                                            Confirm teleporting @string.Join(", ",
+                                                                                prerequisitePlayers.Select(playerStatus => playerStatus.PlayerName))
+                                                                        </label>
+                                                                    </div>
+                                                                    <button class="btn btn-sm btn-outline-warning mt-1" type="button"
+                                                                            disabled="@(!CanUseSoap ||
+                                                                                !confirmedQuestTeleports.Contains(quest.Prerequisite.QuestId))"
+                                                                            @onclick="() => TeleportToPrerequisiteGiverAsync(quest)">
+                                                                        Teleport to prerequisite quest giver
+                                                                    </button>
+                                                                }
+                                                                else
+                                                                {
+                                                                    <div class="text-muted">No compatible NPC giver was found for this prerequisite.</div>
+                                                                }
+                                                            </div>
+                                                        }
+                                                        @if (quest.QuestGiver is not null && eligiblePlayers.Length > 0)
+                                                        {
+                                                            <div class="form-check mt-2">
+                                                                <input id="confirm-quest-@quest.QuestId" class="form-check-input"
+                                                                       type="checkbox"
+                                                                       checked="@confirmedQuestTeleports.Contains(quest.QuestId)"
+                                                                       @onchange="eventArgs => SetQuestTeleportConfirmation(
+                                                                           quest.QuestId, eventArgs.Value is true)" />
+                                                                <label class="form-check-label" for="confirm-quest-@quest.QuestId">
+                                                                    Confirm teleporting @string.Join(", ", eligiblePlayers.Select(playerStatus => playerStatus.PlayerName))
+                                                                </label>
+                                                            </div>
+                                                            <button class="btn btn-sm btn-outline-primary mt-1" type="button"
+                                                                    disabled="@(!CanUseSoap || !confirmedQuestTeleports.Contains(quest.QuestId))"
+                                                                    @onclick="() => TeleportToQuestGiverAsync(quest)">
+                                                                Teleport eligible players to quest giver
+                                                            </button>
                                                         }
                                                     </div>
                                                 }
                                             </div>
                                         </details>
+                                    }
+                                    @if (questReturnPlayerNames.Count > 0)
+                                    {
+                                        <div class="border rounded p-2 mb-3 small">
+                                            <div class="fw-semibold">Quest-giver return available</div>
+                                            <div class="text-muted">@string.Join(", ", questReturnPlayerNames)</div>
+                                            <div class="form-check mt-2">
+                                                <input id="confirm-quest-return" class="form-check-input"
+                                                       type="checkbox" @bind="confirmQuestReturn" />
+                                                <label class="form-check-label" for="confirm-quest-return">
+                                                    Confirm returning these players to their saved locations
+                                                </label>
+                                            </div>
+                                            <button class="btn btn-sm btn-outline-secondary mt-1" type="button"
+                                                    disabled="@(!CanUseSoap || !confirmQuestReturn)"
+                                                    @onclick="ReturnFromQuestGiverAsync">
+                                                Return players
+                                            </button>
+                                        </div>
                                     }
                                 }
                                 @if (PartyHasLevelWarning)
@@ -371,6 +608,113 @@ else
                             }
                         </div>
                     </div>
+                    @if (dungeonGuide is not null)
+                    {
+                        <div class="card mt-4 border-info">
+                            <div class="card-header d-flex flex-wrap justify-content-between gap-2 align-items-center">
+                                <strong>Guide &amp; boss loot</strong>
+                                <div class="form-check form-switch mb-0">
+                                    <input id="party-loot-only" class="form-check-input"
+                                           type="checkbox" @bind="showPartyLootOnly" />
+                                    <label class="form-check-label small" for="party-loot-only">
+                                        Party-relevant loot only
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <p>@dungeonGuide.Overview</p>
+                                <div class="alert alert-secondary small">
+                                    <strong>Recommended route:</strong> @dungeonGuide.Route
+                                </div>
+                                @if (dungeonGuide.ImportantNotes.Count > 0)
+                                {
+                                    <ul class="small">
+                                        @foreach (var note in dungeonGuide.ImportantNotes)
+                                        {
+                                            <li>@note</li>
+                                        }
+                                    </ul>
+                                }
+                                @if (dungeonGuide.Bosses.Count == 0)
+                                {
+                                    <div class="alert alert-warning small mb-0">
+                                        This server has no ordered encounter records for this destination.
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="accordion" id="dungeon-boss-guide">
+                                        @foreach (var boss in dungeonGuide.Bosses)
+                                        {
+                                            var visibleLoot = boss.Loot
+                                                .Where(item => !showPartyLootOnly || item.SuggestedForParty)
+                                                .ToArray();
+                                            <details class="border rounded mb-2"
+                                                     open="@(boss.Order == 1)">
+                                                <summary class="p-2 fw-semibold">
+                                                    @boss.Order. @boss.Name
+                                                    <span class="badge text-bg-secondary ms-1">
+                                                        @visibleLoot.Length loot
+                                                    </span>
+                                                </summary>
+                                                <div class="border-top p-3">
+                                                    <p class="small">@boss.Tactics</p>
+                                                    @if (visibleLoot.Length == 0)
+                                                    {
+                                                        <div class="small text-muted">
+                                                            @(showPartyLootOnly
+                                                                ? "No party-relevant uncommon-or-better drops were found. Disable the filter to see all boss loot."
+                                                                : "No uncommon-or-better drops were found in the current world database.")
+                                                        </div>
+                                                    }
+                                                    else
+                                                    {
+                                                        <div class="table-responsive">
+                                                            <table class="table table-sm align-middle mb-0">
+                                                                <thead>
+                                                                <tr>
+                                                                    <th>Item</th>
+                                                                    <th>Required</th>
+                                                                    <th>Item level</th>
+                                                                    <th>Drop</th>
+                                                                </tr>
+                                                                </thead>
+                                                                <tbody>
+                                                                @foreach (var item in visibleLoot)
+                                                                {
+                                                                    <tr>
+                                                                        <td>
+                                                                            <span class="@LootQualityClass(item.Quality)">
+                                                                                @item.Name
+                                                                            </span>
+                                                                            <span class="text-muted small"> #@item.ItemId</span>
+                                                                            @if (item.QuestRequired)
+                                                                            {
+                                                                                <span class="badge text-bg-warning ms-1">Quest</span>
+                                                                            }
+                                                                            <DungeonLootStats Item="item" />
+                                                                        </td>
+                                                                        <td>@(item.RequiredLevel > 0 ? item.RequiredLevel.ToString() : "—")</td>
+                                                                        <td>@item.ItemLevel</td>
+                                                                        <td>
+                                                                            @(item.DropChance > 0
+                                                                                ? $"{item.DropChance:0.##}%"
+                                                                                : "Loot group")
+                                                                        </td>
+                                                                    </tr>
+                                                                }
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </details>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
                 }
             </div>
         </div>
@@ -471,12 +815,12 @@ else
                         <button type="button" class="btn-close" aria-label="Close" @onclick="() => showItemPicker = false"></button>
                     </div>
                     <div class="modal-body">
-                        <div class="row g-2 mb-3">
-                            <div class="col-md-7">
+                        <div class="row g-2 mb-2">
+                            <div class="col-md-6">
                                 <label class="form-label" for="item-search">Item name</label>
                                 <input id="item-search" class="form-control" value="@itemSearch" @oninput="OnItemSearchAsync" placeholder="Start typing an item name…" autocomplete="off" autofocus />
                             </div>
-                            <div class="col-md-5">
+                            <div class="col-md-4">
                                 <label class="form-label" for="item-category">Category</label>
                                 <select id="item-category" class="form-select" @bind="itemCategory" @bind:after="OnItemCategoryChangedAsync">
                                     <option value="all">All items</option><option value="weapons">Weapons</option><option value="armor">Armor</option>
@@ -486,6 +830,36 @@ else
                                     <option value="recipes">Recipes</option><option value="quest">Quest items</option><option value="glyphs">Glyphs</option>
                                     <option value="miscellaneous">Miscellaneous</option>
                                 </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label" for="item-quality">Quality</label>
+                                <select id="item-quality" class="form-select" @bind="itemQuality" @bind:after="OnItemFiltersChangedAsync">
+                                    <option value="">All</option>
+                                    <option value="0">Poor</option><option value="1">Common</option>
+                                    <option value="2">Uncommon</option><option value="3">Rare</option>
+                                    <option value="4">Epic</option><option value="5">Legendary</option>
+                                    <option value="6">Artifact</option><option value="7">Heirloom</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row g-2 mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Item level range</label>
+                                <div class="input-group">
+                                    <span class="input-group-text">≥</span>
+                                    <InputNumber class="form-control" @bind-Value="minimumItemLevel" @bind-Value:after="OnItemFiltersChangedAsync" min="0" placeholder="Min" aria-label="Minimum item level" />
+                                    <span class="input-group-text">≤</span>
+                                    <InputNumber class="form-control" @bind-Value="maximumItemLevel" @bind-Value:after="OnItemFiltersChangedAsync" min="0" placeholder="Max" aria-label="Maximum item level" />
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Required level range</label>
+                                <div class="input-group">
+                                    <span class="input-group-text">≥</span>
+                                    <InputNumber class="form-control" @bind-Value="minimumRequiredLevel" @bind-Value:after="OnItemFiltersChangedAsync" min="0" max="255" placeholder="Min" aria-label="Minimum required level" />
+                                    <span class="input-group-text">≤</span>
+                                    <InputNumber class="form-control" @bind-Value="maximumRequiredLevel" @bind-Value:after="OnItemFiltersChangedAsync" min="0" max="255" placeholder="Max" aria-label="Maximum required level" />
+                                </div>
                             </div>
                         </div>
                         @if (isLoadingItems)
@@ -500,14 +874,16 @@ else
                         {
                             <div class="table-responsive">
                                 <table class="table table-hover align-middle">
-                                    <thead><tr><th>Name</th><th>ID</th><th>Quality</th><th>Item level</th><th>Required level</th><th></th></tr></thead>
+                                    <thead><tr><th>Name</th><th>ID</th><th>Quality</th><th>Item level</th><th>Required level</th></tr></thead>
                                     <tbody>
                                     @foreach (var item in itemResults.Items)
                                     {
-                                        <tr>
+                                        <tr class="picker-result-row" tabindex="0" role="button"
+                                            aria-label="Select @item.Name"
+                                            @onclick="() => SelectItem(item)"
+                                            @onkeydown="args => SelectItemFromKeyboard(args, item)">
                                             <td class="fw-semibold @ItemQualityClass(item.Quality)">@item.Name</td>
                                             <td>@item.ItemId</td><td>@ItemQualityName(item.Quality)</td><td>@item.ItemLevel</td><td>@item.RequiredLevel</td>
-                                            <td class="text-end"><button class="btn btn-sm btn-primary" @onclick="() => SelectItem(item)">Select</button></td>
                                         </tr>
                                     }
                                     </tbody>
@@ -529,6 +905,93 @@ else
         <div class="modal-backdrop show"></div>
     }
 
+    @if (showNpcTeleportPicker)
+    {
+        <div class="modal show d-block" tabindex="-1" role="dialog" aria-modal="true"
+             aria-labelledby="npc-teleport-picker-title">
+            <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2 class="modal-title h5" id="npc-teleport-picker-title">Choose an NPC</h2>
+                        <button type="button" class="btn-close" aria-label="Close"
+                                @onclick="() => showNpcTeleportPicker = false"></button>
+                    </div>
+                    <div class="modal-body">
+                        <label class="form-label" for="npc-teleport-search">NPC name</label>
+                        <input id="npc-teleport-search" class="form-control mb-3"
+                               value="@npcTeleportSearch" @oninput="OnNpcTeleportSearchAsync"
+                               placeholder="Type at least two characters…" autocomplete="off" autofocus />
+                        <div class="form-text mb-3">
+                            Results are ranked from @SelectedActionPlayers.FirstOrDefault()?.Name.
+                            Potentially hostile NPCs are allowed with explicit confirmation.
+                            Instance NPCs remain unavailable.
+                        </div>
+                        @if (isLoadingNpcTeleports)
+                        {
+                            <p><em>Searching NPCs…</em></p>
+                        }
+                        else if (npcTeleportSearch.Trim().Length < 2)
+                        {
+                            <div class="alert alert-secondary">Enter at least two characters.</div>
+                        }
+                        else if (npcTeleportResults.Npcs.Count == 0)
+                        {
+                            <div class="alert alert-secondary">No matching outdoor NPC spawns were found.</div>
+                        }
+                        else
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle">
+                                    <thead>
+                                        <tr><th>NPC</th><th>Map</th><th>Zone</th><th>Distance</th><th></th></tr>
+                                    </thead>
+                                    <tbody>
+                                    @foreach (var npc in npcTeleportResults.Npcs)
+                                    {
+                                        <tr class="picker-result-row" tabindex="0" role="button"
+                                            aria-label="Select @npc.Name"
+                                            @onclick="() => SelectTeleportNpc(npc)"
+                                            @onkeydown="args => SelectTeleportNpcFromKeyboard(args, npc)">
+                                            <td>
+                                                <div class="fw-semibold">@npc.Name</div>
+                                                <div class="small text-muted">@npc.Subname · entry @npc.CreatureId · spawn @npc.SpawnId</div>
+                                                @if (npc.PotentiallyHostile)
+                                                {
+                                                    <span class="badge text-bg-danger">May be hostile</span>
+                                                }
+                                            </td>
+                                            <td>@MapName(npc.MapId)</td>
+                                            <td>@npc.ZoneId</td>
+                                            <td>
+                                                @(npc.SameMap && npc.Distance is not null
+                                                    ? npc.Distance.Value.ToString("N0") : "Different map")
+                                            </td>
+                                        </tr>
+                                    }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                    <div class="modal-footer justify-content-between">
+                        <span class="text-muted">@npcTeleportResults.TotalCount matching spawns</span>
+                        <div>
+                            <button class="btn btn-outline-secondary me-2"
+                                    disabled="@(isLoadingNpcTeleports || npcTeleportResults.Page <= 1)"
+                                    @onclick="() => LoadNpcTeleportsAsync(npcTeleportResults.Page - 1)">Previous</button>
+                            <span class="me-2">
+                                Page @npcTeleportResults.Page of @Math.Max(1, npcTeleportResults.TotalPages)
+                            </span>
+                            <button class="btn btn-outline-secondary"
+                                    disabled="@(isLoadingNpcTeleports || npcTeleportResults.Page >= npcTeleportResults.TotalPages)"
+                                    @onclick="() => LoadNpcTeleportsAsync(npcTeleportResults.Page + 1)">Next</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-backdrop show"></div>
+    }
     @if (showLocationPicker)
     {
         <div class="modal d-block" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="location-picker-title">
@@ -553,15 +1016,17 @@ else
                         {
                             <div class="table-responsive">
                                 <table class="table table-hover align-middle">
-                                    <thead><tr><th>Location</th><th>Map</th><th>Coordinates</th><th></th></tr></thead>
+                                    <thead><tr><th>Location</th><th>Map</th><th>Coordinates</th></tr></thead>
                                     <tbody>
                                     @foreach (var location in locationResults.Locations)
                                     {
-                                        <tr>
+                                        <tr class="picker-result-row" tabindex="0" role="button"
+                                            aria-label="Select @location.Name"
+                                            @onclick="() => SelectLocation(location)"
+                                            @onkeydown="args => SelectLocationFromKeyboard(args, location)">
                                             <td class="fw-semibold">@location.Name</td>
                                             <td>@MapName(location.MapId)</td>
                                             <td class="small text-muted">@location.PositionX.ToString("0.0"), @location.PositionY.ToString("0.0"), @location.PositionZ.ToString("0.0")</td>
-                                            <td class="text-end"><button class="btn btn-sm btn-primary" @onclick="() => SelectLocation(location)">Select</button></td>
                                         </tr>
                                     }
                                     </tbody>

@@ -6,7 +6,13 @@
 
 <PageTitle>Training</PageTitle>
 
-<h1>Available training</h1>
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+    <h1 class="mb-0">Available training</h1>
+    <button class="btn btn-outline-secondary" disabled="@(isLoading || activeTraining is not null)"
+            @onclick="RefreshTrainingAsync">
+        @(activeTraining == "refresh" ? "Refreshing…" : "Refresh characters")
+    </button>
+</div>
 <p class="text-muted">
     Class abilities and profession training currently available to characters on player accounts.
     Profession training can be granted free while the character is online.
@@ -88,7 +94,8 @@ else
                     <div class="col-md-3">
                         <button class="btn btn-primary w-100"
                                 type="button"
-                                disabled="@(activeTraining is not null || SelectedProfessionCharacter?.Online != true)"
+                                disabled="@(activeTraining is not null || SelectedProfessionCharacter?.Online != true ||
+                                    SelectedNewProfession is null)"
                                 @onclick="LearnProfessionAsync">
                             @(activeTraining == NewProfessionActionKey ? "Teaching..." : "Teach profession")
                         </button>
@@ -98,6 +105,13 @@ else
                 {
                     <div class="alert alert-warning mt-3 mb-0">
                         @SelectedProfessionCharacter.CharacterName must log in before the profession can be taught.
+                    </div>
+                }
+                else if (SelectedProfessionCharacter is { AvailableProfessions.Count: 0 } unavailableCharacter)
+                {
+                    <div class="alert alert-info mt-3 mb-0">
+                        @unavailableCharacter.CharacterName is online, but already knows every eligible profession
+                        or already has two primary professions.
                     </div>
                 }
                 else if (SelectedProfessionCharacter?.PrimaryProfessionCount >= 2

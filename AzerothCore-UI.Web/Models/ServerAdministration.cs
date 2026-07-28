@@ -5,6 +5,8 @@ public sealed record ManagedProcessStatus(string Name, bool IsRunning, int? Proc
 public sealed record ServerStatus(ManagedProcessStatus WorldServer, ManagedProcessStatus AuthServer,
     bool SoapConfigured, bool SoapReachable, string? WorldStatus, IReadOnlyList<ServerLogEntry> RecentLogs,
     ServerPopulation Population, int PlayerLimit);
+public sealed record ToolAvailability(
+    bool WorldServerRunning, bool SoapConfigured, bool SoapReachable);
 public sealed record ServerPopulation(int HumanPlayers, int PlayerBots, int Total);
 public sealed class PlayerBotSettings
 {
@@ -106,6 +108,21 @@ public sealed class TeleportLocation
 }
 public sealed record TeleportLocationSearchResult(
     IReadOnlyList<TeleportLocation> Locations, int Page, int PageSize, int TotalCount, int TotalPages);
+public sealed class NpcTeleportSpawn
+{
+    public uint SpawnId { get; init; }
+    public uint CreatureId { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public string Subname { get; init; } = string.Empty;
+    public ushort MapId { get; init; }
+    public ushort ZoneId { get; init; }
+    public ushort AreaId { get; init; }
+    public bool SameMap { get; init; }
+    public double? Distance { get; init; }
+    public bool PotentiallyHostile { get; init; }
+}
+public sealed record NpcTeleportSearchResult(
+    IReadOnlyList<NpcTeleportSpawn> Npcs, int Page, int PageSize, int TotalCount, int TotalPages);
 public sealed class TrainerSpawn
 {
     public uint SpawnId { get; set; }
@@ -126,6 +143,8 @@ public sealed record GiveItemRequest(string PlayerName, uint ItemId, int Quantit
 public sealed record MailItemRequest(string PlayerName, uint ItemId, int Quantity, string Subject, string Message);
 public sealed record GiveMoneyRequest(string PlayerName, int Gold, int Silver, int Copper);
 public sealed record TeleportPlayerRequest(string PlayerName, string Location);
+public sealed record TeleportPlayerToNpcRequest(
+    string PlayerName, uint SpawnId, bool Confirmed);
 public sealed record PlayerRelativeTeleportRequest(string PlayerName, string AnchorPlayerName);
 public sealed record PartyBotRequest(string LeaderName, string BotName);
 public sealed record PartyLeaderRequest(string LeaderName);
@@ -133,15 +152,79 @@ public sealed record PartyMember(string Name, int Level, string Role, bool IsPla
 public sealed record PartyBotCandidate(string Name, int Level, string Role, int CharacterClass);
 public sealed record PartySnapshot(string LeaderName, int MemberCount,
     IReadOnlyList<PartyMember> Members, IReadOnlyList<PartyBotCandidate> Candidates);
+public sealed class QuestingCompanionCandidate
+{
+    public string Name { get; init; } = "";
+    public string Username { get; init; } = "";
+    public int Level { get; init; }
+    public int CharacterClass { get; init; }
+    public int Race { get; init; }
+    public bool Online { get; init; }
+    public bool SameFaction { get; init; }
+    public bool SameAccount { get; init; }
+}
+public sealed record ActiveQuestingCompanion(
+    string Name, int Level, int CharacterClass, bool InLeaderParty);
+public sealed record QuestingCompanionStatus(
+    string LeaderName, IReadOnlyList<ActiveQuestingCompanion> ActiveCompanions,
+    IReadOnlyList<QuestingCompanionCandidate> Candidates);
+public sealed record QuestingCompanionRequest(string LeaderName, string CompanionName);
 public sealed record DungeonDestination(uint DungeonId, string Name, int MinimumLevel,
     int MaximumLevel, uint MapId, string Difficulty);
 public sealed record DungeonLockout(string PlayerName, uint MapId, int Difficulty, DateTime ResetAtUtc);
+public sealed record DungeonQuestGiver(
+    uint SpawnId, uint CreatureId, string Name, ushort MapId, ushort ZoneId);
+public sealed record DungeonQuestPlayerStatus(
+    string PlayerName, string Status, string Detail, bool CanTeleport);
+public sealed record DungeonQuestPrerequisite(
+    uint QuestId, string Title, DungeonQuestGiver? QuestGiver);
 public sealed record DungeonQuest(uint QuestId, string Title, int MinimumLevel,
-    IReadOnlyList<string> InProgressBy, IReadOnlyList<string> CompletedBy);
+    IReadOnlyList<string> InProgressBy, IReadOnlyList<string> CompletedBy,
+    DungeonQuestGiver? QuestGiver, IReadOnlyList<DungeonQuestPlayerStatus> PlayerStatuses,
+    DungeonQuestPrerequisite? Prerequisite);
 public sealed record DungeonReadiness(bool HasTank, bool HasHealer, int DamageCount, bool PartyFull,
     bool LevelsSuitable, IReadOnlyList<DungeonLockout> Lockouts, IReadOnlyList<DungeonQuest> RelevantQuests);
+public sealed record DungeonGuide(
+    uint DungeonId, string Name, string Overview, string Route,
+    IReadOnlyList<string> ImportantNotes, IReadOnlyList<DungeonBossGuide> Bosses);
+public sealed record DungeonBossGuide(
+    int Order, uint CreatureId, string Name, string Tactics,
+    IReadOnlyList<DungeonLootItem> Loot);
+public sealed class DungeonLootItem
+{
+    public uint ItemId { get; init; }
+    public string Name { get; init; } = "";
+    public int Quality { get; init; }
+    public int ItemLevel { get; init; }
+    public int RequiredLevel { get; init; }
+    public int ItemClass { get; init; }
+    public int ItemSubclass { get; init; }
+    public int InventoryType { get; init; }
+    public long AllowableClass { get; init; }
+    public double DropChance { get; init; }
+    public bool QuestRequired { get; init; }
+    public bool SuggestedForParty { get; init; }
+    public int Armor { get; init; }
+    public double MinimumDamage { get; init; }
+    public double MaximumDamage { get; init; }
+    public int DelayMilliseconds { get; init; }
+    public IReadOnlyList<DungeonItemStat> Stats { get; init; } = [];
+}
+public sealed record DungeonItemStat(string Name, int Value, bool Rating = false);
+public sealed record DungeonLibraryCharacter(
+    uint Guid, string Name, string Username, int Level, int CharacterClass,
+    bool Online);
+public sealed record DungeonLibraryGuideRequest(
+    uint DungeonId, IReadOnlyList<uint> CharacterGuids);
 public sealed record LaunchDungeonRequest(string LeaderName, uint DungeonId, bool Confirmed);
+public sealed record TeleportToDungeonQuestGiverRequest(
+    uint QuestId, uint SpawnId, IReadOnlyList<string> PlayerNames, bool Confirmed);
+public sealed record ReturnDungeonQuestPlayersRequest(
+    IReadOnlyList<string> PlayerNames, bool Confirmed);
 public sealed record SpawnCreatureRequest(string AnchorPlayerName, uint CreatureId, int Level, int DespawnMinutes, bool Confirmed);
+public sealed record UtilityNpc(uint CreatureId, string Name, string Service, string Description, int Level);
+public sealed record SummonUtilityNpcRequest(
+    string PlayerName, uint CreatureId, int DespawnMinutes, bool Confirmed);
 public sealed record SetAccountGmRequest(string Username, bool Enabled, bool Confirmed);
 public sealed record SetPlayerSpeedRequest(string PlayerName, decimal Speed);
 public sealed record CharacterServiceRequest(string PlayerName, string Service, int? Level, bool Confirmed);
@@ -154,4 +237,8 @@ public sealed record CharacterCollectibleSearchResult(IReadOnlyList<CharacterCol
     int PageSize, int TotalCount, int TotalPages, int KnownCount, int MissingCount);
 public sealed record WeaponTrainingStatus(string Key, string Name, bool Learned, int CurrentSkill, int MaximumSkill);
 public sealed record GrantWeaponTrainingRequest(string PlayerName, string WeaponKey, bool Confirmed);
+public sealed record GuildBankStatus(
+    uint GuildId, string GuildName, string PlayerName, bool IsGuildMaster,
+    int PurchasedTabs, int MaximumTabs, uint NextTabCostCopper);
+public sealed record UnlockGuildBankTabRequest(string PlayerName, bool Confirmed);
 public sealed record AdministrationResult(bool Success, string Message, string? Output = null);

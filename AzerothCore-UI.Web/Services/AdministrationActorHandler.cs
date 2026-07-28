@@ -21,6 +21,9 @@ public sealed class AdministrationActorHandler(IHttpContextAccessor contextAcces
             request.Headers.TryAddWithoutValidation(
                 "X-AzerothCore-Actor-Id",
                 principal.FindFirstValue(ClaimTypes.NameIdentifier) ?? "");
+            request.Headers.TryAddWithoutValidation(
+                "X-AzerothCore-Remote-Address",
+                contextAccessor.HttpContext?.Connection.RemoteIpAddress?.ToString() ?? "");
         }
         return base.SendAsync(request, cancellationToken);
     }

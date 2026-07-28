@@ -1,0 +1,41 @@
+@using AzerothCore_UI.Web.Models
+
+@if (HasStats)
+{
+    <div class="small mt-1">
+        @if (Item.Armor > 0)
+        {
+            <span class="me-2">@Item.Armor Armor</span>
+        }
+        @if (Item.MaximumDamage > 0)
+        {
+            <span class="me-2">
+                @Item.MinimumDamage.ToString("0.#")–@Item.MaximumDamage.ToString("0.#") damage
+                @if (Item.DelayMilliseconds > 0)
+                {
+                    <span>
+                        · @((Item.DelayMilliseconds / 1000d).ToString("0.00")) speed
+                        · @DamagePerSecond.ToString("0.0") DPS
+                    </span>
+                }
+            </span>
+        }
+        @foreach (var stat in Item.Stats)
+        {
+            <span class="text-success me-2">
+                @(stat.Value > 0 ? "+" : "")@stat.Value @stat.Name
+            </span>
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public DungeonLootItem Item { get; set; } = default!;
+
+    private bool HasStats => Item.Armor > 0 || Item.MaximumDamage > 0
+        || Item.Stats.Count > 0;
+
+    private double DamagePerSecond => Item.DelayMilliseconds <= 0 ? 0
+        : ((Item.MinimumDamage + Item.MaximumDamage) / 2d)
+          / (Item.DelayMilliseconds / 1000d);
+}

@@ -5,8 +5,11 @@
 
 #include "Chat.h"
 #include "Creature.h"
+#include "DatabaseEnv.h"
 #include "Group.h"
 #include "GroupMgr.h"
+#include "Guild.h"
+#include "GuildMgr.h"
 #include "DBCStores.h"
 #include "LFGMgr.h"
 #include "Map.h"
@@ -15,6 +18,7 @@
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "PlayerbotAI.h"
+#include "PlayerbotMgr.h"
 #include "RandomPlayerbotMgr.h"
 #include "ScriptMgr.h"
 #include "TemporarySummon.h"
@@ -60,6 +64,25 @@ public:
             { "inspect", HandleWeaponInspectCommand, SEC_ADMINISTRATOR, Console::Yes },
             { "learn", HandleWeaponLearnCommand, SEC_ADMINISTRATOR, Console::Yes }
         };
+        static ChatCommandTable questCommands =
+        {
+            { "return", HandleQuestReturnCommand, SEC_ADMINISTRATOR, Console::Yes }
+        };
+        static ChatCommandTable npcCommands =
+        {
+            { "teleport", HandleNpcTeleportCommand, SEC_ADMINISTRATOR, Console::Yes }
+        };
+        static ChatCommandTable guildCommands =
+        {
+            { "inspect", HandleGuildInspectCommand, SEC_ADMINISTRATOR, Console::Yes },
+            { "unlocktab", HandleGuildUnlockTabCommand, SEC_ADMINISTRATOR, Console::Yes }
+        };
+        static ChatCommandTable companionCommands =
+        {
+            { "inspect", HandleCompanionInspectCommand, SEC_ADMINISTRATOR, Console::Yes },
+            { "start", HandleCompanionStartCommand, SEC_ADMINISTRATOR, Console::Yes },
+            { "dismiss", HandleCompanionDismissCommand, SEC_ADMINISTRATOR, Console::Yes }
+        };
         static ChatCommandTable webAdminCommands =
         {
             { "move", HandleMoveCommand, SEC_ADMINISTRATOR, Console::Yes },
@@ -67,7 +90,11 @@ public:
             { "group", groupCommands },
             { "dungeon", dungeonCommands },
             { "creature", creatureCommands },
-            { "weapon", weaponCommands }
+            { "weapon", weaponCommands },
+            { "quest", questCommands },
+            { "npc", npcCommands }
+            ,{ "guild", guildCommands },
+            { "companion", companionCommands }
         };
         static ChatCommandTable commands =
         {
@@ -77,6 +104,205 @@ public:
     }
 
 private:
+    static bool ParseCompanionArguments(
+        ChatHandler* handler, char const* args, Player*& leader,
+        std::string& companionName, ObjectGuid& companionGuid)
+    {
+        std::istringstream input(args ? args : "");
+        std::string leaderName, unexpected;
+        if (!(input >> leaderName >> companionName) || (input >> unexpected))
+        {
+            handler->SendErrorMessage("Usage: webadmin companion <command> <leader> <companion>");
+            return false;
+        }
+        leader = RequireOnlinePlayer(handler, leaderName, "Leader");
+        if (!leader || sRandomPlayerbotMgr.IsRandomBot(leader))
+        {
+            handler->SendErrorMessage("The companion leader must be a real online player.");
+            return false;
+        }
+        if (!normalizePlayerName(companionName))
+        {
+            handler->SendErrorMessage("The companion character was not found.");
+            return false;
+        }
+        companionGuid = sCharacterCache->GetCharacterGuidByName(companionName);
+        if (companionGuid.IsEmpty() || companionGuid == leader->GetGUID())
+        {
+            handler->SendErrorMessage("Select a different companion character.");
+            return false;
+        }
+        return true;
+    }
+
+    static bool HandleCompanionStartCommand(ChatHandler* handler, char const* args)
+    {
+        Player* leader = nullptr;
+        std::string companionName;
+        ObjectGuid companionGuid;
+        if (!ParseCompanionArguments(handler, args, leader, companionName, companionGuid))
+            return false;
+        if (ObjectAccessor::FindConnectedPlayer(companionGuid))
+        {
+            handler->SendErrorMessage("The companion is already online.");
+            return false;
+        }
+        uint32 companionAccount = sCharacterCache->GetCharacterAccountIdByGuid(companionGuid);
+        if (!companionAccount || companionAccount == leader->GetSession()->GetAccountId())
+        {
+            handler->SendErrorMessage(
+                "The leader and companion must use different game accounts.");
+            return false;
+        }
+        QueryResult result = CharacterDatabase.Query(
+            "SELECT race FROM characters WHERE guid = {}", companionGuid.GetCounter());
+        if (!result || Player::TeamIdForRace(result->Fetch()[0].Get<uint8>())
+            != leader->GetTeamId(true))
+        {
+            handler->SendErrorMessage(
+                "The leader and companion must belong to the same faction.");
+            return false;
+        }
+        PlayerbotMgr* manager =
+            PlayerbotsMgr::instance().GetPlayerbotMgr(leader);
+        if (!manager)
+        {
+            handler->SendErrorMessage("PlayerBots is not available for the leader.");
+            return false;
+        }
+        std::string command = "add " + companionName;
+        std::vector<std::string> messages =
+            manager->HandlePlayerbotCommand(command.data(), leader);
+        for (std::string const& message : messages)
+            handler->PSendSysMessage("WEBADMIN_COMPANION_RESULT\t{}", message);
+        handler->PSendSysMessage(
+            "Questing companion {} is logging in for {}.", companionName, leader->GetName());
+        return true;
+    }
+
+    static bool HandleCompanionDismissCommand(ChatHandler* handler, char const* args)
+    {
+        Player* leader = nullptr;
+        std::string companionName;
+        ObjectGuid companionGuid;
+        if (!ParseCompanionArguments(handler, args, leader, companionName, companionGuid))
+            return false;
+        PlayerbotMgr* manager =
+            PlayerbotsMgr::instance().GetPlayerbotMgr(leader);
+        if (!manager || !manager->GetPlayerBot(companionGuid))
+        {
+            handler->SendErrorMessage("That character is not this leader's active companion.");
+            return false;
+        }
+        std::string command = "remove " + companionName;
+        std::vector<std::string> messages =
+            manager->HandlePlayerbotCommand(command.data(), leader);
+        for (std::string const& message : messages)
+            handler->PSendSysMessage("WEBADMIN_COMPANION_RESULT\t{}", message);
+        handler->PSendSysMessage(
+            "Questing companion {} is logging out.", companionName);
+        return true;
+    }
+
+    static bool HandleCompanionInspectCommand(ChatHandler* handler, char const* args)
+    {
+        Player* leader = ParseLeader(handler, args);
+        if (!leader) return false;
+        PlayerbotMgr* manager =
+            PlayerbotsMgr::instance().GetPlayerbotMgr(leader);
+        if (!manager)
+        {
+            handler->SendErrorMessage("PlayerBots is not available for the leader.");
+            return false;
+        }
+        unsigned count = 0;
+        for (auto iterator = manager->GetPlayerBotsBegin();
+             iterator != manager->GetPlayerBotsEnd(); ++iterator)
+        {
+            Player* bot = iterator->second;
+            if (!bot || sRandomPlayerbotMgr.IsRandomBot(bot)) continue;
+            handler->PSendSysMessage(
+                "WEBADMIN_COMPANION\t{}\t{}\t{}\t{}",
+                bot->GetName(), bot->GetLevel(), bot->getClass(),
+                bot->GetGroup() == leader->GetGroup() ? 1 : 0);
+            ++count;
+        }
+        handler->PSendSysMessage(
+            "WEBADMIN_COMPANION_SUMMARY\t{}\t{}", leader->GetName(), count);
+        return true;
+    }
+
+    static Guild* RequirePlayerGuild(ChatHandler* handler, Player* player)
+    {
+        Guild* guild = player ? sGuildMgr->GetGuildById(player->GetGuildId()) : nullptr;
+        if (!guild)
+            handler->SendErrorMessage("The player is not in a guild.");
+        return guild;
+    }
+
+    static uint8 PurchasedGuildTabs(Guild const* guild)
+    {
+        QueryResult result = CharacterDatabase.Query(
+            "SELECT COUNT(*) FROM guild_bank_tab WHERE guildid = {}", guild->GetId());
+        return result ? std::min<uint8>(result->Fetch()[0].Get<uint8>(), GUILD_BANK_MAX_TABS) : 0;
+    }
+
+    static uint32 GuildTabPrice(uint8 tabId)
+    {
+        static ServerConfigs const configs[GUILD_BANK_MAX_TABS] = {
+            CONFIG_GUILD_BANK_TAB_COST_0, CONFIG_GUILD_BANK_TAB_COST_1,
+            CONFIG_GUILD_BANK_TAB_COST_2, CONFIG_GUILD_BANK_TAB_COST_3,
+            CONFIG_GUILD_BANK_TAB_COST_4, CONFIG_GUILD_BANK_TAB_COST_5
+        };
+        return tabId < GUILD_BANK_MAX_TABS ? sWorld->getIntConfig(configs[tabId]) : 0;
+    }
+
+    static bool HandleGuildInspectCommand(ChatHandler* handler, char const* args)
+    {
+        Player* player = ParseOnlinePlayer(handler, args, "Player");
+        if (!player) return false;
+        Guild* guild = RequirePlayerGuild(handler, player);
+        if (!guild) return false;
+        uint8 tabs = PurchasedGuildTabs(guild);
+        uint32 nextPrice = tabs < GUILD_BANK_MAX_TABS ? GuildTabPrice(tabs) : 0;
+        handler->PSendSysMessage("WEBADMIN_GUILD\t{}\t{}\t{}\t{}\t{}\t{}",
+            guild->GetId(), guild->GetName(), player->GetName(),
+            guild->GetLeaderGUID() == player->GetGUID() ? 1 : 0, tabs, nextPrice);
+        return true;
+    }
+
+    static bool HandleGuildUnlockTabCommand(ChatHandler* handler, char const* args)
+    {
+        Player* player = ParseOnlinePlayer(handler, args, "Player");
+        if (!player || handler->HasLowerSecurity(player)) return false;
+        Guild* guild = RequirePlayerGuild(handler, player);
+        if (!guild) return false;
+        if (guild->GetLeaderGUID() != player->GetGUID())
+        {
+            handler->SendErrorMessage("The selected character must be the guild master.");
+            return false;
+        }
+        uint8 tabId = PurchasedGuildTabs(guild);
+        if (tabId >= GUILD_BANK_MAX_TABS)
+        {
+            handler->SendErrorMessage("All guild bank tabs are already unlocked.");
+            return false;
+        }
+        uint32 price = GuildTabPrice(tabId);
+        uint32 originalMoney = player->GetMoney();
+        if (!price || originalMoney > MAX_MONEY_AMOUNT - price)
+        {
+            handler->SendErrorMessage("The guild tab price cannot be safely covered.");
+            return false;
+        }
+        player->SetMoney(originalMoney + price);
+        guild->HandleBuyBankTab(player->GetSession(), tabId);
+        player->SetMoney(originalMoney);
+        handler->PSendSysMessage("Unlocked guild bank tab {} for {} without charging {}.",
+            tabId + 1, guild->GetName(), player->GetName());
+        return true;
+    }
+
     struct WeaponTraining
     {
         char const* Key;
@@ -137,6 +363,95 @@ private:
         return true;
     }
 
+    static bool HandleQuestReturnCommand(ChatHandler* handler, char const* args)
+    {
+        Player* player = ParseOnlinePlayer(handler, args, "Player");
+        if (!player || handler->HasLowerSecurity(player)) return false;
+        if (player->IsBeingTeleported())
+        {
+            handler->SendErrorMessage("The player is already being teleported.");
+            return false;
+        }
+        if (player->IsInFlight())
+        {
+            player->GetMotionMaster()->MovementExpired();
+            player->CleanupAfterTaxiFlight();
+        }
+        if (!player->TeleportTo(player->m_recallMap, player->m_recallX, player->m_recallY,
+            player->m_recallZ, player->m_recallO, TELE_TO_GM_MODE))
+        {
+            handler->SendErrorMessage("AzerothCore rejected the return teleport.");
+            return false;
+        }
+        handler->PSendSysMessage("Returned {} to the saved location.", player->GetName());
+        return true;
+    }
+
+    static bool HandleNpcTeleportCommand(ChatHandler* handler, char const* args)
+    {
+        std::istringstream input(args ? args : "");
+        std::string playerName, unexpected;
+        ObjectGuid::LowType spawnId = 0;
+        uint32 allowHostile = 0;
+        if (!(input >> playerName >> spawnId >> allowHostile)
+            || allowHostile > 1 || (input >> unexpected))
+        {
+            handler->SendErrorMessage(
+                "Usage: webadmin npc teleport <onlinePlayer> <spawnId> <allowHostile:0|1>");
+            return false;
+        }
+        Player* player = RequireOnlinePlayer(handler, playerName, "Player");
+        if (!player || handler->HasLowerSecurity(player)) return false;
+        if (sRandomPlayerbotMgr.IsRandomBot(player))
+        {
+            handler->SendErrorMessage("NPC teleports are limited to real players.");
+            return false;
+        }
+        CreatureData const* spawn = sObjectMgr->GetCreatureData(spawnId);
+        if (!spawn)
+        {
+            handler->SendErrorMessage("The NPC spawn does not exist.");
+            return false;
+        }
+        CreatureTemplate const* creatureTemplate = sObjectMgr->GetCreatureTemplate(spawn->id);
+        MapEntry const* map = sMapStore.LookupEntry(spawn->mapid);
+        if (!creatureTemplate || !map || !map->IsWorldMap())
+        {
+            handler->SendErrorMessage("NPC teleports are limited to outdoor world maps.");
+            return false;
+        }
+        FactionTemplateEntry const* npcFaction = sFactionTemplateStore.LookupEntry(creatureTemplate->faction);
+        FactionTemplateEntry const* playerFaction = player->GetFactionTemplateEntry();
+        if (npcFaction && playerFaction
+            && (npcFaction->IsHostileTo(*playerFaction) || playerFaction->IsHostileTo(*npcFaction))
+            && !allowHostile)
+        {
+            handler->SendErrorMessage(
+                "That NPC is hostile to the selected player; explicit confirmation is required.");
+            return false;
+        }
+        if (player->IsBeingTeleported())
+        {
+            handler->SendErrorMessage("The player is already being teleported.");
+            return false;
+        }
+        if (player->IsInFlight())
+        {
+            player->GetMotionMaster()->MovementExpired();
+            player->CleanupAfterTaxiFlight();
+        }
+        else
+            player->SaveRecallPosition();
+        if (!player->TeleportTo(spawn->mapid, spawn->posX, spawn->posY, spawn->posZ,
+            spawn->orientation, TELE_TO_GM_MODE))
+        {
+            handler->SendErrorMessage("AzerothCore rejected the NPC teleport.");
+            return false;
+        }
+        handler->PSendSysMessage("Teleported {} to {}.", player->GetName(), creatureTemplate->Name);
+        return true;
+    }
+
     static Player* ParseOnlinePlayer(ChatHandler* handler, char const* args, char const* label)
     {
         std::istringstream input(args ? args : "");
@@ -183,9 +498,12 @@ private:
             if (!creatureTemplate) handler->SendErrorMessage("That creature template does not exist.");
             return false;
         }
-        if (creatureTemplate->npcflag != 0 || creatureTemplate->rank == 3)
+        static std::array<uint32, 8> const utilityNpcEntries =
+            { 3534, 4085, 5411, 12958, 12959, 14337, 19572, 22479 };
+        bool const isUtilityNpc = std::ranges::find(utilityNpcEntries, entry) != utilityNpcEntries.end();
+        if ((creatureTemplate->npcflag != 0 && !isUtilityNpc) || creatureTemplate->rank == 3)
         {
-            handler->SendErrorMessage("Service NPCs and world bosses cannot be spawned by web administration.");
+            handler->SendErrorMessage("Only allowlisted neutral service NPCs can be spawned by web administration.");
             return false;
         }
         if (level < 1 || level > 83 || despawnMinutes < 1 || despawnMinutes > 30)
@@ -194,7 +512,7 @@ private:
             return false;
         }
         Map* map = anchor->GetMap();
-        if (!map || map->IsBattlegroundOrArena() || map->IsDungeon() || anchor->GetTransport()
+        if (!map || map->IsBattlegroundOrArena() || (!isUtilityNpc && map->IsDungeon()) || anchor->GetTransport()
             || anchor->IsInFlight() || anchor->IsInCombat() || anchor->IsBeingTeleported())
         {
             handler->SendErrorMessage("The anchor must be stationary, out of combat, outdoors, and outside instances and transports.");
@@ -363,12 +681,16 @@ private:
         if (!leader) return false;
         Group* group = leader->GetGroup();
         handler->PSendSysMessage("WEBADMIN_PARTY\t{}\t{}", leader->GetName(), group ? group->GetMembersCount() : 1);
+        bool leaderEmitted = false;
         if (group)
             for (GroupReference* reference = group->GetFirstMember(); reference; reference = reference->next())
                 if (Player* member = reference->GetSource())
+                {
                     handler->PSendSysMessage("WEBADMIN_MEMBER\t{}\t{}\t{}\t{}", member->GetName(), member->GetLevel(),
                         Role(member), sRandomPlayerbotMgr.IsRandomBot(member) ? 1 : 0);
-        else
+                    leaderEmitted = leaderEmitted || member == leader;
+                }
+        if (!leaderEmitted)
             handler->PSendSysMessage("WEBADMIN_MEMBER\t{}\t{}\t{}\t0", leader->GetName(), leader->GetLevel(), Role(leader));
         for (Player* bot : EligibleBots(leader))
             handler->PSendSysMessage("WEBADMIN_CANDIDATE\t{}\t{}\t{}\t{}", bot->GetName(), bot->GetLevel(), Role(bot), bot->getClass());

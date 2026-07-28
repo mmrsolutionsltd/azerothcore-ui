@@ -57,6 +57,21 @@ public sealed class AzerothCoreSoapClientTests
         Assert.Throws<ArgumentOutOfRangeException>(
             () => AzerothCoreSoapClient.BuildTrainerTeleportCommand("Hundead", 0));
 
+    [Fact]
+    public void BuildNpcTeleportCommand_UsesValidatedModuleSyntax() =>
+        Assert.Equal("webadmin npc teleport Hundead 12345 0",
+            AzerothCoreSoapClient.BuildNpcTeleportCommand("Hundead", 12345, false));
+
+    [Fact]
+    public void BuildNpcTeleportCommand_IncludesHostileConfirmation() =>
+        Assert.Equal("webadmin npc teleport Hundead 12345 1",
+            AzerothCoreSoapClient.BuildNpcTeleportCommand("Hundead", 12345, true));
+
+    [Fact]
+    public void BuildNpcTeleportCommand_RejectsMissingSpawn() =>
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => AzerothCoreSoapClient.BuildNpcTeleportCommand("Hundead", 0, false));
+
     [Theory]
     [InlineData(true, "quest add 9617 Hundead")]
     [InlineData(false, "quest remove 9617 Hundead")]

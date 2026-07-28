@@ -1,5 +1,6 @@
 using AzerothCore_UI.Web.Models;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Web;
 
 namespace AzerothCore_UI.Web.Components.Pages;
 
@@ -25,6 +26,8 @@ public partial class ServerAdministration
     private CancellationTokenSource? itemSearchCancellation;
     private bool showItemPicker, isLoadingItems;
     private string itemSearch = "", itemCategory = "all";
+    private int? itemQuality, minimumItemLevel, maximumItemLevel;
+    private int? minimumRequiredLevel, maximumRequiredLevel;
     private string? selectedItemName;
     private string partyLeader = "";
     private PartySnapshot? party;
@@ -33,8 +36,13 @@ public partial class ServerAdministration
     private string dungeonSearch = "";
     private uint selectedDungeonId;
     private DungeonReadiness? dungeonReadiness;
+    private DungeonGuide? dungeonGuide;
     private bool isLoadingReadiness;
+    private bool showPartyLootOnly = true;
     private bool confirmDungeonLaunch;
+    private readonly HashSet<uint> confirmedQuestTeleports = [];
+    private IReadOnlyList<string> questReturnPlayerNames = [];
+    private bool confirmQuestReturn;
     private DungeonDestination? SelectedDungeon => dungeons.FirstOrDefault(dungeon => dungeon.DungeonId == selectedDungeonId);
     private IEnumerable<DungeonDestination> FilteredDungeons => dungeons
         .Where(dungeon => string.IsNullOrWhiteSpace(dungeonSearch)
@@ -52,6 +60,14 @@ public partial class ServerAdministration
     private CancellationTokenSource? locationSearchCancellation;
     private bool showLocationPicker, isLoadingLocations;
     private string locationSearch = "";
+    private string teleportMode = "place";
+    private NpcTeleportSearchResult npcTeleportResults = new([], 1, 30, 0, 0);
+    private CancellationTokenSource? npcTeleportSearchCancellation;
+    private bool showNpcTeleportPicker, isLoadingNpcTeleports;
+    private string npcTeleportSearch = "";
+    private NpcTeleportSpawn? selectedTeleportNpc;
+    private bool confirmNpcTeleport, confirmNpcReturn;
+    private IReadOnlyList<string> npcReturnPlayerNames = [];
     private bool isLoading = true, isWorking, forceStop, operationSucceeded;
     private string? errorMessage, resultMessage;
     private string activeView = "PlayerBots", teleportLocation = "", anchorPlayer = "";
@@ -63,6 +79,14 @@ public partial class ServerAdministration
     private int quantity = 1;
     private decimal playerSpeed = 1m;
     private int moneyGold, moneySilver, moneyCopper;
+    private GuildBankStatus? guildBank;
+    private bool isLoadingGuildBank, confirmGuildTabUnlock;
+    private IReadOnlyList<UtilityNpc> utilityNpcs = [];
+    private uint selectedUtilityNpcId;
+    private int utilityNpcDespawnMinutes = 10;
+    private bool confirmUtilityNpcSummon;
+    private UtilityNpc? SelectedUtilityNpc =>
+        utilityNpcs.FirstOrDefault(npc => npc.CreatureId == selectedUtilityNpcId);
     private bool CanUseSoap => status is { WorldServer.IsRunning: true, SoapConfigured: true } && !isWorking;
     private bool CanStop => !isWorking && (status?.WorldServer.IsRunning != true || status.SoapReachable || forceStop);
     private int PopulationPercent => status is null || status.PlayerLimit <= 0 ? 0
@@ -84,13 +108,21 @@ public partial class ServerAdministration
         isLoading = status is null;
         try
         {
-            status = await AccountsClient.GetServerStatusAsync();
             if (PlayerActionsOnly || DungeonAssistantOnly)
             {
+                var availability = await AccountsClient.GetToolAvailabilityAsync()
+                    ?? throw new InvalidOperationException("Tool availability was not returned.");
+                status = RestrictedToolStatus(availability);
                 administrationPlayers = await AccountsClient.GetAdministrationPlayersAsync();
+                if (PlayerActionsOnly && utilityNpcs.Count == 0)
+                {
+                    utilityNpcs = await AccountsClient.GetUtilityNpcsAsync();
+                    selectedUtilityNpcId = utilityNpcs.FirstOrDefault()?.CreatureId ?? 0;
+                }
             }
             else
             {
+                status = await AccountsClient.GetServerStatusAsync();
                 playerBotSettings ??= await AccountsClient.GetPlayerBotSettingsAsync();
                 gameplayRates ??= await AccountsClient.GetGameplayRateSettingsAsync();
             }
@@ -102,6 +134,16 @@ public partial class ServerAdministration
         }
         finally { isLoading = false; }
     }
+
+    private static ServerStatus RestrictedToolStatus(ToolAvailability availability) => new(
+        new("Worldserver", availability.WorldServerRunning, null, null, null),
+        new("Authserver", false, null, null, null),
+        availability.SoapConfigured,
+        availability.SoapReachable,
+        null,
+        [],
+        new(0, 0, 0),
+        0);
 
     private Task StartAsync() => RunAsync(() => AccountsClient.StartServersAsync());
     private Task StopAsync() => RunAsync(() => AccountsClient.StopServersAsync(forceStop));
@@ -115,6 +157,26 @@ public partial class ServerAdministration
         player => AccountsClient.GiveMoneyAsync(new(player, moneyGold, moneySilver, moneyCopper)));
     private Task TeleportAsync() => RunBatchAsync("Teleport",
         player => AccountsClient.TeleportAsync(new(player, teleportLocation)));
+    private async Task TeleportToNpcAsync()
+    {
+        if (selectedTeleportNpc is null) return;
+        await RunBatchAsync("NPC teleport", player => AccountsClient.TeleportToNpcAsync(
+            new(player, selectedTeleportNpc.SpawnId, confirmNpcTeleport)));
+        npcReturnPlayerNames = batchActionResults.Where(result => result.Success)
+            .Select(result => result.PlayerName).ToArray();
+        if (npcReturnPlayerNames.Count > 0) confirmNpcTeleport = false;
+    }
+
+    private async Task ReturnFromNpcAsync()
+    {
+        await RunAsync(() => AccountsClient.ReturnPlayersAsync(
+            new(npcReturnPlayerNames, confirmNpcReturn)));
+        if (operationSucceeded)
+        {
+            npcReturnPlayerNames = [];
+            confirmNpcReturn = false;
+        }
+    }
     private Task MoveToPlayerAsync() => RunBatchAsync("Move to anchor",
         player => AccountsClient.TeleportToPlayerAsync(new(player, anchorPlayer)));
     private Task SetPlayerSpeedAsync() => RunBatchAsync("Apply speed",
@@ -125,6 +187,46 @@ public partial class ServerAdministration
         selectedActionPlayerNames.Clear();
         selectedActionPlayerNames.UnionWith(values);
         batchActionResults = [];
+        guildBank = null;
+        confirmGuildTabUnlock = false;
+        confirmUtilityNpcSummon = false;
+    }
+
+    private async Task InspectGuildBankAsync()
+    {
+        if (SelectedActionPlayers.Count != 1) return;
+        isLoadingGuildBank = true;
+        try
+        {
+            guildBank = await AccountsClient.GetGuildBankAsync(SelectedActionPlayers[0].Name);
+            operationSucceeded = true;
+            resultMessage = null;
+        }
+        catch (Exception exception)
+        {
+            guildBank = null;
+            operationSucceeded = false;
+            resultMessage = exception.Message;
+        }
+        finally { isLoadingGuildBank = false; }
+    }
+
+    private async Task UnlockGuildBankTabAsync()
+    {
+        if (guildBank is null) return;
+        await RunAsync(() => AccountsClient.UnlockGuildBankTabAsync(
+            new(guildBank.PlayerName, confirmGuildTabUnlock)));
+        confirmGuildTabUnlock = false;
+        if (operationSucceeded) await InspectGuildBankAsync();
+    }
+
+    private async Task SummonUtilityNpcAsync()
+    {
+        if (SelectedActionPlayers.Count != 1 || SelectedUtilityNpc is null) return;
+        await RunAsync(() => AccountsClient.SummonUtilityNpcAsync(new(
+            SelectedActionPlayers[0].Name, SelectedUtilityNpc.CreatureId,
+            utilityNpcDespawnMinutes, confirmUtilityNpcSummon)));
+        if (operationSucceeded) confirmUtilityNpcSummon = false;
     }
 
     private void SelectAnchorPlayer(string? value) => anchorPlayer = value ?? "";
@@ -135,6 +237,7 @@ public partial class ServerAdministration
         party = null;
         selectedDungeonId = 0;
         dungeonReadiness = null;
+        confirmedQuestTeleports.Clear();
     }
 
     private async Task RunBatchAsync(string action, Func<string, Task<AdministrationResult?>> operation)
@@ -200,7 +303,9 @@ public partial class ServerAdministration
     {
         selectedDungeonId = dungeonId;
         confirmDungeonLaunch = false;
+        confirmedQuestTeleports.Clear();
         dungeonReadiness = null;
+        dungeonGuide = null;
         isLoadingReadiness = true;
         try
         {
@@ -211,6 +316,23 @@ public partial class ServerAdministration
             operationSucceeded = false;
             resultMessage = $"Readiness check failed: {exception.Message}";
         }
+        try
+        {
+            var libraryCharacters =
+                await AccountsClient.GetDungeonLibraryCharactersAsync();
+            var partyNames = party?.Members.Select(member => member.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase)
+                ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            dungeonGuide = await AccountsClient.GetDungeonLibraryGuideAsync(new(
+                dungeonId,
+                libraryCharacters.Where(character => partyNames.Contains(character.Name))
+                    .Select(character => character.Guid).ToArray()));
+        }
+        catch (Exception exception)
+        {
+            operationSucceeded = false;
+            resultMessage = $"Dungeon guide failed: {exception.Message}";
+        }
         finally { isLoadingReadiness = false; }
     }
     private async Task LaunchPartyAsync()
@@ -218,6 +340,58 @@ public partial class ServerAdministration
         await RunPartyOperationAsync(
             () => AccountsClient.LaunchPartyAsync(new(partyLeader, selectedDungeonId, confirmDungeonLaunch)));
         if (operationSucceeded) confirmDungeonLaunch = false;
+    }
+
+    private void SetQuestTeleportConfirmation(uint questId, bool confirmed)
+    {
+        if (confirmed) confirmedQuestTeleports.Add(questId);
+        else confirmedQuestTeleports.Remove(questId);
+    }
+
+    private async Task TeleportToQuestGiverAsync(DungeonQuest quest)
+    {
+        if (quest.QuestGiver is null) return;
+        var players = quest.PlayerStatuses
+            .Where(status => status.CanTeleport)
+            .Select(status => status.PlayerName)
+            .ToArray();
+        await TeleportPlayersToQuestGiverAsync(quest.QuestId, quest.QuestGiver, players);
+    }
+
+    private async Task TeleportToPrerequisiteGiverAsync(DungeonQuest quest)
+    {
+        if (quest.Prerequisite?.QuestGiver is null) return;
+        var players = quest.PlayerStatuses
+            .Where(status => status.Status == "MissingPrerequisite")
+            .Select(status => status.PlayerName)
+            .ToArray();
+        await TeleportPlayersToQuestGiverAsync(
+            quest.Prerequisite.QuestId, quest.Prerequisite.QuestGiver, players);
+    }
+
+    private async Task TeleportPlayersToQuestGiverAsync(
+        uint questId, DungeonQuestGiver giver, IReadOnlyList<string> players)
+    {
+        await RunAsync(() => AccountsClient.TeleportToDungeonQuestGiverAsync(new(
+            questId, giver.SpawnId, players, confirmedQuestTeleports.Contains(questId))));
+        if (operationSucceeded)
+        {
+            questReturnPlayerNames = players;
+            confirmQuestReturn = false;
+            confirmedQuestTeleports.Remove(questId);
+            await SelectDungeonAsync(selectedDungeonId);
+        }
+    }
+
+    private async Task ReturnFromQuestGiverAsync()
+    {
+        await RunAsync(() => AccountsClient.ReturnDungeonQuestPlayersAsync(
+            new(questReturnPlayerNames, confirmQuestReturn)));
+        if (operationSucceeded)
+        {
+            questReturnPlayerNames = [];
+            confirmQuestReturn = false;
+        }
     }
 
     private async Task RunPartyOperationAsync(Func<Task<AdministrationResult?>> operation)
@@ -230,6 +404,41 @@ public partial class ServerAdministration
     {
         1 => "Warrior", 2 => "Paladin", 3 => "Hunter", 4 => "Rogue", 5 => "Priest",
         6 => "Death Knight", 7 => "Shaman", 8 => "Mage", 9 => "Warlock", 11 => "Druid", _ => "Unknown"
+    };
+
+    private static string LootQualityClass(int quality) => quality switch
+    {
+        >= 5 => "text-warning",
+        4 => "text-purple",
+        3 => "text-primary",
+        2 => "text-success",
+        _ => ""
+    };
+
+    private static string QuestStatusLabel(string status) => status switch
+    {
+        "Available" => "Available",
+        "InProgress" => "In progress",
+        "Completed" => "Completed",
+        "LevelTooLow" => "Level too low",
+        "MissingPrerequisite" => "Prerequisite missing",
+        "ReputationRequired" => "Reputation required",
+        "ReputationTooHigh" => "Reputation restricted",
+        "WrongRace" => "Wrong race",
+        "WrongClass" => "Wrong class",
+        "StartedByItem" => "Item-started",
+        "NoNpcGiver" => "No NPC giver",
+        "Offline" => "Offline",
+        _ => status
+    };
+
+    private static string QuestStatusBadgeClass(string status) => status switch
+    {
+        "Available" => "text-bg-success",
+        "InProgress" => "text-bg-info",
+        "Completed" => "text-bg-secondary",
+        "Offline" or "NoNpcGiver" or "StartedByItem" => "text-bg-secondary",
+        _ => "text-bg-warning"
     };
 
     private int DungeonRecommendationScore(DungeonDestination dungeon)
@@ -263,11 +472,18 @@ public partial class ServerAdministration
     }
 
     private Task OnItemCategoryChangedAsync() => LoadItemsAsync(1);
+    private Task OnItemFiltersChangedAsync() => LoadItemsAsync(1);
 
     private async Task LoadItemsAsync(int page, CancellationToken cancellationToken = default)
     {
         isLoadingItems = true;
-        try { itemResults = await AccountsClient.GetAdministrationItemsAsync(itemSearch, itemCategory, page, cancellationToken); }
+        try
+        {
+            itemResults = await AccountsClient.GetAdministrationItemsAsync(
+                itemSearch, itemCategory, page, itemQuality,
+                minimumItemLevel, maximumItemLevel,
+                minimumRequiredLevel, maximumRequiredLevel, cancellationToken);
+        }
         catch (OperationCanceledException) { }
         catch (HttpRequestException exception) { operationSucceeded = false; resultMessage = exception.Message; }
         finally { isLoadingItems = false; }
@@ -278,6 +494,11 @@ public partial class ServerAdministration
         itemId = item.ItemId;
         selectedItemName = item.Name;
         showItemPicker = false;
+    }
+
+    private void SelectItemFromKeyboard(KeyboardEventArgs args, AdministrationItem item)
+    {
+        if (IsRowSelectionKey(args)) SelectItem(item);
     }
 
     private async Task OpenLocationPickerAsync()
@@ -314,6 +535,71 @@ public partial class ServerAdministration
         teleportLocation = location.Name;
         showLocationPicker = false;
     }
+
+    private void SelectLocationFromKeyboard(KeyboardEventArgs args, TeleportLocation location)
+    {
+        if (IsRowSelectionKey(args)) SelectLocation(location);
+    }
+
+    private void SetTeleportMode(string mode)
+    {
+        teleportMode = mode;
+        confirmNpcTeleport = false;
+    }
+
+    private async Task OpenNpcTeleportPickerAsync()
+    {
+        if (SelectedActionPlayers.Count == 0) return;
+        showNpcTeleportPicker = true;
+        await LoadNpcTeleportsAsync(1);
+    }
+
+    private async Task OnNpcTeleportSearchAsync(ChangeEventArgs args)
+    {
+        npcTeleportSearch = args.Value?.ToString() ?? "";
+        npcTeleportSearchCancellation?.Cancel();
+        npcTeleportSearchCancellation?.Dispose();
+        npcTeleportSearchCancellation = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(250, npcTeleportSearchCancellation.Token);
+            await LoadNpcTeleportsAsync(1, npcTeleportSearchCancellation.Token);
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task LoadNpcTeleportsAsync(int page, CancellationToken cancellationToken = default)
+    {
+        if (SelectedActionPlayers.Count == 0) return;
+        isLoadingNpcTeleports = true;
+        try
+        {
+            npcTeleportResults = await AccountsClient.GetNpcTeleportsAsync(
+                SelectedActionPlayers[0].Name, npcTeleportSearch, page, cancellationToken);
+        }
+        catch (OperationCanceledException) { }
+        catch (HttpRequestException exception)
+        {
+            operationSucceeded = false;
+            resultMessage = exception.Message;
+        }
+        finally { isLoadingNpcTeleports = false; }
+    }
+
+    private void SelectTeleportNpc(NpcTeleportSpawn npc)
+    {
+        selectedTeleportNpc = npc;
+        confirmNpcTeleport = false;
+        showNpcTeleportPicker = false;
+    }
+
+    private void SelectTeleportNpcFromKeyboard(KeyboardEventArgs args, NpcTeleportSpawn npc)
+    {
+        if (IsRowSelectionKey(args)) SelectTeleportNpc(npc);
+    }
+
+    private static bool IsRowSelectionKey(KeyboardEventArgs args) =>
+        args.Key is "Enter" or " ";
 
     private static string MapName(ushort mapId) => mapId switch
     {
@@ -381,5 +667,7 @@ public partial class ServerAdministration
     }
 
     private static string FormatBytes(long? bytes) => bytes.HasValue ? $"{bytes.Value / 1024d / 1024d:0.0} MB" : "—";
+    private static string FormatMoney(uint copper) =>
+        $"{copper / 10000:N0}g {(copper / 100) % 100}s {copper % 100}c";
     private sealed record BatchActionResult(string PlayerName, bool Success, string Message);
 }

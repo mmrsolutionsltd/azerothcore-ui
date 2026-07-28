@@ -80,6 +80,12 @@ public sealed class AzerothCoreSoapClient(IConfiguration configuration, IHttpCli
         return $"teleport name npc guid {RequirePlayerName(playerName)} {spawnId}";
     }
 
+    public static string BuildNpcTeleportCommand(string playerName, uint spawnId, bool allowHostile)
+    {
+        if (spawnId == 0) throw new ArgumentOutOfRangeException(nameof(spawnId), "NPC spawn ID is required.");
+        return $"webadmin npc teleport {RequirePlayerName(playerName)} {spawnId} {(allowHostile ? 1 : 0)}";
+    }
+
     public static string BuildQuestCommand(string playerName, uint questId, bool add)
     {
         if (questId == 0) throw new ArgumentOutOfRangeException(nameof(questId), "Quest ID is required.");
