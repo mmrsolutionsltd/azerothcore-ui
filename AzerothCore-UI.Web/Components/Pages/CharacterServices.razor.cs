@@ -33,10 +33,8 @@ public partial class CharacterServices
         && (service.Key != "level" || newLevel is >= 1 and <= 80);
     private IReadOnlyList<AdministrationPlayer> SelectedPlayers => OrderedPlayers
         .Where(player => selectedPlayerNames.Contains(player.Name)).ToArray();
-    private IReadOnlyList<CharacterPickerItem> PickerItems => OrderedPlayers
-        .Select(player => new CharacterPickerItem(
-            player.Name, player.Name, $"Account {player.Username}", player.Online, player.IsPlayerBot))
-        .ToArray();
+    private IReadOnlyList<CharacterPickerItem> PickerItems =>
+        CharacterPickerItem.FromAdministrationPlayers(players);
 
     protected override async Task OnInitializedAsync()
     {

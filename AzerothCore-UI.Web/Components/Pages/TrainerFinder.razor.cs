@@ -17,10 +17,8 @@ public partial class TrainerFinder : IDisposable
     private IReadOnlyList<AdministrationPlayer> players = [];
     private IEnumerable<AdministrationPlayer> OrderedPlayers =>
         players.OrderBy(player => player.PickerOrder).ThenBy(player => player.Name);
-    private IReadOnlyList<CharacterPickerItem> PickerItems => OrderedPlayers
-        .Select(player => new CharacterPickerItem(
-            player.Name, player.Name, $"Account {player.Username}", player.Online, player.IsPlayerBot))
-        .ToArray();
+    private IReadOnlyList<CharacterPickerItem> PickerItems =>
+        CharacterPickerItem.FromAdministrationPlayers(players);
     private AdministrationPlayer? SelectedCharacter => players.FirstOrDefault(
         player => player.Name.Equals(characterName.Trim(), StringComparison.OrdinalIgnoreCase));
     private TrainerSearchResult results = new([], 1, 30, 0, 0);

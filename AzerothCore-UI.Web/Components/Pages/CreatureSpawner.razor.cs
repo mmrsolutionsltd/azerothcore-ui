@@ -10,10 +10,8 @@ public partial class CreatureSpawner
     private IReadOnlyList<AdministrationPlayer> administrationPlayers = [];
     private IEnumerable<AdministrationPlayer> OrderedPlayers => administrationPlayers
         .OrderBy(player => player.PickerOrder).ThenBy(player => player.Name);
-    private IReadOnlyList<CharacterPickerItem> PickerItems => OrderedPlayers
-        .Select(player => new CharacterPickerItem(
-            player.Name, player.Name, $"Account {player.Username}", player.Online, player.IsPlayerBot))
-        .ToArray();
+    private IReadOnlyList<CharacterPickerItem> PickerItems =>
+        CharacterPickerItem.FromAdministrationPlayers(administrationPlayers);
     private AdministrationPlayer? SelectedAnchor => administrationPlayers.FirstOrDefault(
         player => player.Name.Equals(creatureAnchor, StringComparison.OrdinalIgnoreCase));
     private CancellationTokenSource? searchCancellation;

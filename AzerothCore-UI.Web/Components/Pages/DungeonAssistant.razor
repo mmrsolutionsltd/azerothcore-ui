@@ -1,4 +1,421 @@
 @page "/dungeon-assistant"
+@rendermode InteractiveServer
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "adventures.dungeons")]
+@using AzerothCore_UI.Web.Models
+@inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
 
-<ServerAdministration DungeonAssistantOnly="true" />
+<PageTitle>Dungeon assistant</PageTitle>
+
+<h1>Dungeon assistant</h1>
+<p class="text-muted">Build a role-aware party and launch it into a dungeon.</p>
+
+@if (isLoading)
+{
+    <p><em>Checking server status...</em></p>
+}
+else if (status is null)
+{
+    <div class="alert alert-danger">@errorMessage</div>
+}
+else
+{
+    @if (errorMessage is not null)
+    {
+        <div class="alert alert-warning">@errorMessage</div>
+    }
+    @if (resultMessage is not null)
+    {
+        <div class="alert @(operationSucceeded ? "alert-success" : "alert-danger")">@resultMessage</div>
+    }
+        @if (!CanUseSoap)
+        {
+            <div class="alert alert-warning">These tools require the worldserver and SOAP administration connection to be available.</div>
+        }
+        <div class="card mt-4">
+            <div class="card-body">
+                <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-3">
+                    <div class="flex-grow-1">
+                        <h2 class="h5">Dungeon party assistance</h2>
+                        <label class="form-label" for="party-leader">Online real-player leader</label>
+                        <CharacterPicker Items="@AdministrationPickerItems" AllowBots="false"
+                                         SelectedValue="@partyLeader" SelectedValueChanged="SelectPartyLeader" />
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-outline-secondary" disabled="@(!CanUseSoap || isLoadingParty)" @onclick="LoadPartyAsync">Inspect party</button>
+                        <button class="btn btn-primary" disabled="@(!CanUseSoap || party is null || party.MemberCount >= 5)" @onclick="FillPartyWithBotsAsync">Auto-fill roles</button>
+                        <button class="btn btn-outline-danger" disabled="@(!CanUseSoap || party is null || !party.Members.Any(member => member.IsPlayerBot))" @onclick="ClearPartyBotsAsync">Remove all bots</button>
+                    </div>
+                </div>
+                @if (isLoadingParty)
+                {
+                    <p><em>Inspecting the live party…</em></p>
+                }
+                else if (party is not null)
+                {
+                    <div class="row g-4">
+                        <div class="col-lg-5">
+                            <h3 class="h6">Current party (@party.MemberCount / 5)</h3>
+                            <div class="table-responsive"><table class="table table-sm align-middle">
+                                <thead><tr><th>Name</th><th>Level</th><th>Role</th><th></th></tr></thead><tbody>
+                                @foreach (var member in party.Members)
+                                {
+                                    <tr><td>@member.Name @(member.IsPlayerBot ? "(Bot)" : "")</td><td>@member.Level</td><td>@member.Role</td>
+                                        <td class="text-end">@if (member.IsPlayerBot) { <button class="btn btn-sm btn-outline-danger" disabled="@(!CanUseSoap)" @onclick="() => RemovePartyBotAsync(member.Name)">Remove</button> }</td></tr>
+                                }
+                                </tbody></table></div>
+                        </div>
+                        <div class="col-lg-7">
+                            <h3 class="h6">Eligible online PlayerBots</h3>
+                            <p class="small text-muted">Ungrouped, same faction, and within five levels of the leader.</p>
+                            @if (party.Candidates.Count == 0)
+                            {
+                                <div class="alert alert-secondary">No eligible online bots are currently available.</div>
+                            }
+                            else
+                            {
+                                <div class="table-responsive party-candidates"><table class="table table-sm table-hover align-middle">
+                                    <thead><tr><th>Name</th><th>Class</th><th>Level</th><th>Role</th><th></th></tr></thead><tbody>
+                                    @foreach (var bot in party.Candidates)
+                                    {
+                                        <tr><td>@bot.Name</td><td>@CharacterClassName(bot.CharacterClass)</td><td>@bot.Level</td><td>@bot.Role</td>
+                                            <td class="text-end"><button class="btn btn-sm btn-primary" disabled="@(!CanUseSoap || party.MemberCount >= 5)" @onclick="() => AddPartyBotAsync(bot.Name)">Add</button></td></tr>
+                                    }
+                                    </tbody></table></div>
+                            }
+                        </div>
+                    </div>
+                    <hr class="my-4" />
+                    <div class="row g-4">
+                        <div class="col-lg-7">
+                            <h3 class="h6">Choose a dungeon</h3>
+                            <input class="form-control mb-2" placeholder="Start typing a dungeon name" autocomplete="off"
+                                   @bind="dungeonSearch" @bind:event="oninput" />
+                            @if (dungeons.Count == 0)
+                            {
+                                <div class="alert alert-secondary">No launchable dungeon entrances were reported by the worldserver.</div>
+                            }
+                            else if (!FilteredDungeons.Any())
+                            {
+                                <div class="alert alert-secondary">No dungeon names match that search.</div>
+                            }
+                            else
+                            {
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-hover align-middle">
+                                        <thead><tr><th>Dungeon</th><th>Difficulty</th><th>Levels</th><th></th></tr></thead>
+                                        <tbody>
+                                        @foreach (var dungeon in FilteredDungeons)
+                                        {
+                                            <tr class="@(dungeon.DungeonId == selectedDungeonId ? "table-primary" : null)">
+                                                <td>
+                                                    @dungeon.Name
+                                                    @if (RecommendedDungeonIds.Contains(dungeon.DungeonId))
+                                                    {
+                                                        <span class="badge text-bg-success ms-1">Recommended</span>
+                                                    }
+                                                </td>
+                                                <td>@dungeon.Difficulty</td>
+                                                <td>@dungeon.MinimumLevel&ndash;@dungeon.MaximumLevel</td>
+                                                <td class="text-end">
+                                                    <button class="btn btn-sm @(dungeon.DungeonId == selectedDungeonId ? "btn-primary" : "btn-outline-primary")"
+                                                            type="button" @onclick="() => SelectDungeonAsync(dungeon.DungeonId)">
+                                                        @(dungeon.DungeonId == selectedDungeonId ? "Selected" : "Select")
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+                        </div>
+                        <div class="col-lg-5">
+                            <h3 class="h6">Launch party</h3>
+                            @if (SelectedDungeon is null)
+                            {
+                                <div class="alert alert-secondary">Select a dungeon to review the launch.</div>
+                            }
+                            else
+                            {
+                                <dl class="row small mb-3">
+                                    <dt class="col-5">Destination</dt><dd class="col-7">@SelectedDungeon.Name</dd>
+                                    <dt class="col-5">Difficulty</dt><dd class="col-7">@SelectedDungeon.Difficulty</dd>
+                                    <dt class="col-5">Level range</dt><dd class="col-7">@SelectedDungeon.MinimumLevel&ndash;@SelectedDungeon.MaximumLevel</dd>
+                                    <dt class="col-5">Map</dt><dd class="col-7">@SelectedDungeon.MapId</dd>
+                                </dl>
+                                @if (isLoadingReadiness)
+                                {
+                                    <div class="alert alert-info small">Checking party roles, lockouts, and quests…</div>
+                                }
+                                else if (dungeonReadiness is not null)
+                                {
+                                    <div class="d-flex flex-wrap gap-2 mb-3">
+                                        <span class="badge @(dungeonReadiness.HasTank ? "text-bg-success" : "text-bg-warning")">
+                                            @(dungeonReadiness.HasTank ? "Tank ready" : "Tank missing")
+                                        </span>
+                                        <span class="badge @(dungeonReadiness.HasHealer ? "text-bg-success" : "text-bg-warning")">
+                                            @(dungeonReadiness.HasHealer ? "Healer ready" : "Healer missing")
+                                        </span>
+                                        <span class="badge @(dungeonReadiness.DamageCount >= 3 ? "text-bg-success" : "text-bg-warning")">
+                                            @dungeonReadiness.DamageCount / 3 damage
+                                        </span>
+                                        <span class="badge @(dungeonReadiness.PartyFull ? "text-bg-success" : "text-bg-secondary")">
+                                            @(dungeonReadiness.PartyFull ? "Party full" : $"{party.MemberCount} / 5 members")
+                                        </span>
+                                    </div>
+                                    @if (dungeonReadiness.Lockouts.Count > 0)
+                                    {
+                                        <div class="alert alert-warning small">
+                                            <strong>Active lockouts:</strong>
+                                            @foreach (var lockout in dungeonReadiness.Lockouts)
+                                            {
+                                                <div>@lockout.PlayerName — difficulty @lockout.Difficulty, resets @lockout.ResetAtUtc.ToLocalTime().ToString("g")</div>
+                                            }
+                                        </div>
+                                    }
+                                    @if (dungeonReadiness.RelevantQuests.Count > 0)
+                                    {
+                                        <details class="mb-3">
+                                            <summary class="small fw-semibold">@dungeonReadiness.RelevantQuests.Count relevant dungeon quests</summary>
+                                            <div class="small mt-2">
+                                                @foreach (var quest in dungeonReadiness.RelevantQuests)
+                                                {
+                                                    var eligiblePlayers = quest.PlayerStatuses
+                                                        .Where(playerStatus => playerStatus.CanTeleport).ToArray();
+                                                    var prerequisitePlayers = quest.PlayerStatuses
+                                                        .Where(playerStatus => playerStatus.Status == "MissingPrerequisite").ToArray();
+                                                    <div class="border rounded p-2 mb-2">
+                                                        <div class="fw-semibold">
+                                                            @quest.Title <span class="text-muted fw-normal">(#@quest.QuestId, level @quest.MinimumLevel)</span>
+                                                        </div>
+                                                        @if (quest.QuestGiver is not null)
+                                                        {
+                                                            <div class="text-muted">
+                                                                Quest giver: @quest.QuestGiver.Name
+                                                                (map @quest.QuestGiver.MapId, zone @quest.QuestGiver.ZoneId)
+                                                            </div>
+                                                        }
+                                                        @foreach (var playerStatus in quest.PlayerStatuses)
+                                                        {
+                                                            <div class="d-flex flex-wrap align-items-center gap-1 mt-1">
+                                                                <span class="fw-semibold">@playerStatus.PlayerName</span>
+                                                                <span class="badge @QuestStatusBadgeClass(playerStatus.Status)">
+                                                                    @QuestStatusLabel(playerStatus.Status)
+                                                                </span>
+                                                                <span class="text-muted">@playerStatus.Detail</span>
+                                                            </div>
+                                                        }
+                                                        @if (quest.Prerequisite is not null && prerequisitePlayers.Length > 0)
+                                                        {
+                                                            <div class="border-start border-warning border-3 ps-2 mt-2">
+                                                                <div>
+                                                                    Required first: <strong>@quest.Prerequisite.Title</strong>
+                                                                    <span class="text-muted">(#@quest.Prerequisite.QuestId)</span>
+                                                                </div>
+                                                                @if (quest.Prerequisite.QuestGiver is not null)
+                                                                {
+                                                                    <div class="text-muted">
+                                                                        Quest giver: @quest.Prerequisite.QuestGiver.Name
+                                                                        (map @quest.Prerequisite.QuestGiver.MapId,
+                                                                        zone @quest.Prerequisite.QuestGiver.ZoneId)
+                                                                    </div>
+                                                                    <div class="form-check mt-1">
+                                                                        <input id="confirm-prerequisite-@quest.QuestId" class="form-check-input"
+                                                                               type="checkbox"
+                                                                               checked="@confirmedQuestTeleports.Contains(quest.Prerequisite.QuestId)"
+                                                                               @onchange="eventArgs => SetQuestTeleportConfirmation(
+                                                                                   quest.Prerequisite.QuestId, eventArgs.Value is true)" />
+                                                                        <label class="form-check-label" for="confirm-prerequisite-@quest.QuestId">
+                                                                            Confirm teleporting @string.Join(", ",
+                                                                                prerequisitePlayers.Select(playerStatus => playerStatus.PlayerName))
+                                                                        </label>
+                                                                    </div>
+                                                                    <button class="btn btn-sm btn-outline-warning mt-1" type="button"
+                                                                            disabled="@(!CanUseSoap ||
+                                                                                !confirmedQuestTeleports.Contains(quest.Prerequisite.QuestId))"
+                                                                            @onclick="() => TeleportToPrerequisiteGiverAsync(quest)">
+                                                                        Teleport to prerequisite quest giver
+                                                                    </button>
+                                                                }
+                                                                else
+                                                                {
+                                                                    <div class="text-muted">No compatible NPC giver was found for this prerequisite.</div>
+                                                                }
+                                                            </div>
+                                                        }
+                                                        @if (quest.QuestGiver is not null && eligiblePlayers.Length > 0)
+                                                        {
+                                                            <div class="form-check mt-2">
+                                                                <input id="confirm-quest-@quest.QuestId" class="form-check-input"
+                                                                       type="checkbox"
+                                                                       checked="@confirmedQuestTeleports.Contains(quest.QuestId)"
+                                                                       @onchange="eventArgs => SetQuestTeleportConfirmation(
+                                                                           quest.QuestId, eventArgs.Value is true)" />
+                                                                <label class="form-check-label" for="confirm-quest-@quest.QuestId">
+                                                                    Confirm teleporting @string.Join(", ", eligiblePlayers.Select(playerStatus => playerStatus.PlayerName))
+                                                                </label>
+                                                            </div>
+                                                            <button class="btn btn-sm btn-outline-primary mt-1" type="button"
+                                                                    disabled="@(!CanUseSoap || !confirmedQuestTeleports.Contains(quest.QuestId))"
+                                                                    @onclick="() => TeleportToQuestGiverAsync(quest)">
+                                                                Teleport eligible players to quest giver
+                                                            </button>
+                                                        }
+                                                    </div>
+                                                }
+                                            </div>
+                                        </details>
+                                    }
+                                    @if (questReturnPlayerNames.Count > 0)
+                                    {
+                                        <div class="border rounded p-2 mb-3 small">
+                                            <div class="fw-semibold">Quest-giver return available</div>
+                                            <div class="text-muted">@string.Join(", ", questReturnPlayerNames)</div>
+                                            <div class="form-check mt-2">
+                                                <input id="confirm-quest-return" class="form-check-input"
+                                                       type="checkbox" @bind="confirmQuestReturn" />
+                                                <label class="form-check-label" for="confirm-quest-return">
+                                                    Confirm returning these players to their saved locations
+                                                </label>
+                                            </div>
+                                            <button class="btn btn-sm btn-outline-secondary mt-1" type="button"
+                                                    disabled="@(!CanUseSoap || !confirmQuestReturn)"
+                                                    @onclick="ReturnFromQuestGiverAsync">
+                                                Return players
+                                            </button>
+                                        </div>
+                                    }
+                                }
+                                @if (PartyHasLevelWarning)
+                                {
+                                    <div class="alert alert-warning small">
+                                        At least one party member is outside this dungeon's recommended level range.
+                                    </div>
+                                }
+                                <p class="small text-muted">
+                                    All @party.MemberCount current party members must be online and in a safe state. The worldserver checks the complete party before moving it.
+                                </p>
+                                <div class="form-check mb-3">
+                                    <input id="confirm-dungeon-launch" class="form-check-input" type="checkbox" @bind="confirmDungeonLaunch" />
+                                    <label class="form-check-label" for="confirm-dungeon-launch">
+                                        Confirm moving the whole party to @SelectedDungeon.Name
+                                    </label>
+                                </div>
+                                <button class="btn btn-success" type="button"
+                                        disabled="@(!CanUseSoap || !confirmDungeonLaunch)" @onclick="LaunchPartyAsync">
+                                    Launch party
+                                </button>
+                            }
+                        </div>
+                    </div>
+                    @if (dungeonGuide is not null)
+                    {
+                        <div class="card mt-4 border-info">
+                            <div class="card-header d-flex flex-wrap justify-content-between gap-2 align-items-center">
+                                <strong>Guide &amp; boss loot</strong>
+                                <div class="form-check form-switch mb-0">
+                                    <input id="party-loot-only" class="form-check-input"
+                                           type="checkbox" @bind="showPartyLootOnly" />
+                                    <label class="form-check-label small" for="party-loot-only">
+                                        Party-relevant loot only
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <p>@dungeonGuide.Overview</p>
+                                <div class="alert alert-secondary small">
+                                    <strong>Recommended route:</strong> @dungeonGuide.Route
+                                </div>
+                                @if (dungeonGuide.ImportantNotes.Count > 0)
+                                {
+                                    <ul class="small">
+                                        @foreach (var note in dungeonGuide.ImportantNotes)
+                                        {
+                                            <li>@note</li>
+                                        }
+                                    </ul>
+                                }
+                                @if (dungeonGuide.Bosses.Count == 0)
+                                {
+                                    <div class="alert alert-warning small mb-0">
+                                        This server has no ordered encounter records for this destination.
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="accordion" id="dungeon-boss-guide">
+                                        @foreach (var boss in dungeonGuide.Bosses)
+                                        {
+                                            var visibleLoot = boss.Loot
+                                                .Where(item => !showPartyLootOnly || item.SuggestedForParty)
+                                                .ToArray();
+                                            <details class="border rounded mb-2"
+                                                     open="@(boss.Order == 1)">
+                                                <summary class="p-2 fw-semibold">
+                                                    @boss.Order. @boss.Name
+                                                    <span class="badge text-bg-secondary ms-1">
+                                                        @visibleLoot.Length loot
+                                                    </span>
+                                                </summary>
+                                                <div class="border-top p-3">
+                                                    <p class="small">@boss.Tactics</p>
+                                                    @if (visibleLoot.Length == 0)
+                                                    {
+                                                        <div class="small text-muted">
+                                                            @(showPartyLootOnly
+                                                                ? "No party-relevant uncommon-or-better drops were found. Disable the filter to see all boss loot."
+                                                                : "No uncommon-or-better drops were found in the current world database.")
+                                                        </div>
+                                                    }
+                                                    else
+                                                    {
+                                                        <div class="table-responsive">
+                                                            <table class="table table-sm align-middle mb-0">
+                                                                <thead>
+                                                                <tr>
+                                                                    <th>Item</th>
+                                                                    <th>Required</th>
+                                                                    <th>Item level</th>
+                                                                    <th>Drop</th>
+                                                                </tr>
+                                                                </thead>
+                                                                <tbody>
+                                                                @foreach (var item in visibleLoot)
+                                                                {
+                                                                    <tr>
+                                                                        <td>
+                                                                            <span class="@LootQualityClass(item.Quality)">
+                                                                                @item.Name
+                                                                            </span>
+                                                                            <span class="text-muted small"> #@item.ItemId</span>
+                                                                            @if (item.QuestRequired)
+                                                                            {
+                                                                                <span class="badge text-bg-warning ms-1">Quest</span>
+                                                                            }
+                                                                            <DungeonLootStats Item="item" />
+                                                                        </td>
+                                                                        <td>@(item.RequiredLevel > 0 ? item.RequiredLevel.ToString() : "—")</td>
+                                                                        <td>@item.ItemLevel</td>
+                                                                        <td>
+                                                                            @(item.DropChance > 0
+                                                                                ? $"{item.DropChance:0.##}%"
+                                                                                : "Loot group")
+                                                                        </td>
+                                                                    </tr>
+                                                                }
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </details>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+}

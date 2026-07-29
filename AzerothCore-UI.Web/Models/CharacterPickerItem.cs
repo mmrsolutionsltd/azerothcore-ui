@@ -5,4 +5,18 @@ public sealed record CharacterPickerItem(
     string Name,
     string Detail,
     bool Online,
-    bool IsPlayerBot = false);
+    bool IsPlayerBot = false)
+{
+    public static IReadOnlyList<CharacterPickerItem> FromAdministrationPlayers(
+        IEnumerable<AdministrationPlayer> players) =>
+        players
+            .OrderBy(player => player.PickerOrder)
+            .ThenBy(player => player.Name)
+            .Select(player => new CharacterPickerItem(
+                player.Name,
+                player.Name,
+                $"Account {player.Username}",
+                player.Online,
+                player.IsPlayerBot))
+            .ToArray();
+}
