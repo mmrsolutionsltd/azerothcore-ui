@@ -192,12 +192,20 @@ public sealed class QuestingCompanionCandidate
 {
     public string Name { get; init; } = "";
     public string Username { get; init; } = "";
+    public uint AccountId { get; init; }
     public int Level { get; init; }
     public int CharacterClass { get; init; }
     public int Race { get; init; }
     public bool Online { get; init; }
     public bool SameFaction { get; init; }
     public bool SameAccount { get; init; }
+    public bool SameGuild { get; set; }
+    public bool AccountsLinked { get; set; }
+    public bool ControlAllowed => SameAccount || SameGuild || AccountsLinked;
+    public string ControlReason => SameAccount ? "Same game account"
+        : SameGuild ? "Same guild"
+        : AccountsLinked ? "Trusted accounts"
+        : "Accounts are not linked and the characters do not share a guild";
 }
 public sealed record ActiveQuestingCompanion(
     string Name, int Level, int CharacterClass, bool InLeaderParty);
@@ -205,6 +213,8 @@ public sealed record QuestingCompanionStatus(
     string LeaderName, IReadOnlyList<ActiveQuestingCompanion> ActiveCompanions,
     IReadOnlyList<QuestingCompanionCandidate> Candidates);
 public sealed record QuestingCompanionRequest(string LeaderName, string CompanionName);
+public sealed record QuestingCompanionAccountLinkRequest(
+    string LeaderName, string CompanionName, bool Linked, bool Confirmed);
 public sealed record DungeonDestination(uint DungeonId, string Name, int MinimumLevel,
     int MaximumLevel, uint MapId, string Difficulty);
 public sealed record DungeonLockout(string PlayerName, uint MapId, int Difficulty, DateTime ResetAtUtc);

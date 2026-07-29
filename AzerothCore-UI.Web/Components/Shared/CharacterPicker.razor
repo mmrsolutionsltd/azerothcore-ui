@@ -74,6 +74,7 @@
     [Parameter] public bool ShowOfflineInitially { get; set; }
     [Parameter] public bool ShowBotsInitially { get; set; }
     [Parameter] public bool RememberSelection { get; set; } = true;
+    [Parameter] public bool PreserveItemOrder { get; set; }
     [Parameter] public int MaximumSelections { get; set; } = int.MaxValue;
     [Parameter] public string? SelectedValue { get; set; }
     [Parameter] public EventCallback<string?> SelectedValueChanged { get; set; }
@@ -111,16 +112,22 @@
         else
             await SelectedValueChanged.InvokeAsync(rememberedItem.Value);
     }
-    private IReadOnlyList<CharacterPickerItem> FilteredItems => Items
-        .Where(item => (item.Online || showOffline)
+    private IReadOnlyList<CharacterPickerItem> FilteredItems
+    {
+        get
+        {
+            var filtered = Items.Where(item => (item.Online || showOffline)
             && (!item.IsPlayerBot || (AllowBots && showBots))
             && (string.IsNullOrWhiteSpace(search)
                 || item.Name.Contains(search, StringComparison.OrdinalIgnoreCase)
-                || item.Detail.Contains(search, StringComparison.OrdinalIgnoreCase)))
-        .OrderByDescending(item => item.Online)
-        .ThenBy(item => item.IsPlayerBot)
-        .ThenBy(item => item.Name)
-        .ToArray();
+                || item.Detail.Contains(search, StringComparison.OrdinalIgnoreCase)));
+            return PreserveItemOrder
+                ? filtered.ToArray()
+                : filtered.OrderByDescending(item => item.Online)
+                    .ThenBy(item => item.IsPlayerBot)
+                    .ThenBy(item => item.Name).ToArray();
+        }
+    }
     private int HiddenSelectedCount => Multiple
         ? SelectedValues.Count(value => FilteredItems.All(item => item.Value != value))
         : string.IsNullOrEmpty(SelectedValue) || FilteredItems.Any(item => item.Value == SelectedValue) ? 0 : 1;

@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "adventures.quests")]
 @inject AccountsApiClient Api
+@inject Microsoft.AspNetCore.Components.Authorization.AuthenticationStateProvider AuthenticationStateProvider
 
 <PageTitle>Questing companions</PageTitle>
 <h1>Questing companions</h1>
@@ -43,6 +44,7 @@
                     <CharacterPicker Items="CompanionItems" Multiple="true"
                                      AllowBots="false" ShowOfflineInitially="true"
                                      RememberSelection="false"
+                                     PreserveItemOrder="true"
                                      MaximumSelections="4"
                                      SelectedValues="selectedCompanions"
                                      SelectedValuesChanged="SetCompanions" />
@@ -56,10 +58,53 @@
                                     @candidate.Name —
                                     @(candidate.Online ? "already online"
                                         : candidate.SameAccount ? "same game account as leader"
-                                        : "opposite faction")
+                                        : !candidate.SameFaction ? "opposite faction"
+                                        : candidate.ControlReason)
+                                    @if (canManageAccountLinks && !candidate.Online
+                                        && candidate.SameFaction && !candidate.SameAccount
+                                        && !candidate.SameGuild && !candidate.AccountsLinked)
+                                    {
+                                        <button class="btn btn-sm btn-link py-0"
+                                                @onclick="() => RequestAccountLink(candidate, true)">
+                                            Trust accounts
+                                        </button>
+                                    }
                                 </div>
                             }
                         </details>
+                    }
+                    @if (canManageAccountLinks && AvailableCandidates.Any(candidate => candidate.AccountsLinked))
+                    {
+                        <details class="small text-muted mt-2">
+                            <summary>Trusted account links</summary>
+                            @foreach (var candidate in AvailableCandidates
+                                .Where(value => value.AccountsLinked)
+                                .DistinctBy(value => value.AccountId))
+                            {
+                                <div>
+                                    @candidate.Username
+                                    <button class="btn btn-sm btn-link text-danger py-0"
+                                            @onclick="() => RequestAccountLink(candidate, false)">
+                                        Remove trust
+                                    </button>
+                                </div>
+                            }
+                        </details>
+                    }
+                    @if (pendingLinkCandidate is not null)
+                    {
+                        <div class="alert alert-warning mt-2 mb-0">
+                            <div>
+                                @(pendingLinkValue
+                                    ? $"Trust the accounts for {leaderName} and {pendingLinkCandidate.Name}?"
+                                    : $"Remove trust between the accounts for {leaderName} and {pendingLinkCandidate.Name}?")
+                                A verified database backup will be created first.
+                            </div>
+                            <button class="btn btn-sm btn-warning mt-2 me-2"
+                                    disabled="@working" @onclick="ConfirmAccountLinkAsync">Confirm</button>
+                            <button class="btn btn-sm btn-outline-secondary mt-2"
+                                    disabled="@working" @onclick="CancelAccountLink">Cancel</button>
+                        </div>
                     }
                     <button class="btn btn-primary mt-3" type="button"
                             disabled="@(working || selectedCompanions.Count == 0)"
@@ -110,9 +155,10 @@
 </div>
 
 <div class="alert alert-info mt-3 mb-0">
-    Each companion must be on a different WoW account from the leader. Quest sharing
-    remains controlled by PlayerBots; some scripted or item-started quests may still
-    need manual help.
+    Each companion must be on a different WoW account from the leader. Eligible quests
+    accepted by the leader are mirrored to active companions. A nearby companion can
+    also take eligible quests for its own class or professions when the leader talks to
+    that quest giver. Scripted or item-started quests may still need manual help.
 </div>
 
 @code {
@@ -123,6 +169,8 @@
         new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     private string? message;
     private bool operationSucceeded, working;
+    private bool canManageAccountLinks, pendingLinkValue;
+    private QuestingCompanionCandidate? pendingLinkCandidate;
 
     private IReadOnlyList<CharacterPickerItem> LeaderItems => players
         .Where(player => player.Online && !player.IsPlayerBot)
@@ -133,7 +181,7 @@
     private IReadOnlyList<QuestingCompanionCandidate> AvailableCandidates =>
         status?.Candidates
             .Where(candidate => !candidate.Online && candidate.SameFaction
-                && !candidate.SameAccount)
+                && !candidate.SameAccount && candidate.ControlAllowed)
             .ToArray() ?? [];
 
     private IReadOnlyList<QuestingCompanionCandidate> UnavailableCandidates =>
@@ -150,6 +198,10 @@
         try
         {
             players = await Api.GetAdministrationPlayersAsync();
+            var authenticationState =
+                await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            canManageAccountLinks = authenticationState.User.IsInRole("Owner")
+                || authenticationState.User.IsInRole("Administrator");
         }
         catch (Exception exception)
         {
@@ -162,6 +214,7 @@
         leaderName = value ?? "";
         selectedCompanions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         status = null;
+        pendingLinkCandidate = null;
         message = null;
         if (!string.IsNullOrWhiteSpace(leaderName)) await RefreshAsync();
     }
@@ -170,6 +223,35 @@
     {
         selectedCompanions = values;
         return Task.CompletedTask;
+    }
+
+    private void RequestAccountLink(QuestingCompanionCandidate candidate, bool linked)
+    {
+        pendingLinkCandidate = candidate;
+        pendingLinkValue = linked;
+    }
+
+    private void CancelAccountLink() => pendingLinkCandidate = null;
+
+    private async Task ConfirmAccountLinkAsync()
+    {
+        if (pendingLinkCandidate is null) return;
+        working = true;
+        try
+        {
+            var result = await Api.SetQuestingCompanionAccountLinkAsync(new(
+                leaderName, pendingLinkCandidate.Name, pendingLinkValue, true));
+            operationSucceeded = true;
+            message = result?.Message;
+            pendingLinkCandidate = null;
+            status = await Api.GetQuestingCompanionsAsync(leaderName);
+        }
+        catch (Exception exception)
+        {
+            operationSucceeded = false;
+            message = exception.Message;
+        }
+        finally { working = false; }
     }
 
     private async Task RefreshAsync()

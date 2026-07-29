@@ -17,6 +17,7 @@ public sealed class ServerAdministrationController(
     AzerothCoreConnectionFactory connectionFactory,
     SpellMetadataProvider spellMetadataProvider,
     DungeonGuideService dungeonGuideService,
+    DatabaseBackupService databaseBackupService,
     ILogger<ServerAdministrationController> logger) : ControllerBase
 {
     private static readonly UtilityNpc[] UtilityNpcs =
@@ -240,7 +241,7 @@ public sealed class ServerAdministrationController(
             new CommandDefinition("""
                 SELECT race AS CharacterRace, class AS CharacterClass, map AS MapId,
                        position_x AS PositionX, position_y AS PositionY
-                FROM acore_characters.characters
+                FROM acore_characters.characters c
                 WHERE name = @Character LIMIT 1;
                 """, new { Character = character }, cancellationToken: cancellationToken));
         if (context is null)
@@ -1147,9 +1148,11 @@ public sealed class ServerAdministrationController(
         await using var connection = connectionFactory.CreateConnection();
         var leaderRow = await connection.QuerySingleOrDefaultAsync<CompanionLeaderRow>(
             new CommandDefinition("""
-                SELECT account AccountId, race CharacterRace
-                FROM acore_characters.characters
-                WHERE name=@Leader AND online<>0
+                SELECT c.account AccountId, c.race CharacterRace,
+                       c.level CharacterLevel, COALESCE(gm.guildid, 0) GuildId
+                FROM acore_characters.characters c
+                LEFT JOIN acore_characters.guild_member gm ON gm.guid=c.guid
+                WHERE c.name=@Leader AND c.online<>0
                 """, new { Leader = leader }, cancellationToken: cancellationToken));
         if (leaderRow is null)
             return Conflict(new AdministrationResult(false,
@@ -1157,29 +1160,52 @@ public sealed class ServerAdministrationController(
         var identity = HttpContext.AdministrationIdentity();
         var candidates = (await connection.QueryAsync<QuestingCompanionCandidate>(
             new CommandDefinition("""
-                SELECT c.name Name, a.username Username, c.level Level,
+                SELECT c.name Name, a.username Username, c.account AccountId, c.level Level,
                        c.class CharacterClass, c.race Race, c.online<>0 Online,
                        CASE
                          WHEN c.race IN (1,3,4,7,11)
                            THEN @LeaderRace IN (1,3,4,7,11)
                          ELSE @LeaderRace IN (2,5,6,8,10)
                        END SameFaction,
-                       c.account=@LeaderAccount SameAccount
+                       c.account=@LeaderAccount SameAccount,
+                       (@LeaderGuild<>0 AND gm.guildid=@LeaderGuild) SameGuild
                 FROM acore_characters.characters c
                 JOIN acore_auth.account a ON a.id=c.account
+                LEFT JOIN acore_characters.guild_member gm ON gm.guid=c.guid
                 WHERE c.name<>@Leader
                   AND a.username NOT LIKE CONCAT(@BotPrefix, '%')
+                  AND UPPER(a.username)<>'AHBOT'
                   AND (@AllAccounts OR c.account IN @AllowedAccounts)
-                ORDER BY c.online, SameFaction DESC, SameAccount, c.level DESC, c.name
+                ORDER BY c.online, SameFaction DESC, SameAccount,
+                         ABS(c.level - @LeaderLevel), c.level, c.name
                 """, new
                 {
                     Leader = leader,
                     LeaderRace = leaderRow.CharacterRace,
+                    LeaderLevel = leaderRow.CharacterLevel,
                     LeaderAccount = leaderRow.AccountId,
+                    LeaderGuild = leaderRow.GuildId,
                     BotPrefix = "rndbot",
                     AllAccounts = identity?.AccountScope == "All",
                     AllowedAccounts = identity?.GameAccountIds ?? []
                 }, cancellationToken: cancellationToken))).AsList();
+        if (candidates.Count > 0)
+        {
+            await using var maintenance = connectionFactory.CreateMaintenanceConnection();
+            var linkedAccounts = (await maintenance.QueryAsync<uint>(new CommandDefinition("""
+                SELECT linked_account_id
+                FROM acore_playerbots.playerbots_account_links
+                WHERE account_id=@LeaderAccount
+                  AND linked_account_id IN @CandidateAccounts;
+                """, new
+                {
+                    LeaderAccount = leaderRow.AccountId,
+                    CandidateAccounts = candidates.Select(candidate => candidate.AccountId)
+                        .Distinct().ToArray()
+                }, cancellationToken: cancellationToken))).ToHashSet();
+            foreach (var candidate in candidates)
+                candidate.AccountsLinked = linkedAccounts.Contains(candidate.AccountId);
+        }
         var output = await soapClient.ExecuteAsync(
             $"webadmin companion inspect {leader}", cancellationToken);
         return Ok(new QuestingCompanionStatus(
@@ -1214,6 +1240,76 @@ public sealed class ServerAdministrationController(
         Audit("DismissQuestingCompanion", companion, $"Leader={leader}");
         return Ok(new AdministrationResult(
             true, $"{companion} is logging out.", output));
+    }
+
+    [HttpPost("questing-companions/account-link")]
+    public async Task<ActionResult<AdministrationResult>> SetQuestingCompanionAccountLink(
+        QuestingCompanionAccountLinkRequest request, CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        if (!request.Confirmed)
+            return BadRequest(new AdministrationResult(
+                false, "Confirm changing the trusted PlayerBots account link."));
+        var identity = HttpContext.AdministrationIdentity();
+        if (identity is null || identity.Role is not ("Owner" or "Administrator"))
+            return Forbid();
+        var leader = AzerothCoreSoapClient.RequirePlayerName(request.LeaderName);
+        var companion = AzerothCoreSoapClient.RequirePlayerName(request.CompanionName);
+        await using var connection = connectionFactory.CreateConnection();
+        var accounts = (await connection.QueryAsync<CompanionAccountRow>(
+            new CommandDefinition("""
+                SELECT c.name Name, c.account AccountId
+                FROM acore_characters.characters c
+                WHERE c.name IN @Names
+                  AND (@AllAccounts OR c.account IN @AllowedAccounts);
+                """, new
+                {
+                    Names = new[] { leader, companion },
+                    AllAccounts = identity.AccountScope == "All",
+                    AllowedAccounts = identity.GameAccountIds
+                }, cancellationToken: cancellationToken))).AsList();
+        var leaderAccount = accounts.FirstOrDefault(value =>
+            value.Name.Equals(leader, StringComparison.OrdinalIgnoreCase))?.AccountId;
+        var companionAccount = accounts.FirstOrDefault(value =>
+            value.Name.Equals(companion, StringComparison.OrdinalIgnoreCase))?.AccountId;
+        if (leaderAccount is null || companionAccount is null)
+            return NotFound(new AdministrationResult(
+                false, "Both characters must be within your permitted game-account scope."));
+        if (leaderAccount == companionAccount)
+            return BadRequest(new AdministrationResult(
+                false, "Characters on the same account do not require a trusted link."));
+
+        var backup = await databaseBackupService.CreateAsync(cancellationToken);
+        await using var maintenance = connectionFactory.CreateMaintenanceConnection();
+        await maintenance.OpenAsync(cancellationToken);
+        await using var transaction = await maintenance.BeginTransactionAsync(cancellationToken);
+        if (request.Linked)
+        {
+            await maintenance.ExecuteAsync(new CommandDefinition("""
+                INSERT IGNORE INTO acore_playerbots.playerbots_account_links
+                    (account_id, linked_account_id)
+                VALUES (@LeaderAccount, @CompanionAccount),
+                       (@CompanionAccount, @LeaderAccount);
+                """, new { LeaderAccount = leaderAccount, CompanionAccount = companionAccount },
+                transaction, cancellationToken: cancellationToken));
+        }
+        else
+        {
+            await maintenance.ExecuteAsync(new CommandDefinition("""
+                DELETE FROM acore_playerbots.playerbots_account_links
+                WHERE (account_id=@LeaderAccount AND linked_account_id=@CompanionAccount)
+                   OR (account_id=@CompanionAccount AND linked_account_id=@LeaderAccount);
+                """, new { LeaderAccount = leaderAccount, CompanionAccount = companionAccount },
+                transaction, cancellationToken: cancellationToken));
+        }
+        await transaction.CommitAsync(cancellationToken);
+        Audit(request.Linked ? "LinkPlayerBotsAccounts" : "UnlinkPlayerBotsAccounts",
+            $"{leader}/{companion}",
+            $"Accounts={leaderAccount}/{companionAccount};Backup={backup.BackupId}");
+        return Ok(new AdministrationResult(true,
+            request.Linked
+                ? $"The accounts for {leader} and {companion} are now trusted. Backup {backup.BackupId} was created first."
+                : $"The trusted account link was removed. Backup {backup.BackupId} was created first."));
     }
 
     [HttpGet("dungeons")]
@@ -1906,10 +2002,11 @@ public sealed class ServerAdministrationController(
         await using var connection = connectionFactory.CreateConnection();
         var pair = (await connection.QueryAsync<CompanionValidationRow>(
             new CommandDefinition("""
-                SELECT name Name, account AccountId, race CharacterRace,
-                       online<>0 Online
-                FROM acore_characters.characters
-                WHERE name IN @Names
+                SELECT c.name Name, c.account AccountId, c.race CharacterRace,
+                       c.online<>0 Online, COALESCE(gm.guildid, 0) GuildId
+                FROM acore_characters.characters c
+                LEFT JOIN acore_characters.guild_member gm ON gm.guid=c.guid
+                WHERE c.name IN @Names
                 """, new { Names = new[] { leader, companion } },
                 cancellationToken: cancellationToken))).AsList();
         var leaderRow = pair.FirstOrDefault(value =>
@@ -1929,6 +2026,23 @@ public sealed class ServerAdministrationController(
             != IsAllianceRace(companionRow.CharacterRace))
             throw new InvalidOperationException(
                 "The leader and companion must belong to the same faction.");
+        if (starting && (leaderRow.GuildId == 0 || leaderRow.GuildId != companionRow.GuildId))
+        {
+            await using var maintenance = connectionFactory.CreateMaintenanceConnection();
+            var linked = await maintenance.ExecuteScalarAsync<long>(new CommandDefinition("""
+                SELECT COUNT(*)
+                FROM acore_playerbots.playerbots_account_links
+                WHERE account_id=@LeaderAccount
+                  AND linked_account_id=@CompanionAccount;
+                """, new
+                {
+                    LeaderAccount = leaderRow.AccountId,
+                    CompanionAccount = companionRow.AccountId
+                }, cancellationToken: cancellationToken));
+            if (linked == 0)
+                throw new InvalidOperationException(
+                    "The accounts are not trusted in PlayerBots and the characters do not share a guild. Link the accounts first.");
+        }
     }
 
     private static bool IsAllianceRace(int race) =>
@@ -2017,6 +2131,14 @@ public sealed class ServerAdministrationController(
     {
         public uint AccountId { get; init; }
         public int CharacterRace { get; init; }
+        public int CharacterLevel { get; init; }
+        public uint GuildId { get; init; }
+    }
+
+    private sealed class CompanionAccountRow
+    {
+        public string Name { get; init; } = "";
+        public uint AccountId { get; init; }
     }
 
     private sealed class CompanionValidationRow
@@ -2025,6 +2147,7 @@ public sealed class ServerAdministrationController(
         public uint AccountId { get; init; }
         public int CharacterRace { get; init; }
         public bool Online { get; init; }
+        public uint GuildId { get; init; }
     }
 
     private sealed class DungeonEncounterRow

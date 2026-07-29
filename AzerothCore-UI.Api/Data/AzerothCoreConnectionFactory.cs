@@ -5,11 +5,16 @@ namespace AzerothCore_UI.Api.Data;
 
 public sealed class AzerothCoreConnectionFactory(IConfiguration configuration)
 {
-    public MySqlConnection CreateConnection()
+    public MySqlConnection CreateConnection() => Create("AzerothCore");
+
+    public MySqlConnection CreateMaintenanceConnection() =>
+        Create("AzerothCoreMaintenance");
+
+    private MySqlConnection Create(string name)
     {
-        var connectionString = configuration.GetConnectionString("AzerothCore")
+        var connectionString = configuration.GetConnectionString(name)
             ?? throw new InvalidOperationException(
-                "Connection string 'AzerothCore' is not configured.");
+                $"Connection string '{name}' is not configured.");
 
         var builder = new MySqlConnectionStringBuilder(connectionString);
         var loopback = builder.Server.Equals("localhost", StringComparison.OrdinalIgnoreCase)

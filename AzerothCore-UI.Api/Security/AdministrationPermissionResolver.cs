@@ -13,6 +13,7 @@ public static class AdministrationPermissionResolver
         if (path.StartsWith("/api/diagnostics")) return "server.diagnostics";
         if (path.StartsWith("/api/auction-house")) return "world.auction-house";
         if (path.StartsWith("/api/quest-helper")) return "adventures.quests";
+        if (path.Contains("/questing-companions/account-link")) return "security.users";
         if (path.StartsWith("/api/starter-presets")) return "players.services";
         if (path.StartsWith("/api/training")) return "adventures.training";
         if (path.StartsWith("/api/accounts")) return "players.accounts";

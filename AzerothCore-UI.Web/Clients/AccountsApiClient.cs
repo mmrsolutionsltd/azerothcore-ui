@@ -385,6 +385,9 @@ public sealed class AccountsApiClient(HttpClient httpClient)
     public Task<AdministrationResult?> DismissQuestingCompanionAsync(
         QuestingCompanionRequest request) =>
         PostAsync("api/server-administration/questing-companions/dismiss", request);
+    public Task<AdministrationResult?> SetQuestingCompanionAccountLinkAsync(
+        QuestingCompanionAccountLinkRequest request) =>
+        PostAsync("api/server-administration/questing-companions/account-link", request);
     public async Task<IReadOnlyList<DungeonDestination>> GetDungeonsAsync() =>
         await GetAdministrationAsync<DungeonDestination[]>("api/server-administration/dungeons") ?? [];
     public async Task<IReadOnlyList<DungeonLibraryCharacter>>

@@ -39,7 +39,13 @@ may override a template's natural level range; the spawned creature's stats are 
 Questing companions are normal characters controlled as PlayerBots. The leader must be
 online, the companion offline, and they must be same-faction characters on different game
 accounts. Starting a companion assigns the leader as its master and PlayerBots handles
-party creation, following, combat, and quest synchronisation.
+party creation, following, combat, and quest synchronisation. The module mirrors the
+leader's eligible accepted quests to active companions, including quests already in the
+leader's log when a companion finishes logging in. When the leader talks to a nearby quest
+giver, companions may also independently accept eligible quests for their own class or
+professions. All normal race, class, level, reputation, prerequisite, proximity, and
+quest-log checks still apply.
 
-The module source is copied into the AzerothCore `modules/mod-web-admin` directory and
-requires CMake regeneration plus a worldserver rebuild.
+After the module is already present in the AzerothCore build, source-only changes require
+building `ALL_BUILD` and then `INSTALL`; CMake regeneration is only needed when the module
+or build structure changes.

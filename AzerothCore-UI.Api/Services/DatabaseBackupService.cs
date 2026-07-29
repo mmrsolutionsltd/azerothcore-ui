@@ -11,7 +11,7 @@ public sealed class DatabaseBackupService(
     ILogger<DatabaseBackupService> logger)
 {
     private static readonly string[] Databases =
-        ["acore_auth", "acore_characters", "acore_world", "azerothcore_ui"];
+        ["acore_auth", "acore_characters", "acore_world", "acore_playerbots", "azerothcore_ui"];
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = true

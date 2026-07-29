@@ -4,8 +4,11 @@
  */
 
 #include "Chat.h"
+#include "AllCreatureScript.h"
+#include "AllGameObjectScript.h"
 #include "Creature.h"
 #include "DatabaseEnv.h"
+#include "GameObject.h"
 #include "Group.h"
 #include "GroupMgr.h"
 #include "Guild.h"
@@ -17,8 +20,10 @@
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "Player.h"
+#include "PlayerScript.h"
 #include "PlayerbotAI.h"
 #include "PlayerbotMgr.h"
+#include "QuestDef.h"
 #include "RandomPlayerbotMgr.h"
 #include "ScriptMgr.h"
 #include "TemporarySummon.h"
@@ -35,6 +40,175 @@ using namespace Acore::ChatCommands;
 
 namespace
 {
+struct QuestingCompanionRegistration
+{
+    ObjectGuid LeaderGuid;
+    ObjectGuid CompanionGuid;
+    bool InitialSyncPending = true;
+};
+
+static std::vector<QuestingCompanionRegistration> QuestingCompanions;
+
+static void RegisterQuestingCompanion(ObjectGuid leaderGuid, ObjectGuid companionGuid)
+{
+    for (QuestingCompanionRegistration& registration : QuestingCompanions)
+    {
+        if (registration.CompanionGuid == companionGuid)
+        {
+            if (registration.LeaderGuid == leaderGuid)
+                return;
+
+            registration.LeaderGuid = leaderGuid;
+            registration.InitialSyncPending = true;
+            return;
+        }
+    }
+
+    QuestingCompanions.push_back({ leaderGuid, companionGuid, true });
+}
+
+static void UnregisterQuestingCompanion(ObjectGuid companionGuid)
+{
+    QuestingCompanions.erase(
+        std::remove_if(
+            QuestingCompanions.begin(), QuestingCompanions.end(),
+            [companionGuid](QuestingCompanionRegistration const& registration)
+            {
+                return registration.CompanionGuid == companionGuid;
+            }),
+        QuestingCompanions.end());
+}
+
+static bool IsActiveQuestingCompanion(Player* leader, Player* companion)
+{
+    if (!leader || !companion || !leader->GetGroup()
+        || companion->GetGroup() != leader->GetGroup())
+        return false;
+
+    PlayerbotAI* companionAI =
+        PlayerbotsMgr::instance().GetPlayerbotAI(companion);
+    return companionAI && companionAI->GetMaster() == leader;
+}
+
+enum class CompanionQuestAcceptResult
+{
+    Accepted,
+    AlreadyKnown,
+    RequirementsNotMet,
+    QuestLogFull
+};
+
+static CompanionQuestAcceptResult AcceptCompanionQuest(
+    Player* leader, Player* companion, Quest const* quest, Object* questGiver,
+    bool reportFailure)
+{
+    if (!quest || companion->GetQuestStatus(quest->GetQuestId()) != QUEST_STATUS_NONE
+        || companion->GetQuestRewardStatus(quest->GetQuestId()))
+        return CompanionQuestAcceptResult::AlreadyKnown;
+
+    if (!companion->CanTakeQuest(quest, false))
+    {
+        if (reportFailure)
+        {
+            ChatHandler(leader->GetSession()).PSendSysMessage(
+                "Questing companion {} cannot mirror [{}]: its race, class, level, "
+                "reputation, or prerequisites do not meet the requirements.",
+                companion->GetName(), quest->GetTitle());
+        }
+        return CompanionQuestAcceptResult::RequirementsNotMet;
+    }
+
+    if (!companion->CanAddQuest(quest, false))
+    {
+        if (reportFailure)
+        {
+            ChatHandler(leader->GetSession()).PSendSysMessage(
+                "Questing companion {} cannot mirror [{}]: its quest log is full.",
+                companion->GetName(), quest->GetTitle());
+        }
+        return CompanionQuestAcceptResult::QuestLogFull;
+    }
+
+    companion->AddQuest(quest, questGiver);
+    if (companion->CanCompleteQuest(quest->GetQuestId()))
+        companion->CompleteQuest(quest->GetQuestId());
+    if (quest->GetSrcSpell() > 0)
+        companion->CastSpell(companion, quest->GetSrcSpell(), true);
+
+    ChatHandler(leader->GetSession()).PSendSysMessage(
+        "Questing companion {} accepted [{}].",
+        companion->GetName(), quest->GetTitle());
+    return CompanionQuestAcceptResult::Accepted;
+}
+
+static void SyncLeaderQuestLog(Player* leader, Player* companion)
+{
+    for (uint8 slot = 0; slot < MAX_QUEST_LOG_SIZE; ++slot)
+    {
+        uint32 questId = leader->GetQuestSlotQuestId(slot);
+        if (questId)
+        {
+            AcceptCompanionQuest(
+                leader, companion, sObjectMgr->GetQuestTemplate(questId), leader, true);
+        }
+    }
+}
+
+static bool IsClassOrProfessionQuestFor(Quest const* quest, Player* companion)
+{
+    if (!quest || !companion)
+        return false;
+
+    uint32 classMask = quest->GetRequiredClasses();
+    if (classMask && (classMask & (1u << (companion->getClass() - 1))))
+        return true;
+
+    int32 zoneOrSort = quest->GetZoneOrSort();
+    if (zoneOrSort < 0)
+    {
+        int32 questSort = -zoneOrSort;
+        uint8 questClass = ClassByQuestSort(questSort);
+        if (questClass)
+            return questClass == companion->getClass();
+
+        uint32 questSkill = SkillByQuestSort(questSort);
+        if (questSkill)
+            return true;
+    }
+
+    return quest->GetRequiredSkill() != 0;
+}
+
+static void AcceptCompanionSpecialQuests(
+    Player* leader, WorldObject* questGiver, QuestRelationBounds questRelations)
+{
+    if (!leader || !leader->GetSession() || leader->GetSession()->IsBot())
+        return;
+
+    for (QuestingCompanionRegistration const& registration : QuestingCompanions)
+    {
+        if (registration.LeaderGuid != leader->GetGUID())
+            continue;
+
+        Player* companion =
+            ObjectAccessor::FindConnectedPlayer(registration.CompanionGuid);
+        if (!IsActiveQuestingCompanion(leader, companion)
+            || !questGiver->IsWithinDistInMap(companion, INTERACTION_DISTANCE))
+            continue;
+
+        for (auto relation = questRelations.first;
+             relation != questRelations.second; ++relation)
+        {
+            Quest const* quest = sObjectMgr->GetQuestTemplate(relation->second);
+            if (IsClassOrProfessionQuestFor(quest, companion))
+            {
+                AcceptCompanionQuest(
+                    leader, companion, quest, questGiver, false);
+            }
+        }
+    }
+}
+
 class WebAdminCommandScript final : public CommandScript
 {
 public:
@@ -173,8 +347,19 @@ private:
         std::string command = "add " + companionName;
         std::vector<std::string> messages =
             manager->HandlePlayerbotCommand(command.data(), leader);
+        bool failed = false;
         for (std::string const& message : messages)
+        {
             handler->PSendSysMessage("WEBADMIN_COMPANION_RESULT\t{}", message);
+            if (message.rfind("Failure:", 0) == 0)
+            {
+                handler->SendErrorMessage(message, false);
+                failed = true;
+            }
+        }
+        if (failed)
+            return false;
+        RegisterQuestingCompanion(leader->GetGUID(), companionGuid);
         handler->PSendSysMessage(
             "Questing companion {} is logging in for {}.", companionName, leader->GetName());
         return true;
@@ -197,8 +382,19 @@ private:
         std::string command = "remove " + companionName;
         std::vector<std::string> messages =
             manager->HandlePlayerbotCommand(command.data(), leader);
+        bool failed = false;
         for (std::string const& message : messages)
+        {
             handler->PSendSysMessage("WEBADMIN_COMPANION_RESULT\t{}", message);
+            if (message.rfind("Failure:", 0) == 0)
+            {
+                handler->SendErrorMessage(message, false);
+                failed = true;
+            }
+        }
+        if (failed)
+            return false;
+        UnregisterQuestingCompanion(companionGuid);
         handler->PSendSysMessage(
             "Questing companion {} is logging out.", companionName);
         return true;
@@ -221,6 +417,7 @@ private:
         {
             Player* bot = iterator->second;
             if (!bot || sRandomPlayerbotMgr.IsRandomBot(bot)) continue;
+            RegisterQuestingCompanion(leader->GetGUID(), bot->GetGUID());
             handler->PSendSysMessage(
                 "WEBADMIN_COMPANION\t{}\t{}\t{}\t{}",
                 bot->GetName(), bot->GetLevel(), bot->getClass(),
@@ -909,9 +1106,108 @@ private:
         return true;
     }
 };
+
+class WebAdminCompanionPlayerScript final : public PlayerScript
+{
+public:
+    WebAdminCompanionPlayerScript()
+        : PlayerScript("WebAdminCompanionPlayerScript", {
+            PLAYERHOOK_ON_AFTER_UPDATE,
+            PLAYERHOOK_ON_LOGOUT,
+            PLAYERHOOK_ON_PLAYER_QUEST_ACCEPT
+        }) { }
+
+    void OnPlayerAfterUpdate(Player* player, uint32 /*diff*/) override
+    {
+        if (!player || !player->GetSession() || player->GetSession()->IsBot())
+            return;
+
+        for (QuestingCompanionRegistration& registration : QuestingCompanions)
+        {
+            if (!registration.InitialSyncPending
+                || registration.LeaderGuid != player->GetGUID())
+                continue;
+
+            Player* companion =
+                ObjectAccessor::FindConnectedPlayer(registration.CompanionGuid);
+            if (!IsActiveQuestingCompanion(player, companion))
+                continue;
+
+            registration.InitialSyncPending = false;
+            SyncLeaderQuestLog(player, companion);
+        }
+    }
+
+    void OnPlayerQuestAccept(Player* player, Quest const* quest) override
+    {
+        if (!player || !player->GetSession() || player->GetSession()->IsBot())
+            return;
+
+        for (QuestingCompanionRegistration const& registration : QuestingCompanions)
+        {
+            if (registration.LeaderGuid != player->GetGUID())
+                continue;
+
+            Player* companion =
+                ObjectAccessor::FindConnectedPlayer(registration.CompanionGuid);
+            if (IsActiveQuestingCompanion(player, companion))
+                AcceptCompanionQuest(player, companion, quest, player, true);
+        }
+    }
+
+    void OnPlayerLogout(Player* player) override
+    {
+        if (!player)
+            return;
+
+        ObjectGuid playerGuid = player->GetGUID();
+        QuestingCompanions.erase(
+            std::remove_if(
+                QuestingCompanions.begin(), QuestingCompanions.end(),
+                [playerGuid](QuestingCompanionRegistration const& registration)
+                {
+                    return registration.LeaderGuid == playerGuid
+                        || registration.CompanionGuid == playerGuid;
+                }),
+            QuestingCompanions.end());
+    }
+};
+
+class WebAdminCompanionCreatureScript final : public AllCreatureScript
+{
+public:
+    WebAdminCompanionCreatureScript()
+        : AllCreatureScript("WebAdminCompanionCreatureScript") { }
+
+    bool CanCreatureGossipHello(Player* player, Creature* creature) override
+    {
+        AcceptCompanionSpecialQuests(
+            player, creature,
+            sObjectMgr->GetCreatureQuestRelationBounds(creature->GetEntry()));
+        return false;
+    }
+};
+
+class WebAdminCompanionGameObjectScript final : public AllGameObjectScript
+{
+public:
+    WebAdminCompanionGameObjectScript()
+        : AllGameObjectScript("WebAdminCompanionGameObjectScript") { }
+
+    bool CanGameObjectGossipHello(Player* player, GameObject* gameObject) override
+    {
+        AcceptCompanionSpecialQuests(
+            player, gameObject,
+            sObjectMgr->GetGOQuestRelationBounds(gameObject->GetEntry()));
+        return false;
+    }
+};
 }
 
 void Addmod_web_adminScripts()
 {
     new WebAdminCommandScript();
+    new WebAdminCompanionPlayerScript();
+    new WebAdminCompanionCreatureScript();
+    new WebAdminCompanionGameObjectScript();
 }
