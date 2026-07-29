@@ -1,0 +1,97 @@
+@using AzerothCore_UI.Web.Models
+@inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
+
+@if (IsOpen)
+{
+    <div class="modal d-block" tabindex="-1" role="dialog" aria-modal="true"
+         aria-labelledby="npc-teleport-picker-title">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title h5" id="npc-teleport-picker-title">Choose an NPC</h2>
+                    <button type="button" class="btn-close" aria-label="Close"
+                            @onclick="CloseAsync"></button>
+                </div>
+                <div class="modal-body">
+                    <label class="form-label" for="npc-teleport-search">NPC name</label>
+                    <input id="npc-teleport-search" class="form-control mb-3" value="@search"
+                           @oninput="SearchAsync" placeholder="Type at least two characters…"
+                           autocomplete="off" autofocus />
+                    <div class="form-text mb-3">
+                        Results are ranked from @AnchorPlayerName.
+                        Potentially hostile NPCs are allowed with explicit confirmation.
+                        Instance NPCs remain unavailable.
+                    </div>
+                    @if (errorMessage is not null)
+                    {
+                        <div class="alert alert-danger">@errorMessage</div>
+                    }
+                    @if (isLoading)
+                    {
+                        <p><em>Searching NPCs…</em></p>
+                    }
+                    else if (search.Trim().Length < 2)
+                    {
+                        <div class="alert alert-secondary">Enter at least two characters.</div>
+                    }
+                    else if (results.Npcs.Count == 0)
+                    {
+                        <div class="alert alert-secondary">
+                            No matching outdoor NPC spawns were found.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle">
+                                <thead>
+                                    <tr><th>NPC</th><th>Map</th><th>Zone</th><th>Distance</th></tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var npc in results.Npcs)
+                                    {
+                                        <tr class="picker-result-row" tabindex="0" role="button"
+                                            aria-label="Select @npc.Name"
+                                            @onclick="() => SelectAsync(npc)"
+                                            @onkeydown="args => SelectFromKeyboardAsync(args, npc)">
+                                            <td>
+                                                <div class="fw-semibold">@npc.Name</div>
+                                                <div class="small text-muted">
+                                                    @npc.Subname · entry @npc.CreatureId · spawn @npc.SpawnId
+                                                </div>
+                                                @if (npc.PotentiallyHostile)
+                                                {
+                                                    <span class="badge text-bg-danger">May be hostile</span>
+                                                }
+                                            </td>
+                                            <td>@MapName(npc.MapId)</td>
+                                            <td>@npc.ZoneId</td>
+                                            <td>
+                                                @(npc.SameMap && npc.Distance is not null
+                                                    ? npc.Distance.Value.ToString("N0")
+                                                    : "Different map")
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer justify-content-between">
+                    <span class="text-muted">@results.TotalCount matching spawns</span>
+                    <div>
+                        <button class="btn btn-outline-secondary me-2"
+                                disabled="@(isLoading || results.Page <= 1)"
+                                @onclick="() => LoadAsync(results.Page - 1)">Previous</button>
+                        <span class="me-2">Page @results.Page of @Math.Max(1, results.TotalPages)</span>
+                        <button class="btn btn-outline-secondary"
+                                disabled="@(isLoading || results.Page >= results.TotalPages)"
+                                @onclick="() => LoadAsync(results.Page + 1)">Next</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop show"></div>
+}

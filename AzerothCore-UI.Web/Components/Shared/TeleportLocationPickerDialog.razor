@@ -1,0 +1,80 @@
+@using AzerothCore_UI.Web.Models
+@inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
+
+@if (IsOpen)
+{
+    <div class="modal d-block" tabindex="-1" role="dialog" aria-modal="true"
+         aria-labelledby="location-picker-title">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title h5" id="location-picker-title">
+                        Choose a teleport location
+                    </h2>
+                    <button type="button" class="btn-close" aria-label="Close"
+                            @onclick="CloseAsync"></button>
+                </div>
+                <div class="modal-body">
+                    <label class="form-label" for="location-search">Location name</label>
+                    <input id="location-search" class="form-control mb-3" value="@search"
+                           @oninput="SearchAsync" placeholder="Start typing a location name…"
+                           autocomplete="off" autofocus />
+                    @if (errorMessage is not null)
+                    {
+                        <div class="alert alert-danger">@errorMessage</div>
+                    }
+                    @if (isLoading)
+                    {
+                        <p><em>Searching locations…</em></p>
+                    }
+                    else if (results.Locations.Count == 0)
+                    {
+                        <div class="alert alert-secondary">
+                            No matching teleport locations were found.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle">
+                                <thead>
+                                    <tr><th>Location</th><th>Map</th><th>Coordinates</th></tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var location in results.Locations)
+                                    {
+                                        <tr class="picker-result-row" tabindex="0" role="button"
+                                            aria-label="Select @location.Name"
+                                            @onclick="() => SelectAsync(location)"
+                                            @onkeydown="args => SelectFromKeyboardAsync(args, location)">
+                                            <td class="fw-semibold">@location.Name</td>
+                                            <td>@MapName(location.MapId)</td>
+                                            <td class="small text-muted">
+                                                @location.PositionX.ToString("0.0"),
+                                                @location.PositionY.ToString("0.0"),
+                                                @location.PositionZ.ToString("0.0")
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer justify-content-between">
+                    <span class="text-muted">@results.TotalCount matching locations</span>
+                    <div>
+                        <button class="btn btn-outline-secondary me-2"
+                                disabled="@(isLoading || results.Page <= 1)"
+                                @onclick="() => LoadAsync(results.Page - 1)">Previous</button>
+                        <span class="me-2">Page @results.Page of @Math.Max(1, results.TotalPages)</span>
+                        <button class="btn btn-outline-secondary"
+                                disabled="@(isLoading || results.Page >= results.TotalPages)"
+                                @onclick="() => LoadAsync(results.Page + 1)">Next</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-backdrop show"></div>
+}

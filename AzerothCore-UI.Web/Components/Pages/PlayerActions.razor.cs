@@ -1,6 +1,4 @@
 using AzerothCore_UI.Web.Models;
-using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Web;
 
 namespace AzerothCore_UI.Web.Components.Pages;
 
@@ -12,23 +10,11 @@ public partial class PlayerActions
         .OrderBy(player => player.PickerOrder).ThenBy(player => player.Name);
     private IReadOnlyList<CharacterPickerItem> AdministrationPickerItems =>
         CharacterPickerItem.FromAdministrationPlayers(administrationPlayers);
-    private AdministrationItemSearchResult itemResults = new([], 1, 30, 0, 0);
-    private CancellationTokenSource? itemSearchCancellation;
-    private bool showItemPicker, isLoadingItems;
-    private string itemSearch = "", itemCategory = "all";
-    private int? itemQuality, minimumItemLevel, maximumItemLevel;
-    private int? minimumRequiredLevel, maximumRequiredLevel;
-    private string itemSuitability = "all";
+    private bool showItemPicker;
     private string? selectedItemName;
-    private TeleportLocationSearchResult locationResults = new([], 1, 30, 0, 0);
-    private CancellationTokenSource? locationSearchCancellation;
-    private bool showLocationPicker, isLoadingLocations;
-    private string locationSearch = "";
+    private bool showLocationPicker;
     private string teleportMode = "place";
-    private NpcTeleportSearchResult npcTeleportResults = new([], 1, 30, 0, 0);
-    private CancellationTokenSource? npcTeleportSearchCancellation;
-    private bool showNpcTeleportPicker, isLoadingNpcTeleports;
-    private string npcTeleportSearch = "";
+    private bool showNpcTeleportPicker;
     private NpcTeleportSpawn? selectedTeleportNpc;
     private bool confirmNpcTeleport, confirmNpcReturn;
     private IReadOnlyList<string> npcReturnPlayerNames = [];
@@ -206,44 +192,8 @@ public partial class PlayerActions
         }
     }
 
-    private async Task OpenItemPickerAsync()
-    {
-        showItemPicker = true;
-        await LoadItemsAsync(1);
-    }
-
-    private async Task OnItemSearchAsync(ChangeEventArgs args)
-    {
-        itemSearch = args.Value?.ToString() ?? "";
-        itemSearchCancellation?.Cancel();
-        itemSearchCancellation?.Dispose();
-        itemSearchCancellation = new CancellationTokenSource();
-        try
-        {
-            await Task.Delay(250, itemSearchCancellation.Token);
-            await LoadItemsAsync(1, itemSearchCancellation.Token);
-        }
-        catch (OperationCanceledException) { }
-    }
-
-    private Task OnItemCategoryChangedAsync() => LoadItemsAsync(1);
-    private Task OnItemFiltersChangedAsync() => LoadItemsAsync(1);
-
-    private async Task LoadItemsAsync(int page, CancellationToken cancellationToken = default)
-    {
-        isLoadingItems = true;
-        try
-        {
-            itemResults = await AccountsClient.GetAdministrationItemsAsync(
-                itemSearch, itemCategory, page, itemQuality,
-                minimumItemLevel, maximumItemLevel,
-                minimumRequiredLevel, maximumRequiredLevel,
-                selectedActionPlayerNames, itemSuitability, cancellationToken);
-        }
-        catch (OperationCanceledException) { }
-        catch (HttpRequestException exception) { operationSucceeded = false; resultMessage = exception.Message; }
-        finally { isLoadingItems = false; }
-    }
+    private void OpenItemPicker() => showItemPicker = true;
+    private void CloseItemPicker() => showItemPicker = false;
 
     private void SelectItem(AdministrationItem item)
     {
@@ -252,49 +202,13 @@ public partial class PlayerActions
         showItemPicker = false;
     }
 
-    private void SelectItemFromKeyboard(KeyboardEventArgs args, AdministrationItem item)
-    {
-        if (IsRowSelectionKey(args)) SelectItem(item);
-    }
-
-    private async Task OpenLocationPickerAsync()
-    {
-        showLocationPicker = true;
-        await LoadLocationsAsync(1);
-    }
-
-    private async Task OnLocationSearchAsync(ChangeEventArgs args)
-    {
-        locationSearch = args.Value?.ToString() ?? "";
-        locationSearchCancellation?.Cancel();
-        locationSearchCancellation?.Dispose();
-        locationSearchCancellation = new CancellationTokenSource();
-        try
-        {
-            await Task.Delay(250, locationSearchCancellation.Token);
-            await LoadLocationsAsync(1, locationSearchCancellation.Token);
-        }
-        catch (OperationCanceledException) { }
-    }
-
-    private async Task LoadLocationsAsync(int page, CancellationToken cancellationToken = default)
-    {
-        isLoadingLocations = true;
-        try { locationResults = await AccountsClient.GetTeleportLocationsAsync(locationSearch, page, cancellationToken); }
-        catch (OperationCanceledException) { }
-        catch (HttpRequestException exception) { operationSucceeded = false; resultMessage = exception.Message; }
-        finally { isLoadingLocations = false; }
-    }
+    private void OpenLocationPicker() => showLocationPicker = true;
+    private void CloseLocationPicker() => showLocationPicker = false;
 
     private void SelectLocation(TeleportLocation location)
     {
         teleportLocation = location.Name;
         showLocationPicker = false;
-    }
-
-    private void SelectLocationFromKeyboard(KeyboardEventArgs args, TeleportLocation location)
-    {
-        if (IsRowSelectionKey(args)) SelectLocation(location);
     }
 
     private void SetTeleportMode(string mode)
@@ -303,44 +217,13 @@ public partial class PlayerActions
         confirmNpcTeleport = false;
     }
 
-    private async Task OpenNpcTeleportPickerAsync()
+    private void OpenNpcTeleportPicker()
     {
-        if (SelectedActionPlayers.Count == 0) return;
-        showNpcTeleportPicker = true;
-        await LoadNpcTeleportsAsync(1);
+        if (SelectedActionPlayers.Count > 0)
+            showNpcTeleportPicker = true;
     }
 
-    private async Task OnNpcTeleportSearchAsync(ChangeEventArgs args)
-    {
-        npcTeleportSearch = args.Value?.ToString() ?? "";
-        npcTeleportSearchCancellation?.Cancel();
-        npcTeleportSearchCancellation?.Dispose();
-        npcTeleportSearchCancellation = new CancellationTokenSource();
-        try
-        {
-            await Task.Delay(250, npcTeleportSearchCancellation.Token);
-            await LoadNpcTeleportsAsync(1, npcTeleportSearchCancellation.Token);
-        }
-        catch (OperationCanceledException) { }
-    }
-
-    private async Task LoadNpcTeleportsAsync(int page, CancellationToken cancellationToken = default)
-    {
-        if (SelectedActionPlayers.Count == 0) return;
-        isLoadingNpcTeleports = true;
-        try
-        {
-            npcTeleportResults = await AccountsClient.GetNpcTeleportsAsync(
-                SelectedActionPlayers[0].Name, npcTeleportSearch, page, cancellationToken);
-        }
-        catch (OperationCanceledException) { }
-        catch (HttpRequestException exception)
-        {
-            operationSucceeded = false;
-            resultMessage = exception.Message;
-        }
-        finally { isLoadingNpcTeleports = false; }
-    }
+    private void CloseNpcTeleportPicker() => showNpcTeleportPicker = false;
 
     private void SelectTeleportNpc(NpcTeleportSpawn npc)
     {
@@ -349,30 +232,13 @@ public partial class PlayerActions
         showNpcTeleportPicker = false;
     }
 
-    private void SelectTeleportNpcFromKeyboard(KeyboardEventArgs args, NpcTeleportSpawn npc)
-    {
-        if (IsRowSelectionKey(args)) SelectTeleportNpc(npc);
-    }
-
-    private static bool IsRowSelectionKey(KeyboardEventArgs args) =>
-        args.Key is "Enter" or " ";
-
     private static string MapName(ushort mapId) => mapId switch
     {
-        0 => "Eastern Kingdoms", 1 => "Kalimdor", 530 => "Outland", 571 => "Northrend",
+        0 => "Eastern Kingdoms",
+        1 => "Kalimdor",
+        530 => "Outland",
+        571 => "Northrend",
         _ => $"Map {mapId}"
-    };
-
-    private static string ItemQualityName(byte quality) => quality switch
-    {
-        0 => "Poor", 1 => "Common", 2 => "Uncommon", 3 => "Rare", 4 => "Epic",
-        5 => "Legendary", 6 => "Artifact", 7 => "Heirloom", _ => "Unknown"
-    };
-
-    private static string ItemQualityClass(byte quality) => quality switch
-    {
-        0 => "text-secondary", 2 => "text-success", 3 => "text-primary", 4 => "text-purple",
-        5 => "text-warning", 6 => "text-danger", 7 => "text-warning", _ => ""
     };
 
     private async Task RunAsync(Func<Task<AdministrationResult?>> operation)
