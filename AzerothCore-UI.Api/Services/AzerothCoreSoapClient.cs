@@ -86,6 +86,33 @@ public sealed class AzerothCoreSoapClient(IConfiguration configuration, IHttpCli
         return $"webadmin npc teleport {RequirePlayerName(playerName)} {spawnId} {(allowHostile ? 1 : 0)}";
     }
 
+    public static string BuildCreatureSpawnCommand(
+        string playerName,
+        uint creatureId,
+        int level,
+        int despawnMinutes,
+        int count,
+        int squareSideLength)
+    {
+        if (creatureId == 0)
+            throw new ArgumentOutOfRangeException(
+                nameof(creatureId), "Creature ID is required.");
+        if (level is < 1 or > 83)
+            throw new ArgumentOutOfRangeException(
+                nameof(level), "Creature level must be between 1 and 83.");
+        if (despawnMinutes is < 1 or > 30)
+            throw new ArgumentOutOfRangeException(
+                nameof(despawnMinutes), "Despawn time must be between 1 and 30 minutes.");
+        if (count is < 1 or > 25)
+            throw new ArgumentOutOfRangeException(
+                nameof(count), "Creature count must be between 1 and 25.");
+        if (squareSideLength is < 1 or > 200)
+            throw new ArgumentOutOfRangeException(
+                nameof(squareSideLength), "Square side length must be between 1 and 200 metres.");
+        return $"webadmin creature spawn {RequirePlayerName(playerName)} {creatureId} "
+            + $"{level} {despawnMinutes} {count} {squareSideLength}";
+    }
+
     public static string BuildQuestCommand(string playerName, uint questId, bool add)
     {
         if (questId == 0) throw new ArgumentOutOfRangeException(nameof(questId), "Quest ID is required.");
@@ -94,6 +121,11 @@ public sealed class AzerothCoreSoapClient(IConfiguration configuration, IHttpCli
 
     public static string BuildAuctionHouseSellerCommand(bool enabled) =>
         $"ahbotoptions seller {(enabled ? 1 : 0)}";
+
+    public static string BuildCharacterAccountTransferCommand(
+        string playerName, string destinationAccountName) =>
+        $"character changeaccount {RequireAccountName(destinationAccountName)} "
+        + RequirePlayerName(playerName);
 
     public static string RequireAccountName(string value) =>
         Regex.IsMatch(value, "^[A-Za-z0-9]{3,32}$")

@@ -1,0 +1,87 @@
+@inherits PlayerActionToolBase
+
+<PlayerActionToolHeader Title="Summon a useful NPC" ShowResult="HasActionResult"
+                        Message="@ResultMessage" Succeeded="OperationSucceeded">
+    <button class="btn btn-primary" disabled="@(!CanSummon)" @onclick="SummonAsync">
+        Summon NPC
+    </button>
+</PlayerActionToolHeader>
+@if (loadError is not null)
+{
+    <div class="alert alert-danger py-2">@loadError</div>
+}
+
+@if (isLoadingNpcs)
+{
+    <p><em>Loading services…</em></p>
+}
+else
+{
+    <div class="row g-2">
+        <div class="col-8">
+            <label class="form-label" for="utility-npc">Service</label>
+            <select id="utility-npc" class="form-select" @bind="selectedNpcId">
+                @foreach (var npc in npcs)
+                {
+                    <option value="@npc.CreatureId">@npc.Service — @npc.Name</option>
+                }
+            </select>
+            @if (SelectedNpc is not null)
+            {
+                <div class="small text-muted mt-1">@SelectedNpc.Description</div>
+            }
+        </div>
+        <div class="col-4">
+            <label class="form-label" for="utility-npc-despawn">Despawn after</label>
+            <div class="input-group">
+                <input id="utility-npc-despawn" class="form-control" type="number"
+                       min="1" max="30" @bind="despawnMinutes" />
+                <span class="input-group-text">minutes</span>
+            </div>
+        </div>
+    </div>
+}
+
+<PlayerActionFeedback Results="Results" />
+
+@code {
+    private IReadOnlyList<UtilityNpc> npcs = [];
+    private uint selectedNpcId;
+    private int despawnMinutes = 10;
+    private bool isLoadingNpcs;
+    private bool npcsLoaded;
+    private string? loadError;
+    private UtilityNpc? SelectedNpc => npcs.FirstOrDefault(npc => npc.CreatureId == selectedNpcId);
+    private bool CanSummon =>
+        CanExecute && Targets.Count == 1 && Targets[0] is { IsPlayerBot: false, Online: true }
+        && SelectedNpc is not null && despawnMinutes is >= 1 and <= 30;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (npcsLoaded)
+            return;
+        isLoadingNpcs = true;
+        try
+        {
+            npcs = await AccountsClient.GetUtilityNpcsAsync();
+            selectedNpcId = npcs.FirstOrDefault()?.CreatureId ?? 0;
+            npcsLoaded = true;
+        }
+        catch (Exception exception)
+        {
+            loadError = $"Services could not be loaded: {exception.Message}";
+        }
+        finally
+        {
+            isLoadingNpcs = false;
+        }
+    }
+
+    private async Task SummonAsync()
+    {
+        if (SelectedNpc is null || Targets.Count != 1)
+            return;
+        await RunAsync(() => AccountsClient.SummonUtilityNpcAsync(new(
+            Targets[0].Name, SelectedNpc.CreatureId, despawnMinutes, true)));
+    }
+}

@@ -1,0 +1,135 @@
+@using AzerothCore_UI.Web.Models
+@inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
+
+@if (IsOpen)
+{
+    <div class="modal d-block" tabindex="-1" role="dialog" aria-modal="true"
+         aria-labelledby="creature-picker-title">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title h5" id="creature-picker-title">
+                        Choose a creature
+                    </h2>
+                    <button type="button" class="btn-close" aria-label="Close"
+                            @onclick="CloseAsync"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-8">
+                            <label class="form-label" for="creature-picker-search">Name</label>
+                            <input id="creature-picker-search" class="form-control"
+                                   value="@search" @oninput="SearchAsync"
+                                   placeholder="Start typing a creature name..."
+                                   autocomplete="off" autofocus />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="creature-picker-filter">Templates</label>
+                            <select id="creature-picker-filter" class="form-select"
+                                    @bind="filter" @bind:after="ReloadAsync">
+                                <option value="tameable">Tameable beasts</option>
+                                <option value="exotic">Exotic beasts</option>
+                                <option value="all">All safe templates</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label" for="creature-picker-family">Family</label>
+                            <select id="creature-picker-family" class="form-select"
+                                    @bind="family" @bind:after="ReloadAsync">
+                                <option value="0">All families</option>
+                                @foreach (var value in CreatureFamilies)
+                                {
+                                    <option value="@value">@CreatureFamilyName(value)</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-2">
+                            <label class="form-label" for="creature-picker-min-level">Min level</label>
+                            <input id="creature-picker-min-level" class="form-control"
+                                   type="number" min="1" max="83"
+                                   @bind="minimumLevel" @bind:after="ReloadAsync" />
+                        </div>
+                        <div class="col-6 col-md-2">
+                            <label class="form-label" for="creature-picker-max-level">Max level</label>
+                            <input id="creature-picker-max-level" class="form-control"
+                                   type="number" min="1" max="83"
+                                   @bind="maximumLevel" @bind:after="ReloadAsync" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label" for="creature-picker-sort">Sort</label>
+                            <select id="creature-picker-sort" class="form-select"
+                                    @bind="sort" @bind:after="ReloadAsync">
+                                <option value="name">Name A-Z</option>
+                                <option value="level-asc">Level low-high</option>
+                                <option value="level-desc">Level high-low</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    @if (errorMessage is not null)
+                    {
+                        <div class="alert alert-danger">@errorMessage</div>
+                    }
+                    @if (isLoading)
+                    {
+                        <p><em>Searching creatures...</em></p>
+                    }
+                    else if (results.Creatures.Count == 0)
+                    {
+                        <div class="alert alert-secondary">No matching creatures were found.</div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover align-middle">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th><th>ID</th><th>Type</th>
+                                        <th>Family</th><th>Levels</th><th>Pet</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var creature in results.Creatures)
+                                    {
+                                        <tr class="picker-result-row" tabindex="0" role="button"
+                                            aria-label="Select @creature.Name"
+                                            @onclick="() => SelectAsync(creature)"
+                                            @onkeydown="args => SelectFromKeyboardAsync(args, creature)">
+                                            <td class="fw-semibold">@creature.Name</td>
+                                            <td>@creature.CreatureId</td>
+                                            <td>@CreatureTypeName(creature.CreatureType)</td>
+                                            <td>@CreatureFamilyName(creature.Family)</td>
+                                            <td>@creature.MinimumLevel&ndash;@creature.MaximumLevel</td>
+                                            <td>@(creature.Exotic ? "Exotic" : creature.Tameable ? "Tameable" : "No")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer justify-content-between">
+                    <span class="text-muted">@results.TotalCount matching creatures</span>
+                    <div class="d-flex align-items-center gap-2">
+                        <button class="btn btn-sm btn-outline-secondary"
+                                disabled="@(isLoading || results.Page <= 1)"
+                                @onclick="() => LoadAsync(results.Page - 1)">
+                            Previous
+                        </button>
+                        <span>Page @results.Page of @Math.Max(1, results.TotalPages)</span>
+                        <button class="btn btn-sm btn-outline-secondary"
+                                disabled="@(isLoading || results.Page >= results.TotalPages)"
+                                @onclick="() => LoadAsync(results.Page + 1)">
+                            Next
+                        </button>
+                        <button type="button" class="btn btn-secondary" @onclick="CloseAsync">
+                            Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}

@@ -1,0 +1,112 @@
+@inherits PlayerActionToolBase
+
+<PlayerActionToolHeader Title="Guild bank" ShowResult="HasActionResult"
+                        Message="@ResultMessage" Succeeded="OperationSucceeded">
+    <button class="btn btn-outline-secondary"
+            disabled="@(!CanInspect)"
+            @onclick="InspectAsync">
+        @(isLoading ? "Inspecting..." : "Inspect guild")
+    </button>
+    @if (guildBank is { IsGuildMaster: true } &&
+         guildBank.PurchasedTabs < guildBank.MaximumTabs)
+    {
+        <button class="btn btn-primary"
+                disabled="@(!Available || IsWorking || !confirmed)"
+                @onclick="UnlockAsync">
+            Unlock next tab
+        </button>
+    }
+</PlayerActionToolHeader>
+<p class="small text-muted">
+    Requires exactly one online real-player guild master.
+</p>
+@if (guildBank is not null)
+{
+    <div class="border rounded p-3">
+        <div><strong>@guildBank.GuildName</strong></div>
+        <div class="small text-muted">
+            @guildBank.PurchasedTabs / @guildBank.MaximumTabs bank tabs unlocked
+            · selected character: @guildBank.PlayerName
+        </div>
+        @if (!guildBank.IsGuildMaster)
+        {
+            <div class="alert alert-warning py-2 mt-2 mb-0">
+                Only the guild master can unlock a tab.
+            </div>
+        }
+        else if (guildBank.PurchasedTabs >= guildBank.MaximumTabs)
+        {
+            <div class="alert alert-success py-2 mt-2 mb-0">
+                All guild bank tabs are unlocked.
+            </div>
+        }
+        else
+        {
+            <div class="small mt-2">
+                Normal price: @FormatMoney(guildBank.NextTabCostCopper).
+                The admin unlock will not charge the character.
+            </div>
+            <div class="form-check my-2">
+                <input id="confirm-guild-tab" class="form-check-input" type="checkbox"
+                       @bind="confirmed" />
+                <label class="form-check-label" for="confirm-guild-tab">
+                    Confirm free unlock of tab @(guildBank.PurchasedTabs + 1)
+                </label>
+            </div>
+        }
+    </div>
+}
+<PlayerActionFeedback Results="Results" />
+
+@code {
+    private GuildBankStatus? guildBank;
+    private bool isLoading;
+    private bool confirmed;
+    private bool CanInspect =>
+        CanExecute && Targets.Count == 1 && !Targets[0].IsPlayerBot && Targets[0].Online && !isLoading;
+
+    protected override void OnTargetsChanged()
+    {
+        guildBank = null;
+        confirmed = false;
+    }
+
+    private async Task InspectAsync()
+    {
+        if (!CanInspect)
+            return;
+        var revision = TargetRevision;
+        isLoading = true;
+        try
+        {
+            var result = await AccountsClient.GetGuildBankAsync(Targets[0].Name);
+            if (TargetsUnchanged(revision))
+                guildBank = result;
+        }
+        catch (Exception exception)
+        {
+            if (!TargetsUnchanged(revision))
+                return;
+            guildBank = null;
+            SetActionFailure(exception.Message);
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task UnlockAsync()
+    {
+        if (guildBank is null)
+            return;
+        await RunAsync(() => AccountsClient.UnlockGuildBankTabAsync(
+            new(guildBank.PlayerName, confirmed)));
+        confirmed = false;
+        if (OperationSucceeded)
+            await InspectAsync();
+    }
+
+    private static string FormatMoney(uint copper) =>
+        $"{copper / 10000:N0}g {(copper / 100) % 100}s {copper % 100}c";
+}

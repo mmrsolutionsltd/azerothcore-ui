@@ -4,10 +4,9 @@
 @using AzerothCore_UI.Web.Models
 @inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
 
-<PageTitle>Training</PageTitle>
+<PageTitle>Available training</PageTitle>
 
-<div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
-    <h1 class="mb-0">Available training</h1>
+<div class="d-flex flex-wrap justify-content-end align-items-center gap-2">
     <button class="btn btn-outline-secondary" disabled="@(isLoading || activeTraining is not null)"
             @onclick="RefreshTrainingAsync">
         @(activeTraining == "refresh" ? "Refreshing…" : "Refresh characters")

@@ -147,14 +147,14 @@ public sealed class CharacterPickerTests : BunitContext
 
     private static string[] VisibleCharacterNames(
         IRenderedComponent<CharacterPicker> picker) =>
-        picker.FindAll("button.w-100 strong")
+        picker.FindAll(".character-picker-item strong")
             .Select(element => element.TextContent.Trim())
             .ToArray();
 
     private static AngleSharp.Dom.IElement CharacterButton(
         IRenderedComponent<CharacterPicker> picker,
         string characterName) =>
-        picker.FindAll("button.w-100")
+        picker.FindAll(".character-picker-item")
             .Single(button => button.TextContent.Contains(
                 characterName, StringComparison.Ordinal));
 

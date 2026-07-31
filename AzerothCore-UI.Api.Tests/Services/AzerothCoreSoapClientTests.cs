@@ -72,6 +72,25 @@ public sealed class AzerothCoreSoapClientTests
         Assert.Throws<ArgumentOutOfRangeException>(
             () => AzerothCoreSoapClient.BuildNpcTeleportCommand("Hundead", 0, false));
 
+    [Fact]
+    public void BuildCreatureSpawnCommand_IncludesCountAndSquareSize() =>
+        Assert.Equal(
+            "webadmin creature spawn Hundead 1512 10 15 10 100",
+            AzerothCoreSoapClient.BuildCreatureSpawnCommand(
+                "Hundead", 1512, 10, 15, 10, 100));
+
+    [Theory]
+    [InlineData(0, 100)]
+    [InlineData(26, 100)]
+    [InlineData(10, 0)]
+    [InlineData(10, 201)]
+    public void BuildCreatureSpawnCommand_RejectsUnsafeAreaSettings(
+        int count,
+        int squareSideLength) =>
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            AzerothCoreSoapClient.BuildCreatureSpawnCommand(
+                "Hundead", 1512, 10, 15, count, squareSideLength));
+
     [Theory]
     [InlineData(true, "quest add 9617 Hundead")]
     [InlineData(false, "quest remove 9617 Hundead")]
@@ -88,6 +107,22 @@ public sealed class AzerothCoreSoapClientTests
     [InlineData(false, "ahbotoptions seller 0")]
     public void BuildAuctionHouseSellerCommand_UsesInstalledModuleSyntax(bool enabled, string expected) =>
         Assert.Equal(expected, AzerothCoreSoapClient.BuildAuctionHouseSellerCommand(enabled));
+
+    [Fact]
+    public void BuildCharacterAccountTransferCommand_UsesSupportedAzerothCoreSyntax() =>
+        Assert.Equal(
+            "character changeaccount FAMILY Hundead",
+            AzerothCoreSoapClient.BuildCharacterAccountTransferCommand(
+                "Hundead", "FAMILY"));
+
+    [Theory]
+    [InlineData("Hundead", "invalid-account")]
+    [InlineData("Hundead!", "FAMILY")]
+    public void BuildCharacterAccountTransferCommand_RejectsUnsafeIdentifiers(
+        string playerName, string accountName) =>
+        Assert.Throws<ArgumentException>(() =>
+            AzerothCoreSoapClient.BuildCharacterAccountTransferCommand(
+                playerName, accountName));
 
     [Theory]
     [InlineData("Admin123")]

@@ -1,0 +1,26 @@
+<div class="player-action-tool-heading d-flex flex-wrap align-items-center gap-2 mb-2">
+    <div class="d-flex flex-wrap align-items-baseline gap-2">
+        <h2 class="h5 mb-0">@Title</h2>
+        @if (ShowResult && !string.IsNullOrWhiteSpace(Message))
+        {
+            <span class="small fw-semibold @(Succeeded ? "text-success" : "text-danger")"
+                  role="status">
+                @Message
+            </span>
+        }
+    </div>
+    @if (ChildContent is not null)
+    {
+        <div class="player-action-tool-actions d-flex flex-wrap justify-content-end gap-2 ms-auto">
+            @ChildContent
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter] public bool ShowResult { get; set; }
+    [Parameter] public string? Message { get; set; }
+    [Parameter] public bool Succeeded { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

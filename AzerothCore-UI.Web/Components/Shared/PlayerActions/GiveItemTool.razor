@@ -1,0 +1,58 @@
+@inherits PlayerActionToolBase
+
+<PlayerActionToolHeader Title="Give item" ShowResult="HasActionResult"
+						Message="@ResultMessage" Succeeded="OperationSucceeded">
+	<button class="btn btn-primary" disabled="@(!CanExecute || itemId == 0)"
+			@onclick="GiveAsync">
+		Give item
+	</button>
+	<button class="btn btn-outline-primary" disabled="@(!CanExecute || itemId == 0)"
+			@onclick="MailAsync">
+		Mail item
+	</button>
+</PlayerActionToolHeader>
+<div class="input-group mb-2 row">
+	<div class="col-10">
+		<input class="form-control clickable-input"
+			   value="@(itemId == 0 ? "No item selected" : $"{selectedItemName} (ID {itemId})")"
+			   @onclick="OpenPicker" readonly />
+	</div>
+	<div class="col">
+		<input class="form-control" type="number" min="1" max="1000" @bind="quantity"
+			   aria-label="Item quantity" />
+	</div>
+</div>
+<PlayerActionFeedback Results="Results" />
+
+<ItemPickerDialog IsOpen="@showPicker" TargetNames="@TargetNames"
+				  ItemSelected="SelectItem" Closed="ClosePicker" />
+
+@code {
+	private uint itemId;
+	private int quantity = 1;
+	private string? selectedItemName;
+	private bool showPicker;
+	private IReadOnlyCollection<string> TargetNames =>
+		Targets.Select(target => target.Name).ToArray();
+
+	private void OpenPicker() => showPicker = true;
+	private void ClosePicker() => showPicker = false;
+
+	private void SelectItem(AdministrationItem item)
+	{
+		itemId = item.ItemId;
+		selectedItemName = item.Name;
+		showPicker = false;
+	}
+
+	private Task GiveAsync() => RunBatchAsync(
+		"Give item",
+		player => AccountsClient.GiveItemAsync(new(player, itemId, quantity)));
+
+	private Task MailAsync() => RunBatchAsync(
+		"Mail item",
+		player => AccountsClient.MailItemAsync(new(
+			player, itemId, quantity,
+			"Server administration",
+			"Items from the server administrator.")));
+}

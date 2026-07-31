@@ -176,11 +176,20 @@ public sealed class QuestingCompanionCandidate
         : AccountsLinked ? "Trusted accounts"
         : "Accounts are not linked and the characters do not share a guild";
 }
+public sealed record QuestingCompanionObjective(
+    string Kind, uint Entry, string Name, int Current, int Required);
+public sealed record QuestingCompanionQuest(
+    uint QuestId, string Title, bool Complete,
+    IReadOnlyList<QuestingCompanionObjective> Objectives);
 public sealed record ActiveQuestingCompanion(
-    string Name, int Level, int CharacterClass, bool InLeaderParty);
+    string Name, int Level, int CharacterClass, bool InLeaderParty,
+    bool LootEnabled, int FreeBagSlots, int TotalBagSlots,
+    IReadOnlyList<QuestingCompanionQuest> Quests, string QuestObjectStatus);
 public sealed record QuestingCompanionStatus(
     string LeaderName, IReadOnlyList<ActiveQuestingCompanion> ActiveCompanions,
-    IReadOnlyList<QuestingCompanionCandidate> Candidates);
+    IReadOnlyList<QuestingCompanionCandidate> Candidates,
+    IReadOnlyList<QuestingCompanionQuest> LeaderQuests,
+    int ProtocolVersion);
 public sealed record QuestingCompanionRequest(string LeaderName, string CompanionName);
 public sealed record QuestingCompanionAccountLinkRequest(
     string LeaderName, string CompanionName, bool Linked, bool Confirmed);
@@ -257,13 +266,24 @@ public sealed record TeleportToDungeonQuestGiverRequest(
     uint QuestId, uint SpawnId, IReadOnlyList<string> PlayerNames, bool Confirmed);
 public sealed record ReturnDungeonQuestPlayersRequest(
     IReadOnlyList<string> PlayerNames, bool Confirmed);
-public sealed record SpawnCreatureRequest(string AnchorPlayerName, uint CreatureId, int Level, int DespawnMinutes, bool Confirmed);
+public sealed record SpawnCreatureRequest(
+    string AnchorPlayerName,
+    uint CreatureId,
+    int Level,
+    int DespawnMinutes,
+    int Count,
+    int SquareSideLength,
+    bool Confirmed);
 public sealed record UtilityNpc(uint CreatureId, string Name, string Service, string Description, int Level);
 public sealed record SummonUtilityNpcRequest(
     string PlayerName, uint CreatureId, int DespawnMinutes, bool Confirmed);
 public sealed record SetAccountGmRequest(string Username, bool Enabled, bool Confirmed);
 public sealed record SetPlayerSpeedRequest(string PlayerName, decimal Speed);
 public sealed record CharacterServiceRequest(string PlayerName, string Service, int? Level, bool Confirmed);
+public sealed record CharacterAccountTransferRequest(
+    string PlayerName, uint DestinationAccountId, bool Confirmed);
+public sealed record CharacterTransferAccount(
+    uint AccountId, string Username, string Classification, int CharacterCount);
 public sealed record TeleportToTrainerRequest(string PlayerName, uint SpawnId, bool Confirmed);
 public sealed record CollectibleItem(uint ItemId, string Name, string Type, int LearnSpellId, byte RequiredLevel, byte Quality);
 public sealed record CollectibleSearchResult(IReadOnlyList<CollectibleItem> Items, int Page, int PageSize, int TotalCount, int TotalPages);

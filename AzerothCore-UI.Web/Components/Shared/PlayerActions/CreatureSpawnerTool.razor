@@ -1,0 +1,113 @@
+@inherits PlayerActionToolBase
+
+<PlayerActionToolHeader Title="Creature spawner" ShowResult="HasActionResult"
+                        Message="@ResultMessage" Succeeded="OperationSucceeded">
+    <button class="btn btn-success" disabled="@(!CanSpawn)" @onclick="SpawnAsync">
+        Spawn @creatureCount
+    </button>
+</PlayerActionToolHeader>
+
+<input class="form-control clickable-item mb-2"
+       value="@(selectedCreature is null
+           ? "No creature selected"
+           : $"{selectedCreature.Name} (ID {selectedCreature.CreatureId})")"
+       @onclick="() => showPicker = true"
+       readonly role="button" aria-label="Choose creature" />
+
+@if (selectedCreature is not null)
+{
+    <div class="row g-2 mb-2">
+        <div class="col-3">
+            <label class="form-label" for="creature-level">Level</label>
+            <input id="creature-level" class="form-control" type="number"
+                   min="1" max="83" @bind="creatureLevel" />
+        </div>
+        <div class="col-3">
+            <label class="form-label" for="creature-count">Number</label>
+            <input id="creature-count" class="form-control" type="number"
+                   min="1" max="25" @bind="creatureCount" />
+        </div>
+        <div class="col-3">
+            <label class="form-label" for="creature-square-length">Square</label>
+            <div class="input-group">
+                <input id="creature-square-length" class="form-control" type="number"
+                       min="1" max="200" @bind="squareSideLength" />
+                <span class="input-group-text">m</span>
+            </div>
+        </div>
+        <div class="col-3">
+            <label class="form-label" for="creature-despawn">Despawn</label>
+            <div class="input-group">
+                <input id="creature-despawn" class="form-control" type="number"
+                       min="1" max="30" @bind="despawnMinutes" />
+                <span class="input-group-text">min</span>
+            </div>
+        </div>
+    </div>
+
+    @if (creatureLevel < selectedCreature.MinimumLevel ||
+         creatureLevel > selectedCreature.MaximumLevel)
+    {
+        <div class="alert alert-warning py-2 small">
+            Level @creatureLevel is outside the natural
+            @selectedCreature.MinimumLevel&ndash;@selectedCreature.MaximumLevel range.
+            AzerothCore will recalculate its stats.
+        </div>
+    }
+
+}
+
+<div class="form-text">
+    Random positions use a @squareSideLength &times; @squareSideLength metre square.
+    Spawns are temporary and all selected targets must be online.
+</div>
+<PlayerActionFeedback Results="Results" />
+
+<CreaturePickerDialog IsOpen="@showPicker"
+                      CreatureSelected="SelectCreature"
+                      Closed="() => showPicker = false" />
+
+@code {
+    private AdministrationCreature? selectedCreature;
+    private bool showPicker;
+    private int creatureLevel = 1;
+    private int creatureCount = 1;
+    private int squareSideLength = 20;
+    private int despawnMinutes = 10;
+
+    private bool SettingsValid =>
+        creatureLevel is >= 1 and <= 83
+        && creatureCount is >= 1 and <= 25
+        && squareSideLength is >= 1 and <= 200
+        && despawnMinutes is >= 1 and <= 30;
+    private bool CanSpawn =>
+        CanExecute
+        && selectedCreature is not null
+        && SettingsValid
+        && Targets.All(target => target.Online);
+
+    private void SelectCreature(AdministrationCreature creature)
+    {
+        selectedCreature = creature;
+        creatureLevel = creature.MinimumLevel;
+        showPicker = false;
+    }
+
+    private async Task SpawnAsync()
+    {
+        var creature = selectedCreature;
+        if (creature is null)
+            return;
+
+        await RunBatchAsync(
+            "Spawn creature",
+            player => AccountsClient.SpawnCreatureAsync(new(
+                player,
+                creature.CreatureId,
+                creatureLevel,
+                despawnMinutes,
+                creatureCount,
+                squareSideLength,
+                true)));
+    }
+}

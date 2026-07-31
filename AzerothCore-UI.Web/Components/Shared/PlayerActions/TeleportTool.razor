@@ -1,0 +1,289 @@
+@inherits PlayerActionToolBase
+
+<PlayerActionToolHeader Title="Teleport" ShowResult="HasActionResult"
+						Message="@ResultMessage" Succeeded="OperationSucceeded">
+	@if (mode == "place")
+	{
+		<button class="btn btn-primary"
+				disabled="@(!CanExecute || string.IsNullOrWhiteSpace(locationName))"
+				@onclick="TeleportToPlaceAsync">
+			Teleport to place
+		</button>
+	}
+	else if (mode == "npc")
+	{
+		<button class="btn btn-primary"
+				disabled="@(!CanExecute || selectedNpc is null ||
+											(selectedNpc.PotentiallyHostile && !confirmNpcTeleport))"
+				@onclick="TeleportToNpcAsync">
+			Teleport to NPC
+		</button>
+		@if (returnPlayerNames.Count > 0)
+		{
+			<button class="btn btn-outline-secondary"
+					disabled="@(!Available || IsWorking || !confirmReturn)"
+					@onclick="ReturnAsync">
+				Return players
+			</button>
+		}
+	}
+	else
+	{
+		<button class="btn btn-primary"
+				disabled="@(!CanExecute || string.IsNullOrWhiteSpace(anchorPlayer))"
+				@onclick="MoveToPlayerAsync">
+			Move to player
+		</button>
+	}
+</PlayerActionToolHeader>
+<div class="row">
+	<div class="col-auto">
+		<div class="btn-group btn-group-sm mb-2" role="group" aria-label="Teleport destination type">
+			<button type="button" class="btn @(mode == "place" ? "btn-primary" : "btn-outline-primary")"
+					@onclick='() => SetMode("place")'>
+				Place
+			</button>
+			<button type="button" class="btn @(mode == "npc" ? "btn-primary" : "btn-outline-primary")"
+					@onclick='() => SetMode("npc")'>
+				NPC
+			</button>
+			<button type="button" class="btn @(mode == "player" ? "btn-primary" : "btn-outline-primary")"
+					@onclick='() => SetMode("player")'>
+				Player
+			</button>
+		</div>
+	</div>
+	<div class="col">
+		@if (mode == "place")
+		{
+			<input class="form-control clickable-item mb-2"
+				   value="@(string.IsNullOrWhiteSpace(locationName) ? "No location selected" : locationName)"
+				   @onclick="() => showLocationPicker = true"
+				   readonly role="button" aria-label="Choose teleport location" />
+		}
+		else if (mode == "npc")
+		{
+			<input class="form-control clickable-item mb-2"
+				   value="@(selectedNpc is null ? "No NPC selected" : $"{selectedNpc.Name} — {MapName(selectedNpc.MapId)}")"
+				   disabled="@(Targets.Count == 0)"
+				   @onclick="() => showNpcPicker = true"
+				   readonly role="button" aria-label="Choose NPC" />
+			@if (selectedNpc is not null)
+			{
+				<div class="small text-muted mb-2">
+					@selectedNpc.Subname · entry @selectedNpc.CreatureId · spawn @selectedNpc.SpawnId
+				</div>
+				@if (selectedNpc.PotentiallyHostile)
+				{
+					<div class="alert alert-danger py-2 mb-2">
+						This NPC may be hostile and could attack or kill the teleported character.
+					</div>
+					<div class="form-check mb-2">
+						<input id="confirm-npc-teleport" class="form-check-input" type="checkbox"
+							   @bind="confirmNpcTeleport" />
+						<label class="form-check-label" for="confirm-npc-teleport">
+							Confirm teleporting to a potentially hostile NPC
+						</label>
+					</div>
+				}
+			}
+			@if (returnPlayerNames.Count > 0)
+			{
+				<div class="border rounded p-2 mt-2 small">
+					<div>Return available: @string.Join(", ", returnPlayerNames)</div>
+					<div class="form-check mt-1">
+						<input id="confirm-npc-return" class="form-check-input" type="checkbox"
+							   @bind="confirmReturn" />
+						<label class="form-check-label" for="confirm-npc-return">
+							Confirm returning players
+						</label>
+					</div>
+				</div>
+			}
+		}
+		else
+		{
+			@if (playerLoadError is not null)
+			{
+				<div class="alert alert-danger py-2">@playerLoadError</div>
+			}
+			@if (isLoadingPlayers)
+			{
+				<p><em>Loading possible players...</em></p>
+			}
+			else
+			{
+				<div class="row g-2 align-items-center">
+					<div class="col">
+						<select id="movement-anchor" class="form-select clickable-item"
+								@bind="anchorPlayer">
+							<option value="">Choose a player...</option>
+							@foreach (var player in AvailableAnchors)
+							{
+								<option value="@player.Name">
+									@player.Name - @(player.IsPlayerBot ? "Bot" : player.Username)
+								</option>
+							}
+						</select>
+					</div>
+					<div class="col-auto">
+						<div class="form-check form-switch mb-0">
+							<input id="@($"{playerFilterId}-offline")" class="form-check-input"
+								   type="checkbox" @bind="showOffline"
+								   @bind:after="ValidateSelectedAnchor" />
+							<label class="form-check-label small"
+								   for="@($"{playerFilterId}-offline")">Offline</label>
+						</div>
+					</div>
+					<div class="col-auto">
+						<div class="form-check form-switch mb-0">
+							<input id="@($"{playerFilterId}-bots")" class="form-check-input"
+								   type="checkbox" @bind="showBots"
+								   @bind:after="ValidateSelectedAnchor" />
+							<label class="form-check-label small"
+								   for="@($"{playerFilterId}-bots")">Bots</label>
+						</div>
+					</div>
+				</div>
+			}
+		}
+	</div>
+</div>
+<PlayerActionFeedback Results="Results" />
+
+<TeleportLocationPickerDialog IsOpen="@showLocationPicker"
+							  LocationSelected="SelectLocation"
+							  Closed="() => showLocationPicker = false" />
+<NpcTeleportPickerDialog IsOpen="@showNpcPicker"
+						 AnchorPlayerName="@(Targets.FirstOrDefault()?.Name ?? "")"
+						 NpcSelected="SelectNpc"
+						 Closed="() => showNpcPicker = false" />
+
+@code {
+	private string mode = "place";
+	private string locationName = "";
+	private bool showLocationPicker;
+	private bool showNpcPicker;
+	private NpcTeleportSpawn? selectedNpc;
+	private bool confirmNpcTeleport;
+	private bool confirmReturn;
+	private IReadOnlyList<string> returnPlayerNames = [];
+	private IReadOnlyList<AdministrationPlayer> players = [];
+	private string anchorPlayer = "";
+	private bool isLoadingPlayers;
+	private bool playersLoaded;
+	private bool showOffline;
+	private bool showBots;
+	private string? playerLoadError;
+	private readonly string playerFilterId = $"movement-anchor-{Guid.NewGuid():N}";
+	private IReadOnlyList<AdministrationPlayer> AvailableAnchors => players
+		.Where(player => (player.Online || showOffline)
+			&& (!player.IsPlayerBot || showBots)
+			&& Targets.All(target => !target.Name.Equals(
+				player.Name, StringComparison.OrdinalIgnoreCase)))
+		.OrderByDescending(player => player.Online)
+		.ThenBy(player => player.IsPlayerBot)
+		.ThenBy(player => player.Name)
+		.ToArray();
+
+	protected override void OnTargetsChanged()
+	{
+		selectedNpc = null;
+		confirmNpcTeleport = false;
+		confirmReturn = false;
+		if (Targets.Any(target => target.Name.Equals(
+				anchorPlayer, StringComparison.OrdinalIgnoreCase)))
+			anchorPlayer = "";
+	}
+
+	protected override async Task OnParametersSetAsync()
+	{
+		if (playersLoaded)
+			return;
+
+		isLoadingPlayers = true;
+		try
+		{
+			players = await AccountsClient.GetAdministrationPlayersAsync();
+			playersLoaded = true;
+		}
+		catch (Exception exception)
+		{
+			playerLoadError =
+				$"Possible destination players could not be loaded: {exception.Message}";
+		}
+		finally
+		{
+			isLoadingPlayers = false;
+		}
+	}
+
+	private void SetMode(string value)
+	{
+		mode = value;
+		confirmNpcTeleport = false;
+	}
+
+	private void ValidateSelectedAnchor()
+	{
+		if (!string.IsNullOrWhiteSpace(anchorPlayer)
+			&& AvailableAnchors.All(player => !player.Name.Equals(
+				anchorPlayer, StringComparison.OrdinalIgnoreCase)))
+			anchorPlayer = "";
+	}
+
+	private void SelectLocation(TeleportLocation location)
+	{
+		locationName = location.Name;
+		showLocationPicker = false;
+	}
+
+	private void SelectNpc(NpcTeleportSpawn npc)
+	{
+		selectedNpc = npc;
+		confirmNpcTeleport = false;
+		showNpcPicker = false;
+	}
+
+	private Task TeleportToPlaceAsync() => RunBatchAsync(
+		"Teleport",
+		player => AccountsClient.TeleportAsync(new(player, locationName)));
+
+	private Task MoveToPlayerAsync() => RunBatchAsync(
+		"Move to player",
+		player => AccountsClient.TeleportToPlayerAsync(new(player, anchorPlayer)));
+
+	private async Task TeleportToNpcAsync()
+	{
+		if (selectedNpc is null)
+			return;
+		await RunBatchAsync(
+			"NPC teleport",
+			player => AccountsClient.TeleportToNpcAsync(
+				new(player, selectedNpc.SpawnId, confirmNpcTeleport)));
+		returnPlayerNames = Results.Where(result => result.Success)
+			.Select(result => result.PlayerName).ToArray();
+		if (returnPlayerNames.Count > 0)
+			confirmNpcTeleport = false;
+	}
+
+	private async Task ReturnAsync()
+	{
+		await RunAsync(() => AccountsClient.ReturnPlayersAsync(
+			new(returnPlayerNames, confirmReturn)));
+		if (OperationSucceeded)
+		{
+			returnPlayerNames = [];
+			confirmReturn = false;
+		}
+	}
+
+	private static string MapName(ushort mapId) => mapId switch
+	{
+		0 => "Eastern Kingdoms",
+		1 => "Kalimdor",
+		530 => "Outland",
+		571 => "Northrend",
+		_ => $"Map {mapId}"
+	};
+}

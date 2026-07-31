@@ -1,5 +1,7 @@
 using AzerothCore_UI.Web.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Authorization;
 
 namespace AzerothCore_UI.Web.Components.Pages
 {
@@ -9,7 +11,10 @@ namespace AzerothCore_UI.Web.Components.Pages
         [SupplyParameterFromQuery(Name = "tab")]
         public string? InitialTab { get; set; }
 
-        private static readonly string[] tabs = ["Inventory", "Quests", "Professions", "Training"];
+        private static readonly string[] BaseTabs = ["Inventory", "Quests", "Professions", "Training"];
+        [Inject] private IAuthorizationService AuthorizationService { get; set; } = null!;
+        [Inject] private AuthenticationStateProvider AuthenticationStateProvider { get; set; } = null!;
+        private IReadOnlyList<string> tabs = BaseTabs;
         private AzerothCore_UI.Web.Models.CharacterDetails? character;
         private IReadOnlyList<EquippedItem> equippedItems = [];
         private IReadOnlyList<BagItem> bagItems = [];
@@ -61,11 +66,23 @@ namespace AzerothCore_UI.Web.Components.Pages
         private string? questRecipesErrorMessage;
         private string? otherRecipesErrorMessage;
         private string? trainingErrorMessage;
+        private IReadOnlyList<PlayerActionTarget> CharacterActionTargets =>
+            character is null ? [] : [PlayerActionTarget.From(character)];
 
         protected override async Task OnParametersSetAsync()
         {
             isLoading = true;
             errorMessage = null;
+            var authenticationState =
+                await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            var availableTabs = BaseTabs.ToList();
+            if ((await AuthorizationService.AuthorizeAsync(
+                    authenticationState.User, "players.actions")).Succeeded)
+                availableTabs.Add("Actions");
+            if ((await AuthorizationService.AuthorizeAsync(
+                    authenticationState.User, "adventures.training")).Succeeded)
+                availableTabs.Add("Trainers");
+            tabs = availableTabs;
             activeTab = tabs.FirstOrDefault(tab =>
                 string.Equals(tab, InitialTab, StringComparison.OrdinalIgnoreCase)) ?? "Inventory";
             equippedItems = [];

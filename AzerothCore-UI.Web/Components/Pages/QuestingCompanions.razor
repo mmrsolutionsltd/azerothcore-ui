@@ -1,11 +1,11 @@
 @page "/questing-companions"
 @rendermode InteractiveServer
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "adventures.quests")]
+@implements IAsyncDisposable
 @inject AccountsApiClient Api
 @inject Microsoft.AspNetCore.Components.Authorization.AuthenticationStateProvider AuthenticationStateProvider
 
 <PageTitle>Questing companions</PageTitle>
-<h1>Questing companions</h1>
 <p class="text-muted">
     Play the leader normally while selected characters follow, fight, and complete
     shared quests as PlayerBots.
@@ -119,7 +119,13 @@
     <div class="col-12 col-xl-4">
         <div class="card h-100">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <span>3. Active companions</span>
+                <span>
+                    3. Active companions
+                    @if (status is { ProtocolVersion: > 0 })
+                    {
+                        <span class="badge text-bg-secondary ms-1">Bridge v@status.ProtocolVersion</span>
+                    }
+                </span>
                 <button class="btn btn-sm btn-outline-secondary" type="button"
                         disabled="@(working || string.IsNullOrWhiteSpace(leaderName))"
                         @onclick="RefreshAsync">Refresh</button>
@@ -131,21 +137,121 @@
                 }
                 else
                 {
+                    @if (status.ProtocolVersion == 0)
+                    {
+                        <div class="alert alert-warning py-2 small">
+                            The installed server bridge predates protocol version reporting.
+                            Rebuild and install the current mod-web-admin source.
+                        </div>
+                    }
                     @foreach (var companion in status.ActiveCompanions)
                     {
-                        <div class="border rounded p-2 mb-2 d-flex gap-2 align-items-center">
-                            <div class="flex-grow-1">
-                                <strong>@companion.Name</strong>
-                                <div class="small text-muted">
-                                    Level @companion.Level · @ClassName(companion.CharacterClass)
-                                    · @(companion.InLeaderParty ? "In party" : "Not in party")
+                        <div class="border rounded p-2 mb-2">
+                            <div class="d-flex gap-2 align-items-start">
+                                <div class="flex-grow-1">
+                                    <strong>@companion.Name</strong>
+                                    <div class="small text-muted">
+                                        Level @companion.Level · @ClassName(companion.CharacterClass)
+                                        · @(companion.InLeaderParty ? "In party" : "Not in party")
+                                    </div>
+                                    @if (companion.TotalBagSlots > 0)
+                                    {
+                                        <div class="d-flex flex-wrap gap-1 mt-1">
+                                            <span class="badge @(companion.LootEnabled ? "text-bg-success" : "text-bg-warning")">
+                                                Loot @(companion.LootEnabled ? "enabled" : "disabled")
+                                            </span>
+                                            <span class="badge @(companion.FreeBagSlots > 2 ? "text-bg-secondary" : "text-bg-danger")">
+                                                @companion.FreeBagSlots/@companion.TotalBagSlots bag slots free
+                                            </span>
+                                        </div>
+                                    }
                                 </div>
+                                <button class="btn btn-sm btn-outline-danger" type="button"
+                                        disabled="@working"
+                                        @onclick="() => DismissAsync(companion.Name)">
+                                    Dismiss
+                                </button>
                             </div>
-                            <button class="btn btn-sm btn-outline-danger" type="button"
-                                    disabled="@working"
-                                    @onclick="() => DismissAsync(companion.Name)">
-                                Dismiss
-                            </button>
+
+                            @if (companion.TotalBagSlots == 0)
+                            {
+                                <div class="small text-warning mt-2">
+                                    Loot and quest progress need the latest installed
+                                    mod-web-admin build.
+                                </div>
+                            }
+                            else
+                            {
+                                @if (!string.IsNullOrWhiteSpace(companion.QuestObjectStatus))
+                                {
+                                    <div class="small mt-2 @QuestObjectStatusClass(companion.QuestObjectStatus)">
+                                        World-object collection: @companion.QuestObjectStatus
+                                    </div>
+                                }
+                                @if (!companion.LootEnabled)
+                                {
+                                    <div class="small text-danger mt-2">
+                                        Looting is not active for this companion.
+                                        Dismiss and start it again after the updated module is installed.
+                                    </div>
+                                }
+                                @if (companion.FreeBagSlots == 0)
+                                {
+                                    <div class="small text-danger mt-2">
+                                        Bags are full, so this companion cannot collect quest items.
+                                    </div>
+                                }
+                                @if (companion.Quests.Count == 0)
+                                {
+                                    <div class="small text-muted mt-2">
+                                        No mirrored quests are currently in this companion's log.
+                                    </div>
+                                }
+                                else
+                                {
+                                    <details class="mt-2">
+                                        <summary class="small">
+                                            Quest progress (@companion.Quests.Count)
+                                        </summary>
+                                        <div class="mt-2">
+                                            @foreach (var quest in companion.Quests)
+                                            {
+                                                var leaderQuest = FindLeaderQuest(quest.QuestId);
+                                                <div class="border-top py-2">
+                                                    <div class="d-flex justify-content-between gap-2">
+                                                        <strong class="small">@quest.Title</strong>
+                                                        <span class="badge @(quest.Complete ? "text-bg-success" : "text-bg-secondary")">
+                                                            @(quest.Complete ? "Ready to turn in" : "In progress")
+                                                        </span>
+                                                    </div>
+                                                    @if (quest.Objectives.Count == 0)
+                                                    {
+                                                        <div class="small text-muted mt-1">
+                                                            No countable item or kill objectives.
+                                                        </div>
+                                                    }
+                                                    else
+                                                    {
+                                                        @foreach (var objective in quest.Objectives)
+                                                        {
+                                                            var leaderObjective =
+                                                                FindLeaderObjective(leaderQuest, objective);
+                                                            <div class="small mt-1 d-flex justify-content-between gap-2">
+                                                                <span>@objective.Name</span>
+                                                                <span class="text-nowrap">
+                                                                    You: @(leaderObjective?.Current ?? 0)/@objective.Required
+                                                                    · @companion.Name:
+                                                                    @objective.Current/@objective.Required
+                                                                </span>
+                                                            </div>
+                                                        }
+                                                    }
+                                                </div>
+                                            }
+                                        </div>
+                                    </details>
+                                }
+                            }
                         </div>
                     }
                 }
@@ -158,7 +264,9 @@
     Each companion must be on a different WoW account from the leader. Eligible quests
     accepted by the leader are mirrored to active companions. A nearby companion can
     also take eligible quests for its own class or professions when the leader talks to
-    that quest giver. Scripted or item-started quests may still need manual help.
+    that quest giver. Companions collect and track their own quest items; Free-for-All
+    party loot must be enabled in PlayerBots for this to work consistently. Scripted or
+    item-started quests may still need manual help.
 </div>
 
 @code {
@@ -171,6 +279,8 @@
     private bool operationSucceeded, working;
     private bool canManageAccountLinks, pendingLinkValue;
     private QuestingCompanionCandidate? pendingLinkCandidate;
+    private readonly CancellationTokenSource refreshCancellation = new();
+    private Task? refreshLoop;
 
     private IReadOnlyList<CharacterPickerItem> LeaderItems => players
         .Where(player => player.Online && !player.IsPlayerBot)
@@ -202,6 +312,7 @@
                 await AuthenticationStateProvider.GetAuthenticationStateAsync();
             canManageAccountLinks = authenticationState.User.IsInRole("Owner")
                 || authenticationState.User.IsInRole("Administrator");
+            refreshLoop = RefreshLoopAsync(refreshCancellation.Token);
         }
         catch (Exception exception)
         {
@@ -323,4 +434,62 @@
         5 => "Priest", 6 => "Death Knight", 7 => "Shaman", 8 => "Mage",
         9 => "Warlock", 11 => "Druid", _ => $"Class {value}"
     };
+
+    private QuestingCompanionQuest? FindLeaderQuest(uint questId) =>
+        status?.LeaderQuests.FirstOrDefault(quest => quest.QuestId == questId);
+
+    private static QuestingCompanionObjective? FindLeaderObjective(
+        QuestingCompanionQuest? quest, QuestingCompanionObjective objective) =>
+        quest?.Objectives.FirstOrDefault(candidate =>
+            candidate.Kind.Equals(objective.Kind, StringComparison.OrdinalIgnoreCase)
+            && candidate.Entry == objective.Entry);
+
+    private static string QuestObjectStatusClass(string status) =>
+        status.StartsWith("Could not", StringComparison.OrdinalIgnoreCase)
+            || status.Contains("rejected", StringComparison.OrdinalIgnoreCase)
+            || status.Contains("not currently usable", StringComparison.OrdinalIgnoreCase)
+                ? "text-danger"
+                : status.StartsWith("No needed", StringComparison.OrdinalIgnoreCase)
+                    ? "text-muted"
+                    : "text-info";
+
+    private async Task RefreshLoopAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                if (working || string.IsNullOrWhiteSpace(leaderName)
+                    || status?.ActiveCompanions.Count == 0)
+                    continue;
+
+                await InvokeAsync(async () =>
+                {
+                    if (working || string.IsNullOrWhiteSpace(leaderName))
+                        return;
+                    try
+                    {
+                        status = await Api.GetQuestingCompanionsAsync(leaderName);
+                        StateHasChanged();
+                    }
+                    catch
+                    {
+                        // Keep the last useful snapshot; manual refresh reports errors.
+                    }
+                });
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await refreshCancellation.CancelAsync();
+        if (refreshLoop is not null)
+            await refreshLoop;
+        refreshCancellation.Dispose();
+    }
 }

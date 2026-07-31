@@ -1,0 +1,12 @@
+.character-picker-items {
+    max-height: 8rem;
+    overflow-y: auto;
+}
+
+.character-picker-item {
+    max-width: 100%;
+}
+
+.character-picker-item .badge {
+    flex-shrink: 0;
+}

@@ -451,6 +451,13 @@ public sealed class AccountsApiClient(HttpClient httpClient)
         PostAsync("api/server-administration/players/speed", request);
     public Task<AdministrationResult?> ApplyCharacterServiceAsync(CharacterServiceRequest request) =>
         PostAsync("api/server-administration/characters/service", request);
+    public async Task<IReadOnlyList<CharacterTransferAccount>>
+        GetCharacterTransferAccountsAsync() =>
+        await GetAdministrationAsync<CharacterTransferAccount[]>(
+            "api/server-administration/characters/service/transfer-accounts") ?? [];
+    public Task<AdministrationResult?> TransferCharacterAccountAsync(
+        CharacterAccountTransferRequest request) =>
+        PostAsync("api/server-administration/characters/service/transfer", request);
     public Task<AdministrationResult?> TeleportToTrainerAsync(TeleportToTrainerRequest request) =>
         PostAsync("api/server-administration/trainers/teleport", request);
     public Task<WeaponTrainingStatus[]?> GetWeaponTrainingAsync(string playerName) =>

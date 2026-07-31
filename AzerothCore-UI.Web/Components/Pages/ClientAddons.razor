@@ -1,0 +1,73 @@
+@page "/client-addons"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "adventures.quests")]
+@using AzerothCore_UI.Web.Services
+
+<PageTitle>Client addons</PageTitle>
+<p class="text-muted">
+    Download the matching in-game companion panel for a Wrath of the Lich King
+    3.3.5a client.
+</p>
+
+@if (packageInfo is null)
+{
+    <div class="alert alert-danger">
+        The addon package is not present in this website release.
+    </div>
+}
+else
+{
+    <div class="row g-3">
+        <div class="col-12 col-xl-7">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <strong>Azeroth Companion</strong>
+                    <span class="badge text-bg-secondary">v@packageInfo.Version</span>
+                </div>
+                <div class="card-body">
+                    <p>
+                        Shows companion bag capacity, loot and party state, gathering
+                        status, and side-by-side shared quest progress inside WoW.
+                    </p>
+                    <a class="btn btn-primary" href="/downloads/azeroth-companion.zip">
+                        Download addon ZIP
+                    </a>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-xl-5">
+            <div class="card h-100">
+                <div class="card-header"><strong>Installation</strong></div>
+                <div class="card-body">
+                    <ol class="mb-0">
+                        <li>Close WoW or log out to the character screen.</li>
+                        <li>Extract the ZIP into <code>Interface\AddOns</code>.</li>
+                        <li>Confirm the resulting folder is <code>Interface\AddOns\AzerothCompanion</code>.</li>
+                        <li>Start WoW and use <code>/accomp</code> to toggle the panel.</li>
+                    </ol>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<div class="alert alert-warning mt-3 mb-0">
+    The latest mod-web-admin source must be built and installed for protocol-version
+    reporting and non-GM access. The addon will identify a missing or outdated bridge.
+</div>
+
+@code {
+    private ClientAddonPackageInfo? packageInfo;
+
+    protected override void OnInitialized()
+    {
+        try
+        {
+            packageInfo = ClientAddonPackageBuilder.GetPackageInfo(
+                ClientAddonPackageBuilder.ResolveAddonDirectory());
+        }
+        catch (IOException)
+        {
+            packageInfo = null;
+        }
+    }
+}

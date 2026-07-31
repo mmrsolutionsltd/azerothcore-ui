@@ -1,0 +1,84 @@
+diff --git a/src/Ai/Base/Actions/LootAction.cpp b/src/Ai/Base/Actions/LootAction.cpp
+index 93368f52..dda69875 100644
+--- a/src/Ai/Base/Actions/LootAction.cpp
++++ b/src/Ai/Base/Actions/LootAction.cpp
+@@ -142,2 +142,5 @@ bool OpenLootAction::DoLoot(LootObject& lootObject)
+-    // This prevents dungeon chests like Tribunal Chest (Halls of Stone) from being ninja'd by the bots
+-    if (go && go->HasFlag(GAMEOBJECT_FLAGS, GO_FLAG_INTERACT_COND))
++    // This prevents protected chests like Tribunal Chest (Halls of Stone)
++    // from being ninja'd by bots, while still allowing flagged quest objects
++    // such as Doom Weed when the bot needs their quest item.
++    if (go && go->HasFlag(GAMEOBJECT_FLAGS, GO_FLAG_INTERACT_COND)
++        && !LootObject::IsNeededQuestObject(bot, go))
+@@ -214 +217 @@ bool OpenLootAction::CanOpenLock(LootObject& /*lootObject*/, SpellInfo const* sp
+-            return false;
++            continue;
+diff --git a/src/Mgr/Item/LootObjectStack.cpp b/src/Mgr/Item/LootObjectStack.cpp
+index 1b4cb978..d827262c 100644
+--- a/src/Mgr/Item/LootObjectStack.cpp
++++ b/src/Mgr/Item/LootObjectStack.cpp
+@@ -14,0 +15,2 @@
++#include <algorithm>
++
+@@ -183 +184,0 @@ void LootObject::Refresh(Player* bot, ObjectGuid lootGUID)
+-        uint32 goId = go->GetEntry();
+@@ -188,0 +190,15 @@ void LootObject::Refresh(Player* bot, ObjectGuid lootGUID)
++        // Some quest objects offer a normal interaction as an alternative to
++        // a profession interaction. Doom Weed and Serpentbloom use lock 259,
++        // which contains both OPEN_KNEELING and HERBALISM. Do not let the
++        // later profession case overwrite a valid generic opening method.
++        bool hasGenericOpenCase = false;
++        for (uint8 i = 0; i < 8; ++i)
++        {
++            if (lockInfo->Type[i] == LOCK_KEY_SKILL && lockInfo->Index[i] > 0
++                && SkillByLockType(LockType(lockInfo->Index[i])) == SKILL_NONE)
++            {
++                hasGenericOpenCase = true;
++                break;
++            }
++        }
++
+@@ -202 +218 @@ void LootObject::Refresh(Player* bot, ObjectGuid lootGUID)
+-                    if (goId == 13891 || goId == 19535)  // Serpentbloom
++                    if (hasGenericOpenCase)
+@@ -252,0 +269,17 @@ bool LootObject::IsNeededForQuest(Player* bot, uint32 itemId)
++bool LootObject::IsNeededQuestObject(Player* bot, GameObject* gameObject)
++{
++    if (!bot || !gameObject)
++        return false;
++
++    GameObjectQuestItemList const* items =
++        sObjectMgr->GetGameObjectQuestItemList(gameObject->GetEntry());
++    if (!items)
++        return false;
++
++    return std::any_of(items->begin(), items->end(),
++        [bot](uint32 itemId)
++        {
++            return itemId && IsNeededForQuest(bot, itemId);
++        });
++}
++
+@@ -311,2 +344,12 @@ bool LootObject::IsLootPossible(Player* bot)
+-    if (go && (go->HasFlag(GAMEOBJECT_FLAGS, GO_FLAG_INTERACT_COND | GO_FLAG_NOT_SELECTABLE) || !go->isSpawned()))
+-        return false;
++    if (go)
++    {
++        if (!go->isSpawned() || go->HasFlag(GAMEOBJECT_FLAGS, GO_FLAG_NOT_SELECTABLE))
++            return false;
++
++        // GO_FLAG_INTERACT_COND is also used by ordinary quest objects such as
++        // Doom Weed. Keep protected chests blocked, but allow an object when it
++        // contains an item needed by one of the bot's active quests.
++        if (go->HasFlag(GAMEOBJECT_FLAGS, GO_FLAG_INTERACT_COND)
++            && !IsNeededQuestObject(bot, go))
++            return false;
++    }
+diff --git a/src/Mgr/Item/LootObjectStack.h b/src/Mgr/Item/LootObjectStack.h
+index c21a961d..b0efda59 100644
+--- a/src/Mgr/Item/LootObjectStack.h
++++ b/src/Mgr/Item/LootObjectStack.h
+@@ -12,0 +13 @@ class AiObjectContext;
++class GameObject;
+@@ -36,0 +38 @@ public:
++    static bool IsNeededQuestObject(Player* bot, GameObject* gameObject);

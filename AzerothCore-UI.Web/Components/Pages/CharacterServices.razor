@@ -5,7 +5,6 @@
 @inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
 
 <PageTitle>Character services</PageTitle>
-<h1>Character services</h1>
 <p class="text-muted">Apply safe AzerothCore character maintenance and at-login services.</p>
 
 @if (isLoading) { <p><em>Loading characters...</em></p> }
@@ -50,6 +49,31 @@ else
                 }
             </div></div></div>
         }
+        <div class="col-md-6 col-xl-4"><div class="card h-100"><div class="card-body d-flex flex-column">
+            <h2 class="h5">Transfer account</h2>
+            <p class="text-muted flex-grow-1">
+                Move one character to another WoW login account using AzerothCore's supported transfer command.
+            </p>
+            <label class="form-label" for="transfer-account">Destination account</label>
+            <select id="transfer-account" class="form-select mb-3" @bind="destinationAccountId">
+                <option value="">Choose an account</option>
+                @foreach (var account in transferAccounts)
+                {
+                    <option value="@account.AccountId"
+                            disabled="@(SelectedTransferPlayer?.Username.Equals(account.Username, StringComparison.OrdinalIgnoreCase) == true || account.CharacterCount >= 10)">
+                        @account.Username (@account.CharacterCount/10)
+                    </option>
+                }
+            </select>
+            <button class="btn btn-outline-danger" disabled="@(!CanTransferAccount)"
+                    @onclick="SelectAccountTransfer">
+                Transfer character
+            </button>
+            @if (SelectedPlayers.Count != 1)
+            {
+                <div class="form-text">Select exactly one character for an account transfer.</div>
+            }
+        </div></div></div>
     </div>
     @if (pendingService is not null)
     {
@@ -61,6 +85,31 @@ else
                 <p class="text-muted mb-0">Each command is audited and sent separately so one failure does not prevent the remaining characters from being processed.</p>
             </div>
             <div class="modal-footer"><button class="btn btn-outline-secondary" @onclick="CancelService">Cancel</button><button class="btn btn-danger" disabled="@isWorking" @onclick="ApplyServiceAsync">Confirm and apply</button></div>
+        </div></div></div><div class="modal-backdrop show"></div>
+    }
+    @if (pendingAccountTransfer && SelectedTransferPlayer is not null && SelectedDestinationAccount is not null)
+    {
+        <div class="modal d-block" tabindex="-1" role="dialog" aria-modal="true"><div class="modal-dialog"><div class="modal-content">
+            <div class="modal-header"><h2 class="modal-title h5">Confirm account transfer</h2><button class="btn-close" disabled="@isWorking" @onclick="CancelAccountTransfer"></button></div>
+            <div class="modal-body">
+                <p>
+                    Move <strong>@SelectedTransferPlayer.Name</strong> from
+                    <strong>@SelectedTransferPlayer.Username</strong> to
+                    <strong>@SelectedDestinationAccount.Username</strong>?
+                </p>
+                @if (SelectedTransferPlayer.Online)
+                {
+                    <div class="alert alert-warning">AzerothCore will disconnect this character during the transfer.</div>
+                }
+                <p class="text-muted mb-0">
+                    A verified database backup will be created first. Account-scoped website access and PlayerBot control may change with ownership.
+                </p>
+                @if (isWorking)
+                {
+                    <p class="mt-3 mb-0"><em>Creating the backup and transferring the character…</em></p>
+                }
+            </div>
+            <div class="modal-footer"><button class="btn btn-outline-secondary" disabled="@isWorking" @onclick="CancelAccountTransfer">Cancel</button><button class="btn btn-danger" disabled="@isWorking" @onclick="TransferAccountAsync">Create backup and transfer</button></div>
         </div></div></div><div class="modal-backdrop show"></div>
     }
 }

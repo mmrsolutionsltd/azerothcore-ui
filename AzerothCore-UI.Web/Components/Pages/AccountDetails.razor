@@ -4,7 +4,7 @@
 @using AzerothCore_UI.Web.Models
 @inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
 
-<PageTitle>Account details</PageTitle>
+<PageTitle>@(account?.Username ?? "Account details")</PageTitle>
 
 <p><a href="accounts">&larr; Back to accounts</a></p>
 
@@ -20,7 +20,6 @@ else if (account is not null)
 {
     <div class="d-flex justify-content-between align-items-start mb-4">
         <div>
-            <h1>@account.Username</h1>
             <p class="text-muted mb-0">Account ID @account.AccountId</p>
         </div>
         <span class="badge text-bg-secondary">@account.Classification</span>

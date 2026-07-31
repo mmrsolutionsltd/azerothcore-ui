@@ -22,12 +22,15 @@ public static class AdministrationPermissionResolver
         if (path.Contains("/questing-companions")) return "adventures.quests";
         if (path.Equals("/api/server-administration/availability",
                 StringComparison.OrdinalIgnoreCase)) return null;
+        if (path.Equals("/api/server-administration/players",
+                StringComparison.OrdinalIgnoreCase)) return null;
         if (path.EndsWith("/start") || path.EndsWith("/stop") || path.EndsWith("/restart")
             || path.EndsWith("/status")) return "server.control";
         if (path.Contains("/creatures")) return "world.creatures";
         if (path.Contains("/parties") || path.Contains("/dungeons")
             || path.Contains("/dungeon-library")) return "adventures.dungeons";
         if (path.Contains("/weapon-training")) return "adventures.training";
+        if (path.Contains("/trainers")) return "adventures.training";
         if (path.Contains("/collectibles")) return "players.collectibles";
         if (path.Contains("/characters/service")) return "players.services";
         if (path.StartsWith("/api/server-administration")) return "players.actions";

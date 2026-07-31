@@ -32,9 +32,10 @@
         </NavGroup>
 
         <NavGroup Title="Adventures" GroupKey="adventures"
-                  OpenByDefault="@IsGroupActive("quest-helper", "questing-companions", "dungeon-library", "dungeon-assistant", "trainers", "weapon-training", "training")">
+                  OpenByDefault="@IsGroupActive("quest-helper", "questing-companions", "client-addons", "dungeon-library", "dungeon-assistant", "trainers", "weapon-training", "training")">
             <NavItem Href="quest-helper" Policy="adventures.quests" Icon="bi-list-nested-nav-menu">Quest helper</NavItem>
             <NavItem Href="questing-companions" Policy="adventures.quests" Icon="bi-person-fill-nav-menu">Questing companions</NavItem>
+            <NavItem Href="client-addons" Policy="adventures.quests" Icon="bi-plus-square-fill-nav-menu">Client addons</NavItem>
             <NavItem Href="dungeon-library" Policy="adventures.dungeons" Icon="bi-list-nested-nav-menu">Dungeon library</NavItem>
             <NavItem Href="dungeon-assistant" Policy="adventures.dungeons" Icon="bi-list-nested-nav-menu">Dungeon assistant</NavItem>
             <NavItem Href="trainers" Policy="adventures.training" Icon="bi-person-fill-nav-menu">Trainer finder</NavItem>
@@ -43,9 +44,8 @@
         </NavGroup>
 
         <NavGroup Title="World" GroupKey="world"
-                  OpenByDefault="@IsGroupActive("auction-house", "creatures")">
+                  OpenByDefault="@IsGroupActive("auction-house")">
             <NavItem Href="auction-house" Policy="world.auction-house" Icon="bi-list-nested-nav-menu">Auction House</NavItem>
-            <NavItem Href="creatures" Policy="world.creatures" Icon="bi-plus-square-fill-nav-menu">Creature spawner</NavItem>
         </NavGroup>
 
         <NavGroup Title="Administration" GroupKey="administration"

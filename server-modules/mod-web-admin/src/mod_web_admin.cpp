@@ -3,9 +3,11 @@
  * GPL-2.0-or-later, matching AzerothCore.
  */
 
-#include "Chat.h"
 #include "AllCreatureScript.h"
 #include "AllGameObjectScript.h"
+#include "AiObjectContext.h"
+#include "Bag.h"
+#include "Chat.h"
 #include "Creature.h"
 #include "DatabaseEnv.h"
 #include "GameObject.h"
@@ -14,7 +16,9 @@
 #include "Guild.h"
 #include "GuildMgr.h"
 #include "DBCStores.h"
+#include "ItemTemplate.h"
 #include "LFGMgr.h"
+#include "LootObjectStack.h"
 #include "Map.h"
 #include "MotionMaster.h"
 #include "ObjectAccessor.h"
@@ -23,11 +27,14 @@
 #include "PlayerScript.h"
 #include "PlayerbotAI.h"
 #include "PlayerbotMgr.h"
+#include "Playerbots.h"
 #include "QuestDef.h"
+#include "Random.h"
 #include "RandomPlayerbotMgr.h"
 #include "ScriptMgr.h"
 #include "TemporarySummon.h"
 #include "World.h"
+#include "WorldSession.h"
 
 #include <sstream>
 #include <string>
@@ -40,11 +47,15 @@ using namespace Acore::ChatCommands;
 
 namespace
 {
+static constexpr uint32 CompanionProtocolVersion = 1;
+
 struct QuestingCompanionRegistration
 {
     ObjectGuid LeaderGuid;
     ObjectGuid CompanionGuid;
     bool InitialSyncPending = true;
+    uint32 QuestObjectCheckTimer = 0;
+    std::string QuestObjectStatus = "Waiting for quest-object scan.";
 };
 
 static std::vector<QuestingCompanionRegistration> QuestingCompanions;
@@ -60,6 +71,8 @@ static void RegisterQuestingCompanion(ObjectGuid leaderGuid, ObjectGuid companio
 
             registration.LeaderGuid = leaderGuid;
             registration.InitialSyncPending = true;
+            registration.QuestObjectCheckTimer = 0;
+            registration.QuestObjectStatus = "Waiting for quest-object scan.";
             return;
         }
     }
@@ -88,6 +101,216 @@ static bool IsActiveQuestingCompanion(Player* leader, Player* companion)
     PlayerbotAI* companionAI =
         PlayerbotsMgr::instance().GetPlayerbotAI(companion);
     return companionAI && companionAI->GetMaster() == leader;
+}
+
+static std::string CompanionProtocolText(std::string text)
+{
+    std::replace_if(
+        text.begin(), text.end(),
+        [](char character)
+        {
+            return character == '\t' || character == '\r' || character == '\n';
+        },
+        ' ');
+    return text;
+}
+
+static bool HasCompanionLootStrategy(PlayerbotAI* companionAI)
+{
+    if (!companionAI)
+        return false;
+
+    std::vector<std::string> strategies =
+        companionAI->GetStrategies(BOT_STATE_NON_COMBAT);
+    return std::find(strategies.begin(), strategies.end(), "loot")
+        != strategies.end();
+}
+
+static void ConfigureCompanionLoot(Player* companion)
+{
+    if (PlayerbotAI* companionAI =
+            PlayerbotsMgr::instance().GetPlayerbotAI(companion))
+    {
+        companionAI->ChangeStrategy("+loot", BOT_STATE_NON_COMBAT);
+    }
+}
+
+static bool IsNeededCompanionQuestObject(Player* companion, GameObject* gameObject)
+{
+    if (!companion || !gameObject || !gameObject->isSpawned()
+        || gameObject->GetGoState() != GO_STATE_READY
+        || gameObject->GetGoType() != GAMEOBJECT_TYPE_CHEST)
+        return false;
+
+    GameObjectQuestItemList const* items =
+        sObjectMgr->GetGameObjectQuestItemList(gameObject->GetEntry());
+    if (!items)
+        return false;
+
+    for (uint32 itemId : *items)
+    {
+        if (itemId && companion->HasQuestForItem(itemId))
+            return true;
+    }
+    return false;
+}
+
+static void CollectCompanionQuestObject(
+    QuestingCompanionRegistration& registration, Player* companion)
+{
+    PlayerbotAI* companionAI =
+        PlayerbotsMgr::instance().GetPlayerbotAI(companion);
+    if (!companionAI || companion->IsInCombat())
+        return;
+
+    AiObjectContext* context = companionAI->GetAiObjectContext();
+    GuidVector gameObjects =
+        context->GetValue<GuidVector>("nearest game objects")->Get();
+    GameObject* nearest = nullptr;
+    float nearestDistance = 20.0f;
+    for (ObjectGuid const& guid : gameObjects)
+    {
+        GameObject* candidate = companionAI->GetGameObject(guid);
+        if (!IsNeededCompanionQuestObject(companion, candidate))
+            continue;
+
+        float distance = companion->GetDistance(candidate);
+        if (distance < nearestDistance)
+        {
+            nearest = candidate;
+            nearestDistance = distance;
+        }
+    }
+
+    if (!nearest)
+    {
+        registration.QuestObjectStatus =
+            "No needed quest object within 20 metres.";
+        return;
+    }
+
+    LootObject loot(companion, nearest->GetGUID());
+    if (loot.IsEmpty())
+    {
+        registration.QuestObjectStatus =
+            "Found " + nearest->GetName() + ", but PlayerBots rejected it.";
+        return;
+    }
+    if (!loot.IsLootPossible(companion))
+    {
+        registration.QuestObjectStatus =
+            "Found " + nearest->GetName() + ", but it is not currently usable.";
+        return;
+    }
+
+    context->GetValue<LootObjectStack*>("available loot")->Get()->Add(
+        nearest->GetGUID());
+    context->GetValue<LootObject>("loot target")->Set(loot);
+
+    std::ostringstream status;
+    if (nearestDistance >= INTERACTION_DISTANCE - 2.0f)
+    {
+        bool moving = companionAI->DoSpecificAction(
+            "move to loot", Event("webadmin companion quest object"), true);
+        status << (moving ? "Moving to " : "Could not move to ")
+               << nearest->GetName() << " (" << int(nearestDistance) << "m).";
+    }
+    else
+    {
+        bool opening = companionAI->DoSpecificAction(
+            "open loot", Event("webadmin companion quest object"), true);
+        status << (opening ? "Opening " : "Could not open ")
+               << nearest->GetName() << ".";
+    }
+    registration.QuestObjectStatus = status.str();
+}
+
+static uint32 GetCompanionInventoryCapacity(Player* player)
+{
+    uint32 capacity = INVENTORY_SLOT_ITEM_END - INVENTORY_SLOT_ITEM_START;
+    for (uint8 slot = INVENTORY_SLOT_BAG_START;
+         slot < INVENTORY_SLOT_BAG_END; ++slot)
+    {
+        if (Bag* bag = player->GetBagByPos(slot))
+            capacity += bag->GetBagSize();
+    }
+    return capacity;
+}
+
+static std::string CompanionObjectiveName(Quest const* quest, uint8 index)
+{
+    if (!quest->ObjectiveText[index].empty())
+        return CompanionProtocolText(quest->ObjectiveText[index]);
+
+    int32 entry = quest->RequiredNpcOrGo[index];
+    if (entry > 0)
+    {
+        if (CreatureTemplate const* creature =
+                sObjectMgr->GetCreatureTemplate(static_cast<uint32>(entry)))
+            return CompanionProtocolText(creature->Name);
+    }
+    else if (entry < 0)
+    {
+        if (GameObjectTemplate const* gameObject =
+                sObjectMgr->GetGameObjectTemplate(static_cast<uint32>(-entry)))
+            return CompanionProtocolText(gameObject->name);
+    }
+    return entry > 0 ? "Creature" : "Object";
+}
+
+static void ReportCompanionQuestProgress(ChatHandler* handler, Player* player)
+{
+    for (uint8 slot = 0; slot < MAX_QUEST_LOG_SIZE; ++slot)
+    {
+        uint32 questId = player->GetQuestSlotQuestId(slot);
+        Quest const* quest = questId
+            ? sObjectMgr->GetQuestTemplate(questId)
+            : nullptr;
+        if (!quest)
+            continue;
+
+        handler->PSendSysMessage(
+            "WEBADMIN_COMPANION_QUEST\t{}\t{}\t{}\t{}",
+            player->GetName(), questId,
+            player->GetQuestStatus(questId) == QUEST_STATUS_COMPLETE ? 1 : 0,
+            CompanionProtocolText(quest->GetTitle()));
+
+        for (uint8 index = 0; index < QUEST_ITEM_OBJECTIVES_COUNT; ++index)
+        {
+            uint32 itemId = quest->RequiredItemId[index];
+            uint32 required = quest->RequiredItemCount[index];
+            if (!itemId || !required)
+                continue;
+
+            ItemTemplate const* item = sObjectMgr->GetItemTemplate(itemId);
+            handler->PSendSysMessage(
+                "WEBADMIN_COMPANION_OBJECTIVE\t{}\t{}\titem\t{}\t{}\t{}\t{}",
+                player->GetName(), questId, itemId,
+                std::min<uint32>(player->GetItemCount(itemId, false), required),
+                required,
+                item ? CompanionProtocolText(item->Name1) : "Quest item");
+        }
+
+        for (uint8 index = 0; index < QUEST_OBJECTIVES_COUNT; ++index)
+        {
+            int32 signedEntry = quest->RequiredNpcOrGo[index];
+            uint32 required = quest->RequiredNpcOrGoCount[index];
+            if (!signedEntry || !required)
+                continue;
+
+            uint32 entry = signedEntry > 0
+                ? static_cast<uint32>(signedEntry)
+                : static_cast<uint32>(-signedEntry);
+            handler->PSendSysMessage(
+                "WEBADMIN_COMPANION_OBJECTIVE\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                player->GetName(), questId,
+                signedEntry > 0 ? "creature" : "gameobject", entry,
+                std::min<uint32>(
+                    player->GetReqKillOrCastCurrentCount(questId, signedEntry),
+                    required),
+                required, CompanionObjectiveName(quest, index));
+        }
+    }
 }
 
 enum class CompanionQuestAcceptResult
@@ -253,7 +476,7 @@ public:
         };
         static ChatCommandTable companionCommands =
         {
-            { "inspect", HandleCompanionInspectCommand, SEC_ADMINISTRATOR, Console::Yes },
+            { "inspect", HandleCompanionInspectCommand, SEC_PLAYER, Console::Yes },
             { "start", HandleCompanionStartCommand, SEC_ADMINISTRATOR, Console::Yes },
             { "dismiss", HandleCompanionDismissCommand, SEC_ADMINISTRATOR, Console::Yes }
         };
@@ -404,6 +627,15 @@ private:
     {
         Player* leader = ParseLeader(handler, args);
         if (!leader) return false;
+        if (WorldSession* session = handler->GetSession();
+            session && session->GetPlayer() != leader)
+        {
+            handler->SendErrorMessage(
+                "Players may inspect only their own questing companions.");
+            return false;
+        }
+        handler->PSendSysMessage(
+            "WEBADMIN_COMPANION_PROTOCOL\t{}", CompanionProtocolVersion);
         PlayerbotMgr* manager =
             PlayerbotsMgr::instance().GetPlayerbotMgr(leader);
         if (!manager)
@@ -411,6 +643,7 @@ private:
             handler->SendErrorMessage("PlayerBots is not available for the leader.");
             return false;
         }
+        ReportCompanionQuestProgress(handler, leader);
         unsigned count = 0;
         for (auto iterator = manager->GetPlayerBotsBegin();
              iterator != manager->GetPlayerBotsEnd(); ++iterator)
@@ -418,10 +651,29 @@ private:
             Player* bot = iterator->second;
             if (!bot || sRandomPlayerbotMgr.IsRandomBot(bot)) continue;
             RegisterQuestingCompanion(leader->GetGUID(), bot->GetGUID());
+            PlayerbotAI* companionAI =
+                PlayerbotsMgr::instance().GetPlayerbotAI(bot);
             handler->PSendSysMessage(
-                "WEBADMIN_COMPANION\t{}\t{}\t{}\t{}",
+                "WEBADMIN_COMPANION\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 bot->GetName(), bot->GetLevel(), bot->getClass(),
-                bot->GetGroup() == leader->GetGroup() ? 1 : 0);
+                bot->GetGroup() == leader->GetGroup() ? 1 : 0,
+                HasCompanionLootStrategy(companionAI) ? 1 : 0,
+                bot->GetFreeInventorySpace(),
+                GetCompanionInventoryCapacity(bot));
+            auto registration = std::find_if(
+                QuestingCompanions.begin(), QuestingCompanions.end(),
+                [bot](QuestingCompanionRegistration const& value)
+                {
+                    return value.CompanionGuid == bot->GetGUID();
+                });
+            if (registration != QuestingCompanions.end())
+            {
+                handler->PSendSysMessage(
+                    "WEBADMIN_COMPANION_GATHER\t{}\t{}",
+                    bot->GetName(),
+                    CompanionProtocolText(registration->QuestObjectStatus));
+            }
+            ReportCompanionQuestProgress(handler, bot);
             ++count;
         }
         handler->PSendSysMessage(
@@ -681,10 +933,22 @@ private:
     {
         std::istringstream input(args ? args : "");
         std::string anchorName, unexpected;
-        uint32 entry = 0, level = 0, despawnMinutes = 0;
-        if (!(input >> anchorName >> entry >> level >> despawnMinutes) || (input >> unexpected))
+        uint32 entry = 0, level = 0, despawnMinutes = 0, count = 1;
+        float squareSideLength = 0.0f;
+        if (!(input >> anchorName >> entry >> level >> despawnMinutes))
         {
-            handler->SendErrorMessage("Usage: webadmin creature spawn <anchorPlayer> <creatureId> <level> <despawnMinutes>");
+            handler->SendErrorMessage(
+                "Usage: webadmin creature spawn <anchorPlayer> <creatureId> <level> "
+                "<despawnMinutes> [count squareSideLength]");
+            return false;
+        }
+        input >> std::ws;
+        if (!input.eof()
+            && (!(input >> count >> squareSideLength) || (input >> unexpected)))
+        {
+            handler->SendErrorMessage(
+                "Usage: webadmin creature spawn <anchorPlayer> <creatureId> <level> "
+                "<despawnMinutes> [count squareSideLength]");
             return false;
         }
 
@@ -703,9 +967,13 @@ private:
             handler->SendErrorMessage("Only allowlisted neutral service NPCs can be spawned by web administration.");
             return false;
         }
-        if (level < 1 || level > 83 || despawnMinutes < 1 || despawnMinutes > 30)
+        if (level < 1 || level > 83 || despawnMinutes < 1 || despawnMinutes > 30
+            || count < 1 || count > 25 || squareSideLength < 0.0f
+            || squareSideLength > 200.0f || (count > 1 && squareSideLength < 1.0f))
         {
-            handler->SendErrorMessage("Creature level must be 1-83 and despawn time must be 1-30 minutes.");
+            handler->SendErrorMessage(
+                "Creature level must be 1-83, despawn time 1-30 minutes, count 1-25, "
+                "and square side length 1-200 metres for multiple creatures.");
             return false;
         }
         Map* map = anchor->GetMap();
@@ -716,50 +984,102 @@ private:
             return false;
         }
 
-        static std::vector<std::pair<ObjectGuid, ObjectGuid>> activeSpawns;
+        struct ActiveWebSpawn
+        {
+            ObjectGuid AnchorGuid;
+            ObjectGuid CreatureGuid;
+            bool UtilityNpc;
+        };
+        static std::vector<ActiveWebSpawn> activeSpawns;
         std::erase_if(activeSpawns, [anchor](auto const& spawn)
         {
-            return spawn.first == anchor->GetGUID() && !ObjectAccessor::GetCreature(*anchor, spawn.second);
+            return spawn.AnchorGuid == anchor->GetGUID()
+                && !ObjectAccessor::GetCreature(*anchor, spawn.CreatureGuid);
         });
-        if (std::ranges::count_if(activeSpawns, [anchor](auto const& spawn)
-            { return spawn.first == anchor->GetGUID(); }) >= 3)
+        uint32 const activeForType = uint32(std::ranges::count_if(
+            activeSpawns, [anchor, isUtilityNpc](auto const& spawn)
+            {
+                return spawn.AnchorGuid == anchor->GetGUID()
+                    && spawn.UtilityNpc == isUtilityNpc;
+            }));
+        uint32 const maximumActive = isUtilityNpc ? 3 : 25;
+        if (count > maximumActive - std::min(activeForType, maximumActive))
         {
-            handler->SendErrorMessage("That player already has three active web-spawned creatures nearby.");
+            handler->SendErrorMessage(
+                "That player can have at most {} active {} web-spawned nearby; {} are already active.",
+                maximumActive, isUtilityNpc ? "utility NPCs" : "creatures", activeForType);
             return false;
         }
 
-        Position position = anchor->GetFirstCollisionPosition(5.0f, 0.0f);
-        TempSummon* creature = anchor->SummonCreature(entry, position, TEMPSUMMON_TIMED_OR_DEAD_DESPAWN,
-            despawnMinutes * MINUTE * IN_MILLISECONDS);
-        if (!creature)
+        uint32 spawnedCount = 0;
+        for (uint32 index = 0; index < count; ++index)
         {
-            handler->SendErrorMessage("AzerothCore could not create the temporary creature at that location.");
+            Position position;
+            if (squareSideLength > 0.0f)
+            {
+                float const halfSide = squareSideLength / 2.0f;
+                float const destinationX = anchor->GetPositionX() + frand(-halfSide, halfSide);
+                float const destinationY = anchor->GetPositionY() + frand(-halfSide, halfSide);
+                position = anchor->GetFirstCollisionPosition(
+                    anchor->GetPositionX(), anchor->GetPositionY(), anchor->GetPositionZ(),
+                    destinationX, destinationY);
+            }
+            else
+                position = anchor->GetFirstCollisionPosition(5.0f, 0.0f);
+
+            TempSummon* creature = anchor->SummonCreature(
+                entry, position, TEMPSUMMON_TIMED_OR_DEAD_DESPAWN,
+                despawnMinutes * MINUTE * IN_MILLISECONDS);
+            if (!creature)
+                continue;
+
+            activeSpawns.push_back({ anchor->GetGUID(), creature->GetGUID(), isUtilityNpc });
+            creature->SetLevel(level);
+            CreatureBaseStats const* stats =
+                sObjectMgr->GetCreatureBaseStats(level, creatureTemplate->unit_class);
+            uint32 health = std::max<uint32>(1, stats->BaseHealth[creatureTemplate->expansion]);
+            uint32 mana = stats->BaseMana;
+            float baseDamage = std::max(1.0f, stats->BaseDamage[creatureTemplate->expansion]);
+            creature->SetCreateHealth(health);
+            creature->SetStatFlatModifier(UNIT_MOD_HEALTH, BASE_VALUE, float(health));
+            creature->SetCreateMana(mana);
+            creature->SetStatFlatModifier(UNIT_MOD_MANA, BASE_VALUE, float(mana));
+            creature->SetBaseWeaponDamage(BASE_ATTACK, MINDAMAGE, baseDamage);
+            creature->SetBaseWeaponDamage(BASE_ATTACK, MAXDAMAGE, baseDamage * 1.5f);
+            creature->SetBaseWeaponDamage(OFF_ATTACK, MINDAMAGE, baseDamage);
+            creature->SetBaseWeaponDamage(OFF_ATTACK, MAXDAMAGE, baseDamage * 1.5f);
+            creature->SetBaseWeaponDamage(RANGED_ATTACK, MINDAMAGE, baseDamage);
+            creature->SetBaseWeaponDamage(RANGED_ATTACK, MAXDAMAGE, baseDamage * 1.5f);
+            creature->SetStatFlatModifier(UNIT_MOD_ATTACK_POWER, BASE_VALUE, stats->AttackPower);
+            creature->SetStatFlatModifier(
+                UNIT_MOD_ATTACK_POWER_RANGED, BASE_VALUE, stats->RangedAttackPower);
+            creature->UpdateAllStats();
+            creature->SetMaxHealth(health);
+            creature->SetHealth(health);
+            ++spawnedCount;
+        }
+
+        if (spawnedCount == 0)
+        {
+            handler->SendErrorMessage(
+                "AzerothCore could not create a temporary creature in that area.");
             return false;
         }
-        activeSpawns.emplace_back(anchor->GetGUID(), creature->GetGUID());
-        creature->SetLevel(level);
-        CreatureBaseStats const* stats = sObjectMgr->GetCreatureBaseStats(level, creatureTemplate->unit_class);
-        uint32 health = std::max<uint32>(1, stats->BaseHealth[creatureTemplate->expansion]);
-        uint32 mana = stats->BaseMana;
-        float baseDamage = std::max(1.0f, stats->BaseDamage[creatureTemplate->expansion]);
-        creature->SetCreateHealth(health);
-        creature->SetStatFlatModifier(UNIT_MOD_HEALTH, BASE_VALUE, float(health));
-        creature->SetCreateMana(mana);
-        creature->SetStatFlatModifier(UNIT_MOD_MANA, BASE_VALUE, float(mana));
-        creature->SetBaseWeaponDamage(BASE_ATTACK, MINDAMAGE, baseDamage);
-        creature->SetBaseWeaponDamage(BASE_ATTACK, MAXDAMAGE, baseDamage * 1.5f);
-        creature->SetBaseWeaponDamage(OFF_ATTACK, MINDAMAGE, baseDamage);
-        creature->SetBaseWeaponDamage(OFF_ATTACK, MAXDAMAGE, baseDamage * 1.5f);
-        creature->SetBaseWeaponDamage(RANGED_ATTACK, MINDAMAGE, baseDamage);
-        creature->SetBaseWeaponDamage(RANGED_ATTACK, MAXDAMAGE, baseDamage * 1.5f);
-        creature->SetStatFlatModifier(UNIT_MOD_ATTACK_POWER, BASE_VALUE, stats->AttackPower);
-        creature->SetStatFlatModifier(UNIT_MOD_ATTACK_POWER_RANGED, BASE_VALUE, stats->RangedAttackPower);
-        creature->UpdateAllStats();
-        creature->SetMaxHealth(health);
-        creature->SetHealth(health);
-        handler->PSendSysMessage("Spawned {} (entry {}, level {}) beside {} for up to {} minutes. Tameable: {}. Exotic: {}.",
-            creatureTemplate->Name, entry, level, anchor->GetName(), despawnMinutes,
-            creatureTemplate->IsTameable(true) ? "Yes" : "No", creatureTemplate->IsExotic() ? "Yes" : "No");
+        if (squareSideLength > 0.0f)
+            handler->PSendSysMessage(
+                "Spawned {} of {} {} creatures (entry {}, level {}) in a {} by {} metre square "
+                "centred on {} for up to {} minutes. Tameable: {}. Exotic: {}.",
+                spawnedCount, count, creatureTemplate->Name, entry, level,
+                squareSideLength, squareSideLength, anchor->GetName(), despawnMinutes,
+                creatureTemplate->IsTameable(true) ? "Yes" : "No",
+                creatureTemplate->IsExotic() ? "Yes" : "No");
+        else
+            handler->PSendSysMessage(
+                "Spawned {} (entry {}, level {}) beside {} for up to {} minutes. "
+                "Tameable: {}. Exotic: {}.",
+                creatureTemplate->Name, entry, level, anchor->GetName(), despawnMinutes,
+                creatureTemplate->IsTameable(true) ? "Yes" : "No",
+                creatureTemplate->IsExotic() ? "Yes" : "No");
         return true;
     }
 
@@ -1117,15 +1437,14 @@ public:
             PLAYERHOOK_ON_PLAYER_QUEST_ACCEPT
         }) { }
 
-    void OnPlayerAfterUpdate(Player* player, uint32 /*diff*/) override
+    void OnPlayerAfterUpdate(Player* player, uint32 diff) override
     {
         if (!player || !player->GetSession() || player->GetSession()->IsBot())
             return;
 
         for (QuestingCompanionRegistration& registration : QuestingCompanions)
         {
-            if (!registration.InitialSyncPending
-                || registration.LeaderGuid != player->GetGUID())
+            if (registration.LeaderGuid != player->GetGUID())
                 continue;
 
             Player* companion =
@@ -1133,8 +1452,22 @@ public:
             if (!IsActiveQuestingCompanion(player, companion))
                 continue;
 
-            registration.InitialSyncPending = false;
-            SyncLeaderQuestLog(player, companion);
+            if (registration.InitialSyncPending)
+            {
+                registration.InitialSyncPending = false;
+                ConfigureCompanionLoot(companion);
+                SyncLeaderQuestLog(player, companion);
+            }
+
+            if (registration.QuestObjectCheckTimer > diff)
+            {
+                registration.QuestObjectCheckTimer -= diff;
+            }
+            else
+            {
+                registration.QuestObjectCheckTimer = 1000;
+                CollectCompanionQuestObject(registration, companion);
+            }
         }
     }
 

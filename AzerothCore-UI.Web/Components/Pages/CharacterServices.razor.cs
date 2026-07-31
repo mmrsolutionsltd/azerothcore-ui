@@ -18,14 +18,17 @@ public partial class CharacterServices
         new("level", "Set level", "Changes the character level and lets AzerothCore update level-dependent data.", "Set level", true)
     ];
     private IReadOnlyList<AdministrationPlayer> players = [];
+    private IReadOnlyList<CharacterTransferAccount> transferAccounts = [];
     private IEnumerable<AdministrationPlayer> OrderedPlayers => players
         .OrderBy(player => player.PickerOrder).ThenBy(player => player.Name);
     private ServerStatus? status;
     private readonly HashSet<string> selectedPlayerNames = new(StringComparer.OrdinalIgnoreCase);
     private IReadOnlyList<BatchServiceResult> batchResults = [];
     private string? pendingService, message;
+    private uint? destinationAccountId;
     private int newLevel = 80;
-    private bool isLoading = true, isWorking, operationSucceeded;
+    private bool isLoading = true, isWorking, operationSucceeded,
+        pendingAccountTransfer;
     private bool CanApply => status is { WorldServer.IsRunning: true, SoapConfigured: true } && !isWorking;
     private bool CanSelectService(ServiceOption service) =>
         CanApply && selectedPlayerNames.Count > 0
@@ -33,12 +36,32 @@ public partial class CharacterServices
         && (service.Key != "level" || newLevel is >= 1 and <= 80);
     private IReadOnlyList<AdministrationPlayer> SelectedPlayers => OrderedPlayers
         .Where(player => selectedPlayerNames.Contains(player.Name)).ToArray();
+    private AdministrationPlayer? SelectedTransferPlayer =>
+        SelectedPlayers.Count == 1 ? SelectedPlayers[0] : null;
+    private CharacterTransferAccount? SelectedDestinationAccount =>
+        transferAccounts.FirstOrDefault(account =>
+            account.AccountId == destinationAccountId);
+    private bool CanTransferAccount =>
+        CanApply
+        && SelectedTransferPlayer is not null
+        && SelectedDestinationAccount is { CharacterCount: < 10 } destination
+        && !SelectedTransferPlayer.Username.Equals(
+            destination.Username, StringComparison.OrdinalIgnoreCase);
     private IReadOnlyList<CharacterPickerItem> PickerItems =>
         CharacterPickerItem.FromAdministrationPlayers(players);
 
     protected override async Task OnInitializedAsync()
     {
-        try { status = await AccountsClient.GetServerStatusAsync(); players = await AccountsClient.GetAdministrationPlayersAsync(); }
+        try
+        {
+            var statusTask = AccountsClient.GetServerStatusAsync();
+            var playersTask = AccountsClient.GetAdministrationPlayersAsync();
+            var accountsTask = AccountsClient.GetCharacterTransferAccountsAsync();
+            await Task.WhenAll(statusTask, playersTask, accountsTask);
+            status = await statusTask;
+            players = await playersTask;
+            transferAccounts = await accountsTask;
+        }
         catch (Exception exception) { message = exception.Message; }
         finally { isLoading = false; }
     }
@@ -49,6 +72,17 @@ public partial class CharacterServices
         pendingService = service;
     }
     private void CancelService() => pendingService = null;
+    private void SelectAccountTransfer()
+    {
+        if (!CanTransferAccount) return;
+        message = null;
+        batchResults = [];
+        pendingAccountTransfer = true;
+    }
+    private void CancelAccountTransfer()
+    {
+        if (!isWorking) pendingAccountTransfer = false;
+    }
     private static string ServiceTitle(string key) => Services.First(option => option.Key == key).Title;
     private async Task ApplyServiceAsync()
     {
@@ -87,6 +121,35 @@ public partial class CharacterServices
         selectedPlayerNames.Clear();
         selectedPlayerNames.UnionWith(values);
         batchResults = [];
+    }
+
+    private async Task TransferAccountAsync()
+    {
+        var player = SelectedTransferPlayer;
+        var destination = SelectedDestinationAccount;
+        if (player is null || destination is null || isWorking) return;
+        isWorking = true;
+        try
+        {
+            var result = await AccountsClient.TransferCharacterAccountAsync(
+                new(player.Name, destination.AccountId, true));
+            operationSucceeded = result?.Success == true;
+            message = result?.Message ?? "No response returned.";
+            if (operationSucceeded)
+            {
+                players = await AccountsClient.GetAdministrationPlayersAsync();
+                transferAccounts =
+                    await AccountsClient.GetCharacterTransferAccountsAsync();
+                destinationAccountId = null;
+                pendingAccountTransfer = false;
+            }
+        }
+        catch (Exception exception)
+        {
+            operationSucceeded = false;
+            message = exception.Message;
+        }
+        finally { isWorking = false; }
     }
 
     private sealed record BatchServiceResult(string PlayerName, bool Success, string Message);

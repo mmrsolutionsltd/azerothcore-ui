@@ -4,8 +4,7 @@
 @using AzerothCore_UI.Web.Models
 @inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
 
-<PageTitle>Collectibles</PageTitle>
-<h1>Mounts and companions</h1>
+<PageTitle>Mounts and companions</PageTitle>
 <p class="text-muted">Track a character's collection and deliver missing collectible items.</p>
 @if (message is not null) { <div class="alert @(succeeded ? "alert-success" : "alert-danger")">@message</div> }
 @if (isLoadingPage) { <p><em>Loading characters...</em></p> }

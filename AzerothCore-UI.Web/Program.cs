@@ -285,6 +285,25 @@ app.MapPost("/admin/logout", async (HttpContext context, IAntiforgery antiforger
     return Results.Redirect("/");
 }).RequireAuthorization();
 
+app.MapGet("/downloads/azeroth-companion.zip", (HttpContext context) =>
+{
+    try
+    {
+        var directory =
+            AzerothCore_UI.Web.Services.ClientAddonPackageBuilder.ResolveAddonDirectory();
+        var package = AzerothCore_UI.Web.Services.ClientAddonPackageBuilder.Build(directory);
+        context.Response.Headers.CacheControl = "no-store";
+        return Results.File(
+            package,
+            "application/zip",
+            "AzerothCompanion.zip");
+    }
+    catch (IOException)
+    {
+        return Results.NotFound();
+    }
+}).RequireAuthorization("adventures.quests");
+
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();

@@ -2,13 +2,13 @@
 @inject AzerothCore_UI.Web.Services.SelectedCharacterStore SelectedCharacterStore
 
 <div class="character-picker border rounded p-2">
-	<div class="row g-2 align-items-center mb-2">
-		<div class="col-5">
-			<input class="form-control form-control-sm"
-				   placeholder="Find character…" @bind="search" @bind:event="oninput" />
-		</div>
-		<div class="col-7">
-			<div class="d-flex flex-nowrap align-items-center justify-content-end gap-2">
+	<div class="character-picker-heading d-flex flex-wrap align-items-center gap-2 mb-2">
+		@if (!string.IsNullOrWhiteSpace(Title))
+		{
+			<h2 id="@TitleId" class="h5 mb-0">@Title</h2>
+		}
+		<div class="ms-auto">
+			<div class="character-picker-controls d-flex flex-nowrap align-items-center justify-content-end gap-2">
 				<div class="form-check form-switch mb-0 flex-shrink-0">
 					<input id="@($"{pickerId}-offline")" class="form-check-input" type="checkbox" @bind="showOffline" />
 					<label class="form-check-label small" for="@($"{pickerId}-offline")">Offline</label>
@@ -26,7 +26,7 @@
 			</div>
 		</div>
 	</div>
-	<div style="max-height: 8rem; overflow-y: auto">
+	<div class="character-picker-items d-flex flex-wrap align-content-start gap-1">
 		@if (FilteredItems.Count == 0)
 		{
 			<div class="small text-muted px-1 py-2">No characters match these filters.</div>
@@ -37,9 +37,9 @@
 			{
 				var selected = IsSelected(item.Value);
 				<button type="button"
-						class="btn btn-sm w-100 text-start d-flex align-items-center gap-2 mb-1 @(selected ? "btn-primary" : "btn-light")"
+						class="character-picker-item btn btn-sm text-start d-inline-flex align-items-center gap-2 @(selected ? "btn-primary" : "btn-light")"
 						@onclick="() => ToggleAsync(item.Value)">
-					<span class="text-truncate flex-grow-1">
+					<span class="text-truncate">
 						<strong>@item.Name</strong>
 						@if (!string.IsNullOrWhiteSpace(item.Detail))
 						{
@@ -74,6 +74,8 @@
 </div>
 
 @code {
+	[Parameter] public string? Title { get; set; }
+	[Parameter] public string? TitleId { get; set; }
 	[Parameter, EditorRequired] public IReadOnlyList<CharacterPickerItem> Items { get; set; } = [];
 	[Parameter] public bool Multiple { get; set; }
 	[Parameter] public bool AllowBots { get; set; } = true;
@@ -87,7 +89,6 @@
 	[Parameter] public IReadOnlySet<string> SelectedValues { get; set; } = new HashSet<string>();
 	[Parameter] public EventCallback<IReadOnlySet<string>> SelectedValuesChanged { get; set; }
 	private readonly string pickerId = $"character-picker-{Guid.NewGuid():N}";
-	private string search = "";
 	private bool showOffline, showBots;
 	private bool restoredRememberedSelection;
 
@@ -123,10 +124,7 @@
 		get
 		{
 			var filtered = Items.Where(item => (item.Online || showOffline)
-			&& (!item.IsPlayerBot || (AllowBots && showBots))
-			&& (string.IsNullOrWhiteSpace(search)
-				|| item.Name.Contains(search, StringComparison.OrdinalIgnoreCase)
-				|| item.Detail.Contains(search, StringComparison.OrdinalIgnoreCase)));
+				&& (!item.IsPlayerBot || (AllowBots && showBots)));
 			return PreserveItemOrder
 				? filtered.ToArray()
 				: filtered.OrderByDescending(item => item.Online)

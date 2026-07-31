@@ -14,4 +14,11 @@
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.10" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="..\client-addons\AzerothCompanion\**\*"
+             Link="ClientAddons\AzerothCompanion\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

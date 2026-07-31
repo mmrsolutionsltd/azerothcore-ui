@@ -4,11 +4,10 @@
 @using AzerothCore_UI.Web.Models
 @inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
 
-<PageTitle>Server health</PageTitle>
+<PageTitle>Server health and diagnostics</PageTitle>
 
 <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
     <div>
-        <h1 class="mb-1">Server health and diagnostics</h1>
         <p class="text-muted mb-0">Read-only checks across processes, databases, builds, modules, configuration, backups, logs, client files and mod-arac.</p>
     </div>
     <button class="btn btn-outline-primary" disabled="@isLoading" @onclick="LoadAsync">Run checks again</button>

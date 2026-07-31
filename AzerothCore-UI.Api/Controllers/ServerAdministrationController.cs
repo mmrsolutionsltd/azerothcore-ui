@@ -20,6 +20,28 @@ public sealed class ServerAdministrationController(
     DatabaseBackupService databaseBackupService,
     ILogger<ServerAdministrationController> logger) : ControllerBase
 {
+    internal const string QuestingCompanionCandidateSql = """
+        SELECT c.name Name, a.username Username, c.account AccountId, c.level Level,
+               c.class CharacterClass, c.race Race, c.online<>0 Online,
+               CASE
+                 WHEN c.race IN (1,3,4,7,11)
+                   THEN @LeaderRace IN (1,3,4,7,11)
+                 ELSE @LeaderRace IN (2,5,6,8,10)
+               END SameFaction,
+               c.account=@LeaderAccount SameAccount,
+               (@LeaderGuild<>0 AND gm.guildid=@LeaderGuild) SameGuild
+        FROM acore_characters.characters c
+        JOIN acore_auth.account a ON a.id=c.account
+        LEFT JOIN acore_characters.guild_member gm ON gm.guid=c.guid
+        WHERE c.name<>@Leader
+          AND a.username NOT LIKE CONCAT(@BotPrefix, '%')
+          AND UPPER(a.username)<>'AHBOT'
+          AND (@AllAccounts OR c.account IN @AllowedAccounts)
+        ORDER BY c.online, SameFaction DESC, SameAccount,
+                 ABS(CAST(c.level AS SIGNED) - CAST(@LeaderLevel AS SIGNED)),
+                 c.level, c.name
+        """;
+
     private static readonly UtilityNpc[] UtilityNpcs =
     [
         new(12959, "Nergal", "General goods", "Basic supplies and somewhere to sell unwanted items.", 52),
@@ -926,13 +948,27 @@ public sealed class ServerAdministrationController(
         if (!request.Confirmed)
             return BadRequest(new AdministrationResult(false, "Confirm the temporary creature spawn first."));
         var anchor = AzerothCoreSoapClient.RequirePlayerName(request.AnchorPlayerName);
-        if (request.CreatureId == 0 || request.Level is < 1 or > 83 || request.DespawnMinutes is < 1 or > 30)
-            return BadRequest(new AdministrationResult(false, "A creature, level 1-83, and despawn time of 1-30 minutes are required."));
+        if (request.CreatureId == 0 || request.Level is < 1 or > 83
+            || request.DespawnMinutes is < 1 or > 30 || request.Count is < 1 or > 25
+            || request.SquareSideLength is < 1 or > 200)
+            return BadRequest(new AdministrationResult(
+                false,
+                "A creature, level 1-83, despawn time 1-30 minutes, count 1-25, "
+                + "and square side length 1-200 metres are required."));
         var output = await soapClient.ExecuteAsync(
-            $"webadmin creature spawn {anchor} {request.CreatureId} {request.Level} {request.DespawnMinutes}", cancellationToken);
+            AzerothCoreSoapClient.BuildCreatureSpawnCommand(
+                anchor, request.CreatureId, request.Level, request.DespawnMinutes,
+                request.Count, request.SquareSideLength),
+            cancellationToken);
         Audit("SpawnCreature", anchor,
-            $"Creature={request.CreatureId};Level={request.Level};DespawnMinutes={request.DespawnMinutes}");
-        return Ok(new AdministrationResult(true, "Temporary creature spawned beside the player.", output));
+            $"Creature={request.CreatureId};Level={request.Level};"
+            + $"DespawnMinutes={request.DespawnMinutes};Count={request.Count};"
+            + $"SquareSideLength={request.SquareSideLength}");
+        return Ok(new AdministrationResult(
+            true,
+            $"{request.Count} temporary creature{(request.Count == 1 ? "" : "s")} spawned "
+            + $"within a {request.SquareSideLength} by {request.SquareSideLength} metre square.",
+            output));
     }
 
     [HttpGet("players/utility-npcs")]
@@ -1036,6 +1072,142 @@ public sealed class ServerAdministrationController(
         var output = await soapClient.ExecuteAsync(service.Command, cancellationToken);
         Audit("CharacterService", player, $"Service={request.Service};Level={request.Level}");
         return Ok(new AdministrationResult(true, service.Message, output));
+    }
+
+    [HttpGet("characters/service/transfer-accounts")]
+    public async Task<ActionResult<IReadOnlyList<CharacterTransferAccount>>>
+        GetCharacterTransferAccounts(CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        var identity = HttpContext.AdministrationIdentity();
+        await using var connection = connectionFactory.CreateConnection();
+        var rows = await connection.QueryAsync<CharacterTransferAccountRow>(
+            new CommandDefinition("""
+                SELECT a.id AccountId, a.username Username,
+                       CASE WHEN a.username LIKE CONCAT(@BotPrefix, '%')
+                            THEN 'PlayerBot' ELSE 'Human' END Classification,
+                       COUNT(c.guid) CharacterCount
+                FROM acore_auth.account a
+                LEFT JOIN acore_characters.characters c ON c.account=a.id
+                WHERE UPPER(a.username)<>'AHBOT'
+                  AND a.username NOT LIKE CONCAT(@BotPrefix, '%')
+                  AND (@AllAccounts OR a.id IN @AllowedAccounts)
+                GROUP BY a.id, a.username
+                ORDER BY a.username, a.id;
+                """,
+                new
+                {
+                    BotPrefix = "rndbot",
+                    AllAccounts = identity?.AccountScope == "All",
+                    AllowedAccounts = identity?.GameAccountIds ?? []
+                },
+                cancellationToken: cancellationToken));
+        return Ok(rows.Select(row => new CharacterTransferAccount(
+            row.AccountId, row.Username, row.Classification,
+            row.CharacterCount)).ToArray());
+    }
+
+    [HttpPost("characters/service/transfer")]
+    public async Task<ActionResult<AdministrationResult>> TransferCharacterAccount(
+        CharacterAccountTransferRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        if (!request.Confirmed)
+            return BadRequest(new AdministrationResult(
+                false, "Confirm the account transfer first."));
+
+        string player;
+        try
+        {
+            player = AzerothCoreSoapClient.RequirePlayerName(request.PlayerName);
+        }
+        catch (ArgumentException exception)
+        {
+            return BadRequest(new AdministrationResult(false, exception.Message));
+        }
+
+        var identity = HttpContext.AdministrationIdentity();
+        CharacterTransferSourceRow? source;
+        CharacterTransferAccountRow? destination;
+        await using (var connection = connectionFactory.CreateConnection())
+        {
+            source = await connection.QuerySingleOrDefaultAsync<CharacterTransferSourceRow>(
+                new CommandDefinition("""
+                    SELECT c.account AccountId, a.username Username,
+                           c.online<>0 Online
+                    FROM acore_characters.characters c
+                    JOIN acore_auth.account a ON a.id=c.account
+                    WHERE c.name=@PlayerName
+                    LIMIT 1;
+                    """,
+                    new { PlayerName = player },
+                    cancellationToken: cancellationToken));
+            destination =
+                await connection.QuerySingleOrDefaultAsync<CharacterTransferAccountRow>(
+                    new CommandDefinition("""
+                        SELECT a.id AccountId, a.username Username,
+                               CASE WHEN a.username LIKE CONCAT(@BotPrefix, '%')
+                                    THEN 'PlayerBot' ELSE 'Human' END Classification,
+                               COUNT(c.guid) CharacterCount
+                        FROM acore_auth.account a
+                        LEFT JOIN acore_characters.characters c ON c.account=a.id
+                        WHERE a.id=@DestinationAccountId
+                          AND UPPER(a.username)<>'AHBOT'
+                          AND a.username NOT LIKE CONCAT(@BotPrefix, '%')
+                          AND (@AllAccounts OR a.id IN @AllowedAccounts)
+                        GROUP BY a.id, a.username
+                        LIMIT 1;
+                        """,
+                        new
+                        {
+                            request.DestinationAccountId,
+                            BotPrefix = "rndbot",
+                            AllAccounts = identity?.AccountScope == "All",
+                            AllowedAccounts = identity?.GameAccountIds ?? []
+                        },
+                        cancellationToken: cancellationToken));
+        }
+
+        if (source is null)
+            return NotFound(new AdministrationResult(
+                false, "That character does not exist."));
+        if (destination is null)
+            return NotFound(new AdministrationResult(
+                false, "The destination account does not exist or is outside your scope."));
+        if (source.AccountId == destination.AccountId)
+            return Conflict(new AdministrationResult(
+                false, $"{player} already belongs to {destination.Username}."));
+        if (destination.CharacterCount >= 10)
+            return Conflict(new AdministrationResult(
+                false, $"{destination.Username} already has the maximum 10 characters."));
+
+        string command;
+        try
+        {
+            command = AzerothCoreSoapClient.BuildCharacterAccountTransferCommand(
+                player, destination.Username);
+        }
+        catch (ArgumentException exception)
+        {
+            return BadRequest(new AdministrationResult(false, exception.Message));
+        }
+
+        var backup = await databaseBackupService.CreateAsync(cancellationToken);
+        var output = await soapClient.ExecuteAsync(command, cancellationToken);
+        Audit("TransferCharacterAccount", player,
+            $"From={source.Username}({source.AccountId});"
+            + $"To={destination.Username}({destination.AccountId});"
+            + $"Backup={backup.BackupId}");
+        var onlineNotice = source.Online
+            ? " The character was online and AzerothCore disconnected it."
+            : "";
+        return Ok(new AdministrationResult(
+            true,
+            $"{player} moved from {source.Username} to {destination.Username}."
+            + onlineNotice
+            + $" Verified backup {backup.BackupId} was created first.",
+            output));
     }
 
     [HttpGet("players/{playerName}/weapon-training")]
@@ -1159,26 +1331,7 @@ public sealed class ServerAdministrationController(
                 "The selected leader must be online."));
         var identity = HttpContext.AdministrationIdentity();
         var candidates = (await connection.QueryAsync<QuestingCompanionCandidate>(
-            new CommandDefinition("""
-                SELECT c.name Name, a.username Username, c.account AccountId, c.level Level,
-                       c.class CharacterClass, c.race Race, c.online<>0 Online,
-                       CASE
-                         WHEN c.race IN (1,3,4,7,11)
-                           THEN @LeaderRace IN (1,3,4,7,11)
-                         ELSE @LeaderRace IN (2,5,6,8,10)
-                       END SameFaction,
-                       c.account=@LeaderAccount SameAccount,
-                       (@LeaderGuild<>0 AND gm.guildid=@LeaderGuild) SameGuild
-                FROM acore_characters.characters c
-                JOIN acore_auth.account a ON a.id=c.account
-                LEFT JOIN acore_characters.guild_member gm ON gm.guid=c.guid
-                WHERE c.name<>@Leader
-                  AND a.username NOT LIKE CONCAT(@BotPrefix, '%')
-                  AND UPPER(a.username)<>'AHBOT'
-                  AND (@AllAccounts OR c.account IN @AllowedAccounts)
-                ORDER BY c.online, SameFaction DESC, SameAccount,
-                         ABS(c.level - @LeaderLevel), c.level, c.name
-                """, new
+            new CommandDefinition(QuestingCompanionCandidateSql, new
                 {
                     Leader = leader,
                     LeaderRace = leaderRow.CharacterRace,
@@ -1208,8 +1361,10 @@ public sealed class ServerAdministrationController(
         }
         var output = await soapClient.ExecuteAsync(
             $"webadmin companion inspect {leader}", cancellationToken);
+        var inspection = ParseQuestingCompanionInspection(output, leader);
         return Ok(new QuestingCompanionStatus(
-            leader, ParseActiveCompanions(output), candidates));
+            leader, inspection.ActiveCompanions, candidates,
+            inspection.LeaderQuests, inspection.ProtocolVersion));
     }
 
     [HttpPost("questing-companions/start")]
@@ -1976,23 +2131,121 @@ public sealed class ServerAdministrationController(
         return dungeons;
     }
 
-    private static IReadOnlyList<ActiveQuestingCompanion> ParseActiveCompanions(
-        string output)
+    internal static QuestingCompanionInspection ParseQuestingCompanionInspection(
+        string output, string leaderName)
     {
-        var companions = new List<ActiveQuestingCompanion>();
+        var companionRows = new List<(
+            string Name, int Level, int CharacterClass, bool InLeaderParty,
+            bool LootEnabled, int FreeBagSlots, int TotalBagSlots)>();
+        var questsByCharacter = new Dictionary<
+            string, Dictionary<uint, QuestProgressBuilder>>(
+                StringComparer.OrdinalIgnoreCase);
+        var questObjectStatuses = new Dictionary<string, string>(
+            StringComparer.OrdinalIgnoreCase);
+        var protocolVersion = 0;
+        string? error = null;
+
         foreach (var line in output.Split(
                      ['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
         {
-            if (!line.StartsWith("WEBADMIN_COMPANION\t",
-                    StringComparison.Ordinal)) continue;
             var fields = line.Split('\t');
-            if (fields.Length < 5
-                || !int.TryParse(fields[2], out var level)
-                || !int.TryParse(fields[3], out var characterClass)
-                || !int.TryParse(fields[4], out var inParty)) continue;
-            companions.Add(new(fields[1], level, characterClass, inParty != 0));
+            if (fields.Length >= 2
+                && fields[0] == "WEBADMIN_COMPANION_PROTOCOL"
+                && int.TryParse(fields[1], out var parsedProtocolVersion))
+            {
+                protocolVersion = parsedProtocolVersion;
+                continue;
+            }
+
+            if (fields.Length >= 5
+                && fields[0] == "WEBADMIN_COMPANION"
+                && int.TryParse(fields[2], out var level)
+                && int.TryParse(fields[3], out var characterClass)
+                && int.TryParse(fields[4], out var inParty))
+            {
+                var lootEnabled = fields.Length >= 6
+                    && int.TryParse(fields[5], out var loot) && loot != 0;
+                var freeBagSlots = fields.Length >= 7
+                    && int.TryParse(fields[6], out var free) ? free : 0;
+                var totalBagSlots = fields.Length >= 8
+                    && int.TryParse(fields[7], out var total) ? total : 0;
+                companionRows.Add((
+                    fields[1], level, characterClass, inParty != 0,
+                    lootEnabled, freeBagSlots, totalBagSlots));
+                continue;
+            }
+
+            if (fields.Length >= 3
+                && fields[0] == "WEBADMIN_COMPANION_GATHER")
+            {
+                questObjectStatuses[fields[1]] = fields[2];
+                continue;
+            }
+
+            if (fields.Length >= 5
+                && fields[0] == "WEBADMIN_COMPANION_QUEST"
+                && uint.TryParse(fields[2], out var questId)
+                && int.TryParse(fields[3], out var complete))
+            {
+                var quests = GetOrCreateQuestMap(questsByCharacter, fields[1]);
+                quests[questId] = new QuestProgressBuilder(
+                    questId, fields[4], complete != 0);
+                continue;
+            }
+
+            if (fields.Length >= 8
+                && fields[0] == "WEBADMIN_COMPANION_OBJECTIVE"
+                && uint.TryParse(fields[2], out var objectiveQuestId)
+                && uint.TryParse(fields[4], out var entry)
+                && int.TryParse(fields[5], out var current)
+                && int.TryParse(fields[6], out var required))
+            {
+                var quests = GetOrCreateQuestMap(questsByCharacter, fields[1]);
+                if (!quests.TryGetValue(objectiveQuestId, out var quest))
+                {
+                    quest = new QuestProgressBuilder(
+                        objectiveQuestId, $"Quest {objectiveQuestId}", false);
+                    quests.Add(objectiveQuestId, quest);
+                }
+                quest.Objectives.Add(new(
+                    fields[3], entry, fields[7], current, required));
+                continue;
+            }
+
+            if (!line.StartsWith("WEBADMIN_", StringComparison.Ordinal))
+                error ??= line;
         }
-        return companions;
+
+        IReadOnlyList<QuestingCompanionQuest> BuildQuests(string characterName)
+        {
+            if (!questsByCharacter.TryGetValue(characterName, out var quests))
+                return [];
+            return quests.Values.Select(quest => new QuestingCompanionQuest(
+                quest.QuestId, quest.Title, quest.Complete,
+                quest.Objectives.ToArray())).ToArray();
+        }
+
+        var companions = companionRows.Select(companion =>
+            new ActiveQuestingCompanion(
+                companion.Name, companion.Level, companion.CharacterClass,
+                companion.InLeaderParty, companion.LootEnabled,
+                companion.FreeBagSlots, companion.TotalBagSlots,
+                BuildQuests(companion.Name),
+                questObjectStatuses.GetValueOrDefault(companion.Name, ""))).ToArray();
+        return new QuestingCompanionInspection(
+            companions, BuildQuests(leaderName), protocolVersion, error);
+    }
+
+    private static Dictionary<uint, QuestProgressBuilder> GetOrCreateQuestMap(
+        Dictionary<string, Dictionary<uint, QuestProgressBuilder>> questsByCharacter,
+        string characterName)
+    {
+        if (questsByCharacter.TryGetValue(characterName, out var quests))
+            return quests;
+
+        quests = [];
+        questsByCharacter.Add(characterName, quests);
+        return quests;
     }
 
     private async Task ValidateCompanionPairAsync(
@@ -2150,6 +2403,21 @@ public sealed class ServerAdministrationController(
         public uint GuildId { get; init; }
     }
 
+    internal sealed record QuestingCompanionInspection(
+        IReadOnlyList<ActiveQuestingCompanion> ActiveCompanions,
+        IReadOnlyList<QuestingCompanionQuest> LeaderQuests,
+        int ProtocolVersion,
+        string? Error);
+
+    private sealed class QuestProgressBuilder(
+        uint questId, string title, bool complete)
+    {
+        public uint QuestId { get; } = questId;
+        public string Title { get; } = title;
+        public bool Complete { get; } = complete;
+        public List<QuestingCompanionObjective> Objectives { get; } = [];
+    }
+
     private sealed class DungeonEncounterRow
     {
         public uint EncounterEntry { get; init; }
@@ -2174,6 +2442,21 @@ public sealed class ServerAdministrationController(
         public int Level { get; init; }
         public int CharacterClass { get; init; }
         public bool Online { get; init; }
+    }
+
+    private sealed class CharacterTransferSourceRow
+    {
+        public uint AccountId { get; init; }
+        public string Username { get; init; } = "";
+        public bool Online { get; init; }
+    }
+
+    private sealed class CharacterTransferAccountRow
+    {
+        public uint AccountId { get; init; }
+        public string Username { get; init; } = "";
+        public string Classification { get; init; } = "";
+        public int CharacterCount { get; init; }
     }
 
     private sealed class DungeonLootRow

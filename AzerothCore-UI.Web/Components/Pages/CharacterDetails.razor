@@ -4,7 +4,7 @@
 @using AzerothCore_UI.Web.Models
 @inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
 
-<PageTitle>Character details</PageTitle>
+<PageTitle>@(character?.Name ?? "Character details")</PageTitle>
 
 @if (isLoading)
 {
@@ -27,7 +27,6 @@ else if (character is not null)
 
     <div class="d-flex justify-content-between align-items-start mb-3">
         <div>
-            <h1>@character.Name</h1>
             <p class="text-muted mb-0">
                 Level @character.Level @CharacterDisplayNames.Race(character.Race)
                 @CharacterDisplayNames.Class(character.Class) · GUID @character.Guid
@@ -719,6 +718,21 @@ else if (character is not null)
                     </table>
                 </div>
             }
+        }
+        else if (activeTab == "Actions")
+        {
+            <p class="text-muted">
+                These actions are fixed to <strong>@character.Name</strong>; no additional
+                character selection is required.
+            </p>
+            <PlayerActionTools Targets="@CharacterActionTargets" />
+        }
+        else if (activeTab == "Trainers")
+        {
+            <p class="text-muted">
+                Trainers are filtered for <strong>@character.Name</strong>'s class and faction.
+            </p>
+            <TrainerFinderTool CharacterName="@character.Name" />
         }
         else
         {

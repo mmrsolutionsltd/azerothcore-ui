@@ -1,0 +1,20 @@
+@using AzerothCore_UI.Web.Models
+
+@if (Results.Count > 1 || Results.Any(result => !result.Success))
+{
+    <ul class="list-group list-group-flush small mt-2">
+        @foreach (var result in Results)
+        {
+            <li class="list-group-item px-0 py-1">
+                <span class="badge @(result.Success ? "text-bg-success" : "text-bg-danger") me-1">
+                    @(result.Success ? "Success" : "Failed")
+                </span>
+                <strong>@result.PlayerName:</strong> @result.Message
+            </li>
+        }
+    </ul>
+}
+
+@code {
+    [Parameter] public IReadOnlyList<PlayerActionResult> Results { get; set; } = [];
+}

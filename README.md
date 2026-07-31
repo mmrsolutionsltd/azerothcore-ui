@@ -54,6 +54,12 @@ The solution targets .NET 10 and contains:
 - Configure random-bot level range, dungeon-finder participation, battleground participation, and trading.
 - Inspect a real player's current party and eligible nearby-level PlayerBots.
 - Add or remove individual bots, clear all party bots, or auto-fill a five-player role-aware party.
+- Run normal characters as questing companions, mirror eligible quests, enforce quest
+  looting, and compare leader/companion item and kill progress with bag-space warnings.
+- Use the bundled 3.3.5a `AzerothCompanion` addon for the same shared quest progress,
+  bag capacity, loot state, and gathering status directly inside the game client.
+- Download its versioned ZIP from the authenticated **Adventures > Client addons**
+  page; the addon reports missing, timed-out, older, and newer server bridges clearly.
 - Rank supported dungeon destinations for the current party and highlight the three best level matches.
 - Review tank, healer, damage, party-size, and level readiness before launch.
 - Show active instance lockouts and objective-linked dungeon quests, including which real players have them in progress or completed.
@@ -137,6 +143,8 @@ Run confirmed, allowlisted AzerothCore services for a named character:
 - Revive a dead character.
 - Return a character to its bound inn.
 - Set character level.
+- Transfer one character to another human game account after creating a verified
+  database backup, with account-scope, capacity, confirmation, and audit checks.
 - Select multiple real-player characters and process each service independently with per-character results.
 
 Character pickers throughout the administration UI list real-player characters only. PlayerBots remain available in the dedicated PlayerBots and dungeon-party workflows.
@@ -172,8 +180,12 @@ Character pickers throughout the administration UI list real-player characters o
 
 ### Temporary creature spawner
 
+- Use the compact creature-spawner tool from Player Actions with the page's
+  shared single- or multi-character selection.
 - Search safe creature templates by name, family, level range, and tameable/exotic status.
-- Spawn a selected creature beside an online player at a chosen level for 1–30 minutes.
+- Spawn 1–25 selected creatures at random positions in a configurable square centred
+  on each selected online player, at a chosen level for 1–30 minutes.
+- Configure a square from 1–200 metres per side.
 - Recalculate stats when using an allowed level outside the template's natural range.
 - Keep spawns runtime-only; the feature does not insert permanent world-database records.
 - Reject service NPCs, world bosses, instances, battlegrounds, transports, combat, flight, and other unsafe targets or states.

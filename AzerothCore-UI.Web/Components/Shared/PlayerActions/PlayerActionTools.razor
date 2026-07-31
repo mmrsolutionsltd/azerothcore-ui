@@ -1,0 +1,62 @@
+@using AzerothCore_UI.Web.Models
+@inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
+
+@if (isLoading)
+{
+    <p><em>Checking action availability...</em></p>
+}
+else
+{
+    @if (errorMessage is not null)
+    {
+        <div class="alert alert-warning">@errorMessage</div>
+    }
+    @if (!Available)
+    {
+        <div class="alert alert-warning">
+            These tools require the worldserver and SOAP administration connection to be available.
+        </div>
+    }
+
+    <div class="player-action-tools-grid">
+        <section class="player-action-tool"><GiveItemTool Targets="Targets" Available="Available" /></section>
+        <section class="player-action-tool"><GiveMoneyTool Targets="Targets" Available="Available" /></section>
+        <section class="player-action-tool"><TeleportTool Targets="Targets" Available="Available" /></section>
+        <section class="player-action-tool"><MovementSpeedTool Targets="Targets" Available="Available" /></section>
+        <section class="player-action-tool"><GuildBankTool Targets="Targets" Available="Available" /></section>
+        <section class="player-action-tool"><UtilityNpcTool Targets="Targets" Available="Available" /></section>
+        <AuthorizeView Policy="world.creatures">
+            <Authorized>
+                <section class="player-action-tool">
+                    <CreatureSpawnerTool Targets="Targets" Available="Available" />
+                </section>
+            </Authorized>
+        </AuthorizeView>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<PlayerActionTarget> Targets { get; set; } = [];
+
+    private bool isLoading = true;
+    private bool Available =>
+        availability is { WorldServerRunning: true, SoapConfigured: true, SoapReachable: true };
+    private ToolAvailability? availability;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            availability = await AccountsClient.GetToolAvailabilityAsync();
+        }
+        catch (Exception exception)
+        {
+            errorMessage = $"Tool availability could not be checked: {exception.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+}

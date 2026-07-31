@@ -66,6 +66,15 @@ public sealed class AdministrationRequestAuthorizer(
         foreach (var key in new[] { "playerName", "leaderName" })
             if (context.Request.RouteValues[key]?.ToString() is { Length: > 0 } name)
                 result.PlayerNames.Add(name);
+        foreach (var key in new[] { "characterName", "playerName", "leaderName" })
+            foreach (var name in context.Request.Query[key])
+                if (!string.IsNullOrWhiteSpace(name))
+                    result.PlayerNames.Add(name);
+        foreach (var value in context.Request.Query["targetNames"])
+            foreach (var name in value?.Split(
+                         ',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                     ?? [])
+                result.PlayerNames.Add(name);
         if (context.Request.ContentLength is null or 0
             || context.Request.ContentType?.Contains("json", StringComparison.OrdinalIgnoreCase) != true)
             return result;
@@ -95,7 +104,8 @@ public sealed class AdministrationRequestAuthorizer(
             && element.TryGetUInt32(out var guid))
             targets.CharacterGuids.Add(guid);
         else if (element.ValueKind == JsonValueKind.Number
-            && propertyName == "accountId" && element.TryGetUInt32(out var accountId))
+            && propertyName is "accountId" or "destinationAccountId"
+            && element.TryGetUInt32(out var accountId))
             targets.AccountIds.Add(accountId);
     }
 

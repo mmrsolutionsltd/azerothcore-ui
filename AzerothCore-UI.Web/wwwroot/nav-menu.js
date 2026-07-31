@@ -1,5 +1,26 @@
 (() => {
     const storagePrefix = "azerothcore.nav.";
+    let pageTitleObserver;
+
+    function synchronisePageHeading() {
+        const heading = document.querySelector("[data-page-heading]");
+        if (heading && document.title) {
+            heading.textContent = document.title;
+        }
+    }
+
+    function observePageTitle() {
+        if (pageTitleObserver || !document.head) {
+            return;
+        }
+
+        pageTitleObserver = new MutationObserver(synchronisePageHeading);
+        pageTitleObserver.observe(document.head, {
+            childList: true,
+            characterData: true,
+            subtree: true
+        });
+    }
 
     function initialiseNavigation() {
         const menu = document.querySelector(".nav-scrollable");
@@ -38,7 +59,13 @@
         });
     }
 
-    document.addEventListener("DOMContentLoaded", initialiseNavigation);
-    document.addEventListener("enhancedload", initialiseNavigation);
-    initialiseNavigation();
+    function initialiseLayout() {
+        initialiseNavigation();
+        observePageTitle();
+        synchronisePageHeading();
+    }
+
+    document.addEventListener("DOMContentLoaded", initialiseLayout);
+    document.addEventListener("enhancedload", initialiseLayout);
+    initialiseLayout();
 })();

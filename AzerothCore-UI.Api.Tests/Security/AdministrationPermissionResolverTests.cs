@@ -12,6 +12,7 @@ public sealed class AdministrationPermissionResolverTests
     [InlineData("/api/server-administration/questing-companions/start", "adventures.quests")]
     [InlineData("/api/server-administration/dungeon-library/guide", "adventures.dungeons")]
     [InlineData("/api/server-administration/items/give", "players.actions")]
+    [InlineData("/api/server-administration/characters/service/transfer", "players.services")]
     [InlineData("/api/server-administration/settings/rates", "server.settings")]
     [InlineData("/api/server-administration/restart", "server.control")]
     [InlineData("/api/database-backups/restore", "server.backups")]
@@ -35,5 +36,22 @@ public sealed class AdministrationPermissionResolverTests
     {
         Assert.Null(AdministrationPermissionResolver.RequiredPermission(
             "GET", "/api/server-administration/availability"));
+    }
+
+    [Fact]
+    public void AllowsAuthenticatedPagesToLoadTheirScopedCharacterPicker()
+    {
+        Assert.Null(AdministrationPermissionResolver.RequiredPermission(
+            "GET", "/api/server-administration/players"));
+    }
+
+    [Theory]
+    [InlineData("GET", "/api/server-administration/trainers")]
+    [InlineData("POST", "/api/server-administration/trainers/teleport")]
+    public void MapsTrainerFinderEndpointsToTrainingPermission(string method, string path)
+    {
+        Assert.Equal(
+            "adventures.training",
+            AdministrationPermissionResolver.RequiredPermission(method, path));
     }
 }
