@@ -2,6 +2,12 @@ local ADDON_PREFIX = "AzerothCore"
 local REFRESH_SECONDS = 5
 local RESPONSE_TIMEOUT_SECONDS = 3
 local EXPECTED_PROTOCOL = 1
+local DEFAULT_WIDTH = 360
+local DEFAULT_HEIGHT = 510
+local MIN_WIDTH = 320
+local MIN_HEIGHT = 260
+local MAX_WIDTH = 800
+local MAX_HEIGHT = 900
 local CLASS_NAMES = {
     [1] = "Warrior", [2] = "Paladin", [3] = "Hunter",
     [4] = "Rogue", [5] = "Priest", [6] = "Death Knight",
@@ -60,10 +66,13 @@ local function EnsureQuest(target, playerName, questId, title, complete)
 end
 
 local frame = CreateFrame("Frame", "AzerothCompanionFrame", UIParent)
-frame:SetWidth(440)
-frame:SetHeight(510)
+frame:SetWidth(DEFAULT_WIDTH)
+frame:SetHeight(DEFAULT_HEIGHT)
 frame:SetPoint("CENTER", UIParent, "CENTER", 300, 20)
 frame:SetMovable(true)
+frame:SetResizable(true)
+frame:SetMinResize(MIN_WIDTH, MIN_HEIGHT)
+frame:SetMaxResize(MAX_WIDTH, MAX_HEIGHT)
 frame:EnableMouse(true)
 frame:RegisterForDrag("LeftButton")
 frame:SetClampedToScreen(true)
@@ -90,8 +99,17 @@ closeButton:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -5, -5)
 local refreshButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate2")
 refreshButton:SetWidth(72)
 refreshButton:SetHeight(22)
-refreshButton:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -17, 15)
+refreshButton:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -32, 15)
 refreshButton:SetText("Refresh")
+
+local resizeButton = CreateFrame("Button", nil, frame)
+resizeButton:SetWidth(16)
+resizeButton:SetHeight(16)
+resizeButton:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -7, 7)
+resizeButton:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+resizeButton:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+resizeButton:SetHighlightTexture(
+    "Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
 
 local scroll = CreateFrame("ScrollFrame", "AzerothCompanionScrollFrame", frame,
     "UIPanelScrollFrameTemplate")
@@ -99,9 +117,21 @@ scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 19, -49)
 scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -34, 47)
 
 local content = CreateFrame("Frame", nil, scroll)
-content:SetWidth(382)
-content:SetHeight(410)
+content:SetWidth(DEFAULT_WIDTH - 58)
+content:SetHeight(DEFAULT_HEIGHT - 100)
 scroll:SetScrollChild(content)
+
+local function Clamp(value, minimum, maximum)
+    return math.min(maximum, math.max(minimum, value))
+end
+
+local function ContentViewportHeight()
+    return math.max(1, scroll:GetHeight() - 4)
+end
+
+local function UpdateContentWidth()
+    content:SetWidth(math.max(1, scroll:GetWidth() - 4))
+end
 
 local function SavePosition()
     if not AzerothCompanionDB then return end
@@ -110,6 +140,12 @@ local function SavePosition()
     AzerothCompanionDB.relativePoint = relativePoint
     AzerothCompanionDB.x = x
     AzerothCompanionDB.y = y
+end
+
+local function SaveSize()
+    if not AzerothCompanionDB then return end
+    AzerothCompanionDB.width = math.floor(frame:GetWidth() + 0.5)
+    AzerothCompanionDB.height = math.floor(frame:GetHeight() + 0.5)
 end
 
 frame:SetScript("OnDragStart", function(self)
@@ -122,6 +158,14 @@ end)
 closeButton:SetScript("OnClick", function()
     frame:Hide()
     if AzerothCompanionDB then AzerothCompanionDB.visible = false end
+end)
+
+resizeButton:SetScript("OnMouseDown", function(_, button)
+    if button == "LeftButton" then frame:StartSizing("BOTTOMRIGHT") end
+end)
+resizeButton:SetScript("OnMouseUp", function()
+    frame:StopMovingOrSizing()
+    SaveSize()
 end)
 
 local function HideLines()
@@ -140,7 +184,7 @@ local function AddLine(index, text, red, green, blue, indent)
     indent = indent or 0
     line:ClearAllPoints()
     line:SetPoint("TOPLEFT", content, "TOPLEFT", indent, content.nextY)
-    line:SetWidth(378 - indent)
+    line:SetWidth(math.max(1, content:GetWidth() - indent - 4))
     line:SetTextColor(red or 1, green or 1, blue or 1)
     line:SetText(text or "")
     line:Show()
@@ -167,7 +211,7 @@ local function Render(target)
     if not target then
         lineIndex = AddLine(lineIndex,
             "No companion information has been received yet.", 0.7, 0.7, 0.7)
-        content:SetHeight(410)
+        content:SetHeight(ContentViewportHeight())
         return
     end
     if target.error then
@@ -252,7 +296,7 @@ local function Render(target)
         end
         lineIndex = AddLine(lineIndex, " ", 1, 1, 1)
     end
-    content:SetHeight(math.max(410, -content.nextY + 8))
+    content:SetHeight(math.max(ContentViewportHeight(), -content.nextY + 8))
     if target.protocolVersion == EXPECTED_PROTOCOL then
         status:SetText("Bridge v" .. target.protocolVersion
             .. " - " .. date("%H:%M:%S"))
@@ -262,6 +306,11 @@ local function Render(target)
         status:SetText("Server bridge outdated")
     end
 end
+
+frame:SetScript("OnSizeChanged", function()
+    UpdateContentWidth()
+    Render(snapshot)
+end)
 
 local function ParseProtocolLine(target, body)
     local fields = SplitTabs(body)
@@ -369,6 +418,10 @@ frame:SetScript("OnEvent", function(self, event, ...)
         local loadedAddon = ...
         if loadedAddon ~= "AzerothCompanion" then return end
         AzerothCompanionDB = AzerothCompanionDB or {}
+        self:SetWidth(Clamp(AzerothCompanionDB.width or DEFAULT_WIDTH,
+            MIN_WIDTH, MAX_WIDTH))
+        self:SetHeight(Clamp(AzerothCompanionDB.height or DEFAULT_HEIGHT,
+            MIN_HEIGHT, MAX_HEIGHT))
         if AzerothCompanionDB.point then
             self:ClearAllPoints()
             self:SetPoint(AzerothCompanionDB.point, UIParent,
@@ -386,6 +439,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
             "|cff33ff99Azeroth Companion|r loaded. Use /accomp to toggle the panel.")
     elseif event == "PLAYER_LOGOUT" then
         SavePosition()
+        SaveSize()
     elseif event == "CHAT_MSG_ADDON" then
         local prefix, message = ...
         HandleAddonMessage(prefix, message)

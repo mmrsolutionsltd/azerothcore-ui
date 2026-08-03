@@ -22,4 +22,5 @@ Commands:
 - `/companion` is an alias.
 
 The panel refreshes every five seconds while visible and can also be refreshed using
-its button. Its position and visibility are saved per WoW installation.
+its button. Drag its bottom-right resize handle to adjust the panel. Its position,
+size, and visibility are saved per WoW installation.
