@@ -24,11 +24,17 @@ public sealed class ServerAdministrationControllerTests
     public void CompanionInspectionParsesLootBagsAndComparableQuestProgress()
     {
         const string output = """
-            WEBADMIN_COMPANION_PROTOCOL	1
+            WEBADMIN_COMPANION_PROTOCOL	3
             WEBADMIN_COMPANION_QUEST	Leader	101	0	A Test Quest
             WEBADMIN_COMPANION_OBJECTIVE	Leader	101	item	2001	2	6	Test Claw
             WEBADMIN_COMPANION	Helper	12	3	1	1	14	36
             WEBADMIN_COMPANION_GATHER	Helper	Moving to Test Herb (8m).
+            WEBADMIN_COMPANION_ITEM	Helper	equipment	255	15	42947	1	7	1	60	65	1	Dignified Headmaster's Charge
+            WEBADMIN_COMPANION_ITEM	Helper	bag	255	23	2001	4	1	8	0	0	0	Test Claw
+            WEBADMIN_COMPANION_MAINTENANCE	Helper	1	1
+            WEBADMIN_COMPANION_BEHAVIOR	Helper	dungeon-healer	healer	follow	defend	8.0	1	0	1	1
+            WEBADMIN_COMPANION_EQUIPMENT_CHANGE	Helper	1785776400	Main hand: Withered Staff -> Dignified Headmaster's Charge
+            WEBADMIN_COMPANION_INVENTORY_CHANGE	Helper	1785776401	Added Test Claw x2
             WEBADMIN_COMPANION_QUEST	Helper	101	0	A Test Quest
             WEBADMIN_COMPANION_OBJECTIVE	Helper	101	item	2001	4	6	Test Claw
             WEBADMIN_COMPANION_OBJECTIVE	Helper	101	creature	3001	3	8	Test Beast
@@ -46,6 +52,26 @@ public sealed class ServerAdministrationControllerTests
         Assert.Equal(14, companion.FreeBagSlots);
         Assert.Equal(36, companion.TotalBagSlots);
         Assert.Equal("Moving to Test Herb (8m).", companion.QuestObjectStatus);
+        Assert.True(companion.AutoSellTrash);
+        Assert.True(companion.AutoRepair);
+        Assert.Equal("dungeon-healer", companion.Behavior.Preset);
+        Assert.Equal("healer", companion.Behavior.Role);
+        Assert.Equal("follow", companion.Behavior.Movement);
+        Assert.Equal("defend", companion.Behavior.CombatFocus);
+        Assert.Equal(8, companion.Behavior.FollowDistance);
+        Assert.True(companion.Behavior.LootEnabled);
+        Assert.False(companion.Behavior.GatherEnabled);
+        var equipment = Assert.Single(companion.Equipment);
+        Assert.Equal((uint)42947, equipment.ItemId);
+        Assert.True(equipment.Protected);
+        Assert.Equal(60, equipment.Durability);
+        var inventory = Assert.Single(companion.Inventory);
+        Assert.Equal((uint)2001, inventory.ItemId);
+        Assert.Equal(4, inventory.Count);
+        var equipmentChange = Assert.Single(companion.RecentEquipmentChanges);
+        Assert.Contains("Withered Staff", equipmentChange.Description);
+        var inventoryChange = Assert.Single(companion.RecentInventoryChanges);
+        Assert.Equal("Added Test Claw x2", inventoryChange.Description);
         var companionQuest = Assert.Single(companion.Quests);
         Assert.Equal((uint)101, companionQuest.QuestId);
         Assert.Equal(2, companionQuest.Objectives.Count);
@@ -67,6 +93,16 @@ public sealed class ServerAdministrationControllerTests
         var companion = Assert.Single(inspection.ActiveCompanions);
         Assert.False(companion.LootEnabled);
         Assert.Equal(0, companion.TotalBagSlots);
+        Assert.False(companion.AutoSellTrash);
+        Assert.False(companion.AutoRepair);
+        Assert.Empty(companion.Equipment);
+        Assert.Empty(companion.Inventory);
+        Assert.Empty(companion.RecentEquipmentChanges);
+        Assert.Empty(companion.RecentInventoryChanges);
+        Assert.Equal("legacy", companion.Behavior.Preset);
+        Assert.Equal("auto", companion.Behavior.Role);
+        Assert.Equal("follow", companion.Behavior.Movement);
+        Assert.True(companion.Behavior.GatherEnabled);
         Assert.Empty(companion.Quests);
         Assert.Empty(companion.QuestObjectStatus);
         Assert.Empty(inspection.LeaderQuests);

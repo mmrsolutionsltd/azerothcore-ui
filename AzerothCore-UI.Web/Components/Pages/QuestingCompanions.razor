@@ -260,6 +260,54 @@
     </div>
 </div>
 
+@if (status is { ActiveCompanions.Count: > 0 })
+{
+    <div class="d-flex justify-content-between align-items-center mt-3 mb-2">
+        <h2 class="h5 mb-0">Behaviour, inventory and maintenance</h2>
+        <span class="small text-muted">Live companion data</span>
+    </div>
+    @if (status.ProtocolVersion < 2)
+    {
+        <div class="alert alert-warning py-2 small">
+            Equipment, bag contents and maintenance controls require bridge protocol 2.
+            Build and install the current mod-web-admin source when convenient.
+        </div>
+    }
+    else
+    {
+        <div class="row g-3">
+            @foreach (var companion in status.ActiveCompanions)
+            {
+                <div class="col-12 col-xxl-6">
+                    <div class="card h-100">
+                        <div class="card-header fw-semibold">@companion.Name</div>
+                        <div class="card-body">
+                            @if (status.ProtocolVersion >= 3)
+                            {
+                                <CompanionBehaviorPanel Companion="companion"
+                                    Disabled="working"
+                                    BehaviorRequested="SetBehaviorAsync"
+                                    PresetRequested="SetPresetAsync"
+                                    RegroupRequested="RegroupCompanionAsync" />
+                            }
+                            else
+                            {
+                                <div class="alert alert-warning py-2 small">
+                                    Behaviour presets and controls require bridge protocol 3.
+                                </div>
+                            }
+                            <CompanionMaintenancePanel Companion="companion"
+                                Disabled="working"
+                                ResetRequested="ResetCompanionAsync"
+                                ProtectionRequested="SetEquipmentProtectionAsync" />
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+
 <div class="alert alert-info mt-3 mb-0">
     Each companion must be on a different WoW account from the leader. Eligible quests
     accepted by the leader are mirrored to active companions. A nearby companion can
@@ -418,6 +466,104 @@
             operationSucceeded = true;
             message = result?.Message ?? $"{companion} is logging out.";
             await Task.Delay(750);
+            status = await Api.GetQuestingCompanionsAsync(leaderName);
+        }
+        catch (Exception exception)
+        {
+            operationSucceeded = false;
+            message = exception.Message;
+        }
+        finally { working = false; }
+    }
+
+    private async Task ResetCompanionAsync(string companion)
+    {
+        working = true;
+        try
+        {
+            var result = await Api.ResetQuestingCompanionAsync(
+                new(leaderName, companion));
+            operationSucceeded = true;
+            message = result?.Message
+                ?? $"{companion}'s AI behaviour was reset.";
+            status = await Api.GetQuestingCompanionsAsync(leaderName);
+        }
+        catch (Exception exception)
+        {
+            operationSucceeded = false;
+            message = exception.Message;
+        }
+        finally { working = false; }
+    }
+
+    private async Task SetBehaviorAsync(QuestingCompanionBehaviorRequest request)
+    {
+        working = true;
+        try
+        {
+            var result = await Api.SetQuestingCompanionBehaviorAsync(
+                request with { LeaderName = leaderName });
+            operationSucceeded = true;
+            message = result?.Message ?? "Companion behaviour was updated.";
+            status = await Api.GetQuestingCompanionsAsync(leaderName);
+        }
+        catch (Exception exception)
+        {
+            operationSucceeded = false;
+            message = exception.Message;
+        }
+        finally { working = false; }
+    }
+
+    private async Task SetPresetAsync(QuestingCompanionPresetRequest request)
+    {
+        working = true;
+        try
+        {
+            var result = await Api.SetQuestingCompanionPresetAsync(
+                request with { LeaderName = leaderName });
+            operationSucceeded = true;
+            message = result?.Message ?? "Companion preset was applied.";
+            status = await Api.GetQuestingCompanionsAsync(leaderName);
+        }
+        catch (Exception exception)
+        {
+            operationSucceeded = false;
+            message = exception.Message;
+        }
+        finally { working = false; }
+    }
+
+    private async Task RegroupCompanionAsync(string companion)
+    {
+        working = true;
+        try
+        {
+            var result = await Api.RegroupQuestingCompanionAsync(
+                new(leaderName, companion));
+            operationSucceeded = true;
+            message = result?.Message ?? $"{companion} was regrouped.";
+            status = await Api.GetQuestingCompanionsAsync(leaderName);
+        }
+        catch (Exception exception)
+        {
+            operationSucceeded = false;
+            message = exception.Message;
+        }
+        finally { working = false; }
+    }
+
+    private async Task SetEquipmentProtectionAsync(
+        QuestingCompanionEquipmentProtectionRequest request)
+    {
+        working = true;
+        try
+        {
+            var scopedRequest = request with { LeaderName = leaderName };
+            var result = await Api.SetQuestingCompanionEquipmentProtectionAsync(
+                scopedRequest);
+            operationSucceeded = true;
+            message = result?.Message;
             status = await Api.GetQuestingCompanionsAsync(leaderName);
         }
         catch (Exception exception)

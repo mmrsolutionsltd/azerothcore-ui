@@ -212,16 +212,42 @@ public sealed record QuestingCompanionObjective(
 public sealed record QuestingCompanionQuest(
     uint QuestId, string Title, bool Complete,
     IReadOnlyList<QuestingCompanionObjective> Objectives);
+public sealed record QuestingCompanionItem(
+    string Location, int Bag, int Slot, uint ItemId, int Count,
+    int Quality, int ItemLevel, int Durability, int MaximumDurability,
+    bool Protected, string Name);
+public sealed record QuestingCompanionEquipmentChange(
+    long ChangedAtUnix, string Description);
+public sealed record QuestingCompanionBehavior(
+    string Preset, string Role, string Movement, string CombatFocus,
+    double FollowDistance, bool LootEnabled, bool GatherEnabled,
+    bool AutoSellTrash, bool AutoRepair);
 public sealed record ActiveQuestingCompanion(
     string Name, int Level, int CharacterClass, bool InLeaderParty,
     bool LootEnabled, int FreeBagSlots, int TotalBagSlots,
-    IReadOnlyList<QuestingCompanionQuest> Quests, string QuestObjectStatus);
+    IReadOnlyList<QuestingCompanionQuest> Quests, string QuestObjectStatus,
+    bool AutoSellTrash, bool AutoRepair,
+    IReadOnlyList<QuestingCompanionItem> Equipment,
+    IReadOnlyList<QuestingCompanionItem> Inventory,
+    IReadOnlyList<QuestingCompanionEquipmentChange> RecentEquipmentChanges,
+    IReadOnlyList<QuestingCompanionEquipmentChange> RecentInventoryChanges,
+    QuestingCompanionBehavior Behavior);
 public sealed record QuestingCompanionStatus(
     string LeaderName, IReadOnlyList<ActiveQuestingCompanion> ActiveCompanions,
     IReadOnlyList<QuestingCompanionCandidate> Candidates,
     IReadOnlyList<QuestingCompanionQuest> LeaderQuests,
     int ProtocolVersion);
 public sealed record QuestingCompanionRequest(string LeaderName, string CompanionName);
+public sealed record QuestingCompanionResetRequest(
+    string LeaderName, string CompanionName);
+public sealed record QuestingCompanionEquipmentProtectionRequest(
+    string LeaderName, string CompanionName, int Slot, bool Protected);
+public sealed record QuestingCompanionBehaviorRequest(
+    string LeaderName, string CompanionName, string Preset, string Role,
+    string Movement, string CombatFocus, double FollowDistance,
+    bool LootEnabled, bool GatherEnabled, bool AutoSellTrash, bool AutoRepair);
+public sealed record QuestingCompanionPresetRequest(
+    string LeaderName, string CompanionName, string Preset);
 public sealed record QuestingCompanionAccountLinkRequest(
     string LeaderName, string CompanionName, bool Linked, bool Confirmed);
 public sealed record DungeonDestination(uint DungeonId, string Name, int MinimumLevel,

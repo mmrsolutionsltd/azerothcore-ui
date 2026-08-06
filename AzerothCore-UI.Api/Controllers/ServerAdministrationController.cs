@@ -1397,6 +1397,128 @@ public sealed class ServerAdministrationController(
             true, $"{companion} is logging out.", output));
     }
 
+    [HttpPost("questing-companions/reset")]
+    public async Task<ActionResult<AdministrationResult>> ResetQuestingCompanion(
+        QuestingCompanionResetRequest request, CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        var leader = AzerothCoreSoapClient.RequirePlayerName(request.LeaderName);
+        var companion = AzerothCoreSoapClient.RequirePlayerName(request.CompanionName);
+        await ValidateCompanionPairAsync(leader, companion, false, cancellationToken);
+        var output = await soapClient.ExecuteAsync(
+            $"webadmin companion reset {leader} {companion}", cancellationToken);
+        Audit("ResetQuestingCompanion", companion, $"Leader={leader}");
+        return Ok(new AdministrationResult(
+            true, $"{companion}'s follow, combat and loot behaviour was reset.", output));
+    }
+
+    [HttpPost("questing-companions/behavior")]
+    public async Task<ActionResult<AdministrationResult>> SetQuestingCompanionBehavior(
+        QuestingCompanionBehaviorRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        var preset = request.Preset.Trim().ToLowerInvariant();
+        var role = request.Role.Trim().ToLowerInvariant();
+        var movement = request.Movement.Trim().ToLowerInvariant();
+        var focus = request.CombatFocus.Trim().ToLowerInvariant();
+        if (preset is not ("custom" or "questing" or "dungeon-tank" or "dungeon-healer")
+            || role is not ("auto" or "tank" or "healer" or "damage")
+            || movement is not ("follow" or "stay")
+            || focus is not ("assist" or "defend")
+            || request.FollowDistance is < 1 or > 20)
+        {
+            return BadRequest(new AdministrationResult(
+                false, "The companion behaviour settings are invalid."));
+        }
+
+        var leader = AzerothCoreSoapClient.RequirePlayerName(request.LeaderName);
+        var companion = AzerothCoreSoapClient.RequirePlayerName(request.CompanionName);
+        await ValidateCompanionPairAsync(leader, companion, false, cancellationToken);
+        var distance = request.FollowDistance.ToString(
+            "0.0", System.Globalization.CultureInfo.InvariantCulture);
+        var command =
+            $"webadmin companion behavior {leader} {companion} {preset} {role} "
+            + $"{movement} {focus} {distance} "
+            + $"{(request.LootEnabled ? 1 : 0)} {(request.GatherEnabled ? 1 : 0)} "
+            + $"{(request.AutoSellTrash ? 1 : 0)} {(request.AutoRepair ? 1 : 0)}";
+        var output = await soapClient.ExecuteAsync(command, cancellationToken);
+        Audit("SetQuestingCompanionBehavior", companion,
+            $"Leader={leader};Preset={preset};Role={role};Movement={movement};"
+                + $"Focus={focus};Distance={request.FollowDistance:0.0};"
+                + $"Loot={request.LootEnabled};Gather={request.GatherEnabled};"
+                + $"Sell={request.AutoSellTrash};Repair={request.AutoRepair}");
+        return Ok(new AdministrationResult(
+            true, $"{companion}'s behaviour was updated.", output));
+    }
+
+    [HttpPost("questing-companions/preset")]
+    public async Task<ActionResult<AdministrationResult>> SetQuestingCompanionPreset(
+        QuestingCompanionPresetRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        var preset = request.Preset.Trim().ToLowerInvariant();
+        if (preset is not ("questing" or "dungeon-tank" or "dungeon-healer"))
+            return BadRequest(new AdministrationResult(false,
+                "Select a supported companion preset."));
+        var leader = AzerothCoreSoapClient.RequirePlayerName(request.LeaderName);
+        var companion = AzerothCoreSoapClient.RequirePlayerName(request.CompanionName);
+        await ValidateCompanionPairAsync(leader, companion, false, cancellationToken);
+        var output = await soapClient.ExecuteAsync(
+            $"webadmin companion preset {leader} {companion} {preset}",
+            cancellationToken);
+        Audit("SetQuestingCompanionPreset", companion,
+            $"Leader={leader};Preset={preset}");
+        return Ok(new AdministrationResult(
+            true, $"Applied the {preset.Replace('-', ' ')} preset to {companion}.",
+            output));
+    }
+
+    [HttpPost("questing-companions/regroup")]
+    public async Task<ActionResult<AdministrationResult>> RegroupQuestingCompanion(
+        QuestingCompanionResetRequest request, CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        var leader = AzerothCoreSoapClient.RequirePlayerName(request.LeaderName);
+        var companion = AzerothCoreSoapClient.RequirePlayerName(request.CompanionName);
+        await ValidateCompanionPairAsync(leader, companion, false, cancellationToken);
+        var output = await soapClient.ExecuteAsync(
+            $"webadmin companion regroup {leader} {companion}", cancellationToken);
+        Audit("RegroupQuestingCompanion", companion, $"Leader={leader}");
+        return Ok(new AdministrationResult(
+            true, $"{companion} was reset to follow and regroup.", output));
+    }
+
+    [HttpPost("questing-companions/equipment-protection")]
+    public async Task<ActionResult<AdministrationResult>>
+        SetQuestingCompanionEquipmentProtection(
+            QuestingCompanionEquipmentProtectionRequest request,
+            CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        if (request.Slot is < 0 or >= 19)
+            return BadRequest(new AdministrationResult(
+                false, "The equipment slot is invalid."));
+
+        var leader = AzerothCoreSoapClient.RequirePlayerName(request.LeaderName);
+        var companion = AzerothCoreSoapClient.RequirePlayerName(request.CompanionName);
+        await ValidateCompanionPairAsync(leader, companion, false, cancellationToken);
+        var output = await soapClient.ExecuteAsync(
+            $"webadmin companion protect {leader} {companion} {request.Slot} "
+            + (request.Protected ? "on" : "off"), cancellationToken);
+        Audit(request.Protected
+                ? "ProtectQuestingCompanionEquipment"
+                : "UnprotectQuestingCompanionEquipment",
+            companion, $"Leader={leader};Slot={request.Slot}");
+        return Ok(new AdministrationResult(
+            true,
+            request.Protected
+                ? "The equipped item is protected for this companion session."
+                : "Equipment protection was removed from that slot.",
+            output));
+    }
+
     [HttpPost("questing-companions/account-link")]
     public async Task<ActionResult<AdministrationResult>> SetQuestingCompanionAccountLink(
         QuestingCompanionAccountLinkRequest request, CancellationToken cancellationToken)
@@ -2142,6 +2264,18 @@ public sealed class ServerAdministrationController(
                 StringComparer.OrdinalIgnoreCase);
         var questObjectStatuses = new Dictionary<string, string>(
             StringComparer.OrdinalIgnoreCase);
+        var itemsByCharacter = new Dictionary<string, List<QuestingCompanionItem>>(
+            StringComparer.OrdinalIgnoreCase);
+        var equipmentChangesByCharacter = new Dictionary<
+            string, List<QuestingCompanionEquipmentChange>>(
+                StringComparer.OrdinalIgnoreCase);
+        var inventoryChangesByCharacter = new Dictionary<
+            string, List<QuestingCompanionEquipmentChange>>(
+                StringComparer.OrdinalIgnoreCase);
+        var maintenanceByCharacter = new Dictionary<string, (bool AutoSell, bool AutoRepair)>(
+            StringComparer.OrdinalIgnoreCase);
+        var behaviorByCharacter = new Dictionary<string, QuestingCompanionBehavior>(
+            StringComparer.OrdinalIgnoreCase);
         var protocolVersion = 0;
         string? error = null;
 
@@ -2179,6 +2313,87 @@ public sealed class ServerAdministrationController(
                 && fields[0] == "WEBADMIN_COMPANION_GATHER")
             {
                 questObjectStatuses[fields[1]] = fields[2];
+                continue;
+            }
+
+            if (fields.Length >= 13
+                && fields[0] == "WEBADMIN_COMPANION_ITEM"
+                && int.TryParse(fields[3], out var bag)
+                && int.TryParse(fields[4], out var slot)
+                && uint.TryParse(fields[5], out var itemId)
+                && int.TryParse(fields[6], out var count)
+                && int.TryParse(fields[7], out var quality)
+                && int.TryParse(fields[8], out var itemLevel)
+                && int.TryParse(fields[9], out var durability)
+                && int.TryParse(fields[10], out var maximumDurability)
+                && int.TryParse(fields[11], out var protectedItem))
+            {
+                if (!itemsByCharacter.TryGetValue(fields[1], out var items))
+                {
+                    items = [];
+                    itemsByCharacter.Add(fields[1], items);
+                }
+                items.Add(new QuestingCompanionItem(
+                    fields[2], bag, slot, itemId, count, quality, itemLevel,
+                    durability, maximumDurability, protectedItem != 0, fields[12]));
+                continue;
+            }
+
+            if (fields.Length >= 4
+                && fields[0] == "WEBADMIN_COMPANION_MAINTENANCE"
+                && int.TryParse(fields[2], out var autoSell)
+                && int.TryParse(fields[3], out var autoRepair))
+            {
+                maintenanceByCharacter[fields[1]] =
+                    (autoSell != 0, autoRepair != 0);
+                continue;
+            }
+
+            if (fields.Length >= 11
+                && fields[0] == "WEBADMIN_COMPANION_BEHAVIOR"
+                && double.TryParse(
+                    fields[6], System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out var followDistance)
+                && int.TryParse(fields[7], out var behaviorLoot)
+                && int.TryParse(fields[8], out var gather)
+                && int.TryParse(fields[9], out var behaviorAutoSell)
+                && int.TryParse(fields[10], out var behaviorAutoRepair))
+            {
+                behaviorByCharacter[fields[1]] = new(
+                    fields[2], fields[3], fields[4], fields[5], followDistance,
+                    behaviorLoot != 0, gather != 0, behaviorAutoSell != 0,
+                    behaviorAutoRepair != 0);
+                continue;
+            }
+
+            if (fields.Length >= 4
+                && fields[0] == "WEBADMIN_COMPANION_EQUIPMENT_CHANGE"
+                && long.TryParse(fields[2], out var changedAtUnix))
+            {
+                if (!equipmentChangesByCharacter.TryGetValue(
+                        fields[1], out var changes))
+                {
+                    changes = [];
+                    equipmentChangesByCharacter.Add(fields[1], changes);
+                }
+                changes.Add(new QuestingCompanionEquipmentChange(
+                    changedAtUnix, fields[3]));
+                continue;
+            }
+
+            if (fields.Length >= 4
+                && fields[0] == "WEBADMIN_COMPANION_INVENTORY_CHANGE"
+                && long.TryParse(fields[2], out var inventoryChangedAtUnix))
+            {
+                if (!inventoryChangesByCharacter.TryGetValue(
+                        fields[1], out var changes))
+                {
+                    changes = [];
+                    inventoryChangesByCharacter.Add(fields[1], changes);
+                }
+                changes.Add(new QuestingCompanionEquipmentChange(
+                    inventoryChangedAtUnix, fields[3]));
                 continue;
             }
 
@@ -2226,12 +2441,31 @@ public sealed class ServerAdministrationController(
         }
 
         var companions = companionRows.Select(companion =>
-            new ActiveQuestingCompanion(
+        {
+            var items = itemsByCharacter.GetValueOrDefault(companion.Name, []);
+            var maintenance = maintenanceByCharacter.GetValueOrDefault(companion.Name);
+            var behavior = behaviorByCharacter.GetValueOrDefault(
+                companion.Name, new QuestingCompanionBehavior(
+                    "legacy", "auto", "follow", "assist", 3,
+                    companion.LootEnabled, true,
+                    maintenance.AutoSell, maintenance.AutoRepair));
+            return new ActiveQuestingCompanion(
                 companion.Name, companion.Level, companion.CharacterClass,
                 companion.InLeaderParty, companion.LootEnabled,
                 companion.FreeBagSlots, companion.TotalBagSlots,
                 BuildQuests(companion.Name),
-                questObjectStatuses.GetValueOrDefault(companion.Name, ""))).ToArray();
+                questObjectStatuses.GetValueOrDefault(companion.Name, ""),
+                maintenance.AutoSell, maintenance.AutoRepair,
+                items.Where(item => item.Location.Equals(
+                    "equipment", StringComparison.OrdinalIgnoreCase)).ToArray(),
+                items.Where(item => !item.Location.Equals(
+                    "equipment", StringComparison.OrdinalIgnoreCase)).ToArray(),
+                equipmentChangesByCharacter.GetValueOrDefault(
+                    companion.Name, []).ToArray(),
+                inventoryChangesByCharacter.GetValueOrDefault(
+                    companion.Name, []).ToArray(),
+                behavior);
+        }).ToArray();
         return new QuestingCompanionInspection(
             companions, BuildQuests(leaderName), protocolVersion, error);
     }

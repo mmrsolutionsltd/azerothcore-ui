@@ -1,10 +1,10 @@
 local ADDON_PREFIX = "AzerothCore"
 local REFRESH_SECONDS = 5
 local RESPONSE_TIMEOUT_SECONDS = 3
-local EXPECTED_PROTOCOL = 1
+local EXPECTED_PROTOCOL = 3
 local DEFAULT_WIDTH = 360
 local DEFAULT_HEIGHT = 510
-local MIN_WIDTH = 320
+local MIN_WIDTH = 210
 local MIN_HEIGHT = 260
 local MAX_WIDTH = 800
 local MAX_HEIGHT = 900
@@ -21,6 +21,8 @@ local snapshot
 local elapsedSinceRefresh = REFRESH_SECONDS
 local loggedIn = false
 local linePool = {}
+local buttonPool = {}
+local SendCompanionCommand
 
 local function SplitTabs(value)
     local fields = {}
@@ -89,8 +91,10 @@ title:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -17)
 title:SetText("Questing companions")
 
 local status = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-status:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -72, -22)
-status:SetJustifyH("RIGHT")
+status:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 18, 21)
+status:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -112, 21)
+status:SetHeight(12)
+status:SetJustifyH("LEFT")
 status:SetText("Waiting for login")
 
 local closeButton = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
@@ -170,6 +174,7 @@ end)
 
 local function HideLines()
     for _, line in ipairs(linePool) do line:Hide() end
+    for _, button in ipairs(buttonPool) do button:Hide() end
 end
 
 local function AddLine(index, text, red, green, blue, indent)
@@ -204,9 +209,76 @@ local function ObjectiveText(leaderName, companionName, leaderObjective,
         companionName, companionCurrent, companionRequired)
 end
 
+local function AddCompanionButtons(target, companionName, companion)
+    local actions = {
+        { "Quest", function()
+            SendCompanionCommand("webadmin companion preset " .. target.leader
+                .. " " .. companionName .. " questing")
+        end },
+        { "Tank", function()
+            SendCompanionCommand("webadmin companion preset " .. target.leader
+                .. " " .. companionName .. " dungeon-tank")
+        end },
+        { "Healer", function()
+            SendCompanionCommand("webadmin companion preset " .. target.leader
+                .. " " .. companionName .. " dungeon-healer")
+        end },
+        { "Follow", function()
+            SendCompanionCommand(string.format(
+                "webadmin companion behavior %s %s custom %s follow %s %.1f %d %d %d %d",
+                target.leader, companionName, companion.role or "auto",
+                companion.combatFocus or "assist", companion.followDistance or 3,
+                companion.lootEnabled and 1 or 0,
+                companion.gatherEnabled and 1 or 0,
+                companion.autoSell and 1 or 0,
+                companion.autoRepair and 1 or 0))
+        end },
+        { "Stay", function()
+            SendCompanionCommand(string.format(
+                "webadmin companion behavior %s %s custom %s stay %s %.1f %d %d %d %d",
+                target.leader, companionName, companion.role or "auto",
+                companion.combatFocus or "assist", companion.followDistance or 3,
+                companion.lootEnabled and 1 or 0,
+                companion.gatherEnabled and 1 or 0,
+                companion.autoSell and 1 or 0,
+                companion.autoRepair and 1 or 0))
+        end },
+        { "Regroup", function()
+            SendCompanionCommand("webadmin companion regroup " .. target.leader
+                .. " " .. companionName)
+        end }
+    }
+    local gap = 4
+    local buttonWidth = 58
+    local perRow = math.max(2, math.floor(
+        (content:GetWidth() - 12 + gap) / (buttonWidth + gap)))
+    for actionIndex, action in ipairs(actions) do
+        content.nextButton = content.nextButton + 1
+        local button = buttonPool[content.nextButton]
+        if not button then
+            button = CreateFrame("Button", nil, content, "UIPanelButtonTemplate2")
+            button:SetHeight(20)
+            buttonPool[content.nextButton] = button
+        end
+        local zeroIndex = actionIndex - 1
+        local column = math.mod(zeroIndex, perRow)
+        local row = math.floor(zeroIndex / perRow)
+        button:ClearAllPoints()
+        button:SetPoint("TOPLEFT", content, "TOPLEFT",
+            12 + column * (buttonWidth + gap), content.nextY - row * 23)
+        button:SetWidth(buttonWidth)
+        button:SetText(action[1])
+        button:SetScript("OnClick", action[2])
+        button:Show()
+    end
+    content.nextY = content.nextY
+        - math.ceil(table.getn(actions) / perRow) * 23 - 2
+end
+
 local function Render(target)
     HideLines()
     content.nextY = -2
+    content.nextButton = 0
     local lineIndex = 1
     if not target then
         lineIndex = AddLine(lineIndex,
@@ -256,6 +328,23 @@ local function Render(target)
                 companion.lootEnabled and "on" or "off",
                 companion.inParty and "yes" or "no"),
             bagColour[1], bagColour[2], bagColour[3], 12)
+        if companion.autoSell or companion.autoRepair then
+            lineIndex = AddLine(lineIndex,
+                "Maintenance: "
+                    .. (companion.autoSell and "grey sales on" or "grey sales off")
+                    .. " | "
+                    .. (companion.autoRepair and "repairs on" or "repairs off"),
+                0.55, 0.85, 0.55, 12)
+        end
+        if companion.role then
+            lineIndex = AddLine(lineIndex,
+                string.format("Behaviour: %s | %s | %s | %.0fm",
+                    companion.role, companion.movement,
+                    companion.combatFocus == "assist"
+                        and "assist leader" or "defend party",
+                    companion.followDistance or 3),
+                0.7, 0.85, 1, 12)
+        end
         if companion.gather and companion.gather ~= "" then
             lineIndex = AddLine(lineIndex,
                 "Gathering: " .. companion.gather, 0.45, 0.75, 1, 12)
@@ -293,6 +382,9 @@ local function Render(target)
         if shared == 0 then
             lineIndex = AddLine(lineIndex, "No shared quests.",
                 0.6, 0.6, 0.6, 12)
+        end
+        if target.protocolVersion == EXPECTED_PROTOCOL then
+            AddCompanionButtons(target, companionName, companion)
         end
         lineIndex = AddLine(lineIndex, " ", 1, 1, 1)
     end
@@ -333,6 +425,25 @@ local function ParseProtocolLine(target, body)
     elseif recordType == "WEBADMIN_COMPANION_GATHER" and #fields >= 3 then
         local companion = target.companions[fields[2]]
         if companion then companion.gather = fields[3] end
+    elseif recordType == "WEBADMIN_COMPANION_MAINTENANCE" and #fields >= 4 then
+        local companion = target.companions[fields[2]]
+        if companion then
+            companion.autoSell = fields[3] == "1"
+            companion.autoRepair = fields[4] == "1"
+        end
+    elseif recordType == "WEBADMIN_COMPANION_BEHAVIOR" and #fields >= 11 then
+        local companion = target.companions[fields[2]]
+        if companion then
+            companion.preset = fields[3]
+            companion.role = fields[4]
+            companion.movement = fields[5]
+            companion.combatFocus = fields[6]
+            companion.followDistance = tonumber(fields[7]) or 3
+            companion.lootEnabled = fields[8] == "1"
+            companion.gatherEnabled = fields[9] == "1"
+            companion.autoSell = fields[10] == "1"
+            companion.autoRepair = fields[11] == "1"
+        end
     elseif recordType == "WEBADMIN_COMPANION_QUEST" and #fields >= 5 then
         EnsureQuest(target, fields[2], tonumber(fields[3]) or 0,
             fields[5], fields[4] == "1")
@@ -360,13 +471,16 @@ local function ParseProtocolLine(target, body)
     end
 end
 
-local function RequestSnapshot()
-    if not loggedIn or not UnitName("player") or not SendAddonMessage then return end
+local function BeginRequest(command, kind)
+    if not loggedIn or not UnitName("player") or not SendAddonMessage then
+        return false
+    end
     requestCounter = requestCounter + 1
     if requestCounter > 9999 then requestCounter = 1 end
     local requestId = string.format("%04d", requestCounter)
     activeRequest = {
         id = requestId,
+        kind = kind,
         leader = UnitName("player"),
         players = {},
         companions = {},
@@ -374,11 +488,25 @@ local function RequestSnapshot()
         startedAt = GetTime(),
         completed = false
     }
-    status:SetText("Refreshing...")
     SendAddonMessage(ADDON_PREFIX,
-        "i" .. requestId .. "webadmin companion inspect " .. UnitName("player"),
+        "i" .. requestId .. command,
         "WHISPER", UnitName("player"))
     elapsedSinceRefresh = 0
+    return true
+end
+
+local function RequestSnapshot()
+    if BeginRequest(
+        "webadmin companion inspect " .. (UnitName("player") or ""),
+        "snapshot") then
+        status:SetText("Refreshing...")
+    end
+end
+
+SendCompanionCommand = function(command)
+    if BeginRequest(command, "command") then
+        status:SetText("Applying companion command...")
+    end
 end
 
 local function HandleAddonMessage(prefix, message)
@@ -386,18 +514,23 @@ local function HandleAddonMessage(prefix, message)
     local opcode = string.sub(message, 1, 1)
     local requestId = string.sub(message, 2, 5)
     if requestId ~= activeRequest.id then return end
-    if opcode == "m" then
+    if opcode == "m" and activeRequest.kind == "snapshot" then
         ParseProtocolLine(activeRequest, string.sub(message, 6))
     elseif opcode == "f" then
         activeRequest.error = activeRequest.error
-            or "The server rejected the companion status request."
-        snapshot = activeRequest
+            or "The server rejected the companion command."
         activeRequest.completed = true
-        Render(snapshot)
+        if activeRequest.kind == "snapshot" then
+            snapshot = activeRequest
+            Render(snapshot)
+        end
         status:SetText("Request failed")
     elseif opcode == "o" then
         activeRequest.completed = true
-        if snapshot ~= activeRequest then
+        if activeRequest.kind == "command" then
+            activeRequest = nil
+            RequestSnapshot()
+        elseif snapshot ~= activeRequest then
             snapshot = activeRequest
             Render(snapshot)
         end
@@ -454,11 +587,16 @@ frame:SetScript("OnUpdate", function(_, elapsed)
     if activeRequest and not activeRequest.completed
         and GetTime() - activeRequest.startedAt >= RESPONSE_TIMEOUT_SECONDS then
         activeRequest.completed = true
-        activeRequest.error = "No response from the companion server bridge. "
-            .. "The module may be missing, outdated, or awaiting a rebuild."
-        snapshot = activeRequest
-        Render(snapshot)
-        status:SetText("No server response")
+        if activeRequest.kind == "command" then
+            status:SetText("Companion command timed out")
+            elapsedSinceRefresh = REFRESH_SECONDS
+        else
+            activeRequest.error = "No response from the companion server bridge. "
+                .. "The module may be missing, outdated, or awaiting a rebuild."
+            snapshot = activeRequest
+            Render(snapshot)
+            status:SetText("No server response")
+        end
     end
     if elapsedSinceRefresh >= REFRESH_SECONDS then RequestSnapshot() end
 end)

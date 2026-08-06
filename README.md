@@ -56,6 +56,13 @@ The solution targets .NET 10 and contains:
 - Add or remove individual bots, clear all party bots, or auto-fill a five-player role-aware party.
 - Run normal characters as questing companions, mirror eligible quests, enforce quest
   looting, and compare leader/companion item and kill progress with bag-space warnings.
+  Inspect their equipment and complete bag contents, monitor durability and recent item
+  changes, protect selected equipment for the session, reset stalled AI, and automatically
+  sell grey items or repair when beside suitable NPCs. Apply Questing, Dungeon Tank,
+  or Dungeon Healer behaviour presets; assign compatible roles; switch between follow
+  and stay; choose leader-assist or party-defence combat focus; adjust follow distance;
+  and independently toggle loot, gathering, selling, and repair from the website or
+  companion addon.
 - Use the bundled 3.3.5a `AzerothCompanion` addon for the same shared quest progress,
   bag capacity, loot state, and gathering status directly inside the game client.
 - Download its versioned ZIP from the authenticated **Adventures > Client addons**

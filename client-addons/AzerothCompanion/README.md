@@ -2,13 +2,15 @@
 
 A small World of Warcraft 3.3.5a addon for the AzerothCore-UI questing companion
 feature. It displays active companion bag capacity, loot/party state, gathering
-status, and side-by-side progress for quests shared with the logged-in leader.
+status, behaviour, and side-by-side progress for quests shared with the logged-in
+leader. Each companion also has quick Questing, Dungeon Tank, Dungeon Healer,
+Follow, Stay, and Regroup controls.
 
-The addon requests read-only data through AzerothCore's authenticated addon-command
+The addon exchanges companion data and commands through AzerothCore's authenticated addon-command
 channel. `mod-web-admin` must include the companion-inspection permission change in
 this repository and the server must then be rebuilt (`ALL_BUILD`, followed by
 `INSTALL`) and restarted. The addon itself requires only a client `/reload` or restart.
-The module and addon currently use companion protocol version 1. The panel reports a
+The module and addon currently use companion protocol version 3. The panel reports a
 clear timeout or version-mismatch message when the installed server bridge is missing
 or does not match the addon.
 

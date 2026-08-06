@@ -1,0 +1,94 @@
+diff --git a/src/Ai/Base/Value/Formations.cpp b/src/Ai/Base/Value/Formations.cpp
+index b08c3a67..23541c4f 100644
+--- a/src/Ai/Base/Value/Formations.cpp
++++ b/src/Ai/Base/Value/Formations.cpp
+@@ -14,6 +14,8 @@
+ 
+ WorldLocation Formation::NullLocation = WorldLocation();
+ 
++float Formation::GetMaxDistance() { return botAI->GetRange("follow"); }
++
+ bool IsSameLocation(WorldLocation const& a, WorldLocation const& b)
+ {
+     return a.GetPositionX() == b.GetPositionX() && a.GetPositionY() == b.GetPositionY() &&
+@@ -112,7 +114,7 @@ public:
+         if (!ValidateTargetContext(master, bot, map))
+             return Formation::NullLocation;
+ 
+-        float range = sPlayerbotAIConfig.followDistance;
++        float range = botAI->GetRange("follow");
+         float angle = GetFollowAngle();
+         float x = master->GetPositionX() + cos(angle) * range;
+         float y = master->GetPositionY() + sin(angle) * range;
+@@ -128,7 +130,7 @@ public:
+         return WorldLocation(master->GetMapId(), x, y, z);
+     }
+ 
+-    float GetMaxDistance() override { return sPlayerbotAIConfig.followDistance; }
++    float GetMaxDistance() override { return botAI->GetRange("follow"); }
+ };
+ 
+ class ChaosFormation : public MoveAheadFormation
+@@ -143,7 +145,7 @@ public:
+         if (!ValidateTargetContext(master, bot, map))
+             return Formation::NullLocation;
+ 
+-        float range = sPlayerbotAIConfig.followDistance;
++        float range = botAI->GetRange("follow");
+         float angle = GetFollowAngle();
+ 
+         time_t now = time(nullptr);
+@@ -174,7 +176,7 @@ public:
+         return WorldLocation(master->GetMapId(), x, y, z);
+     }
+ 
+-    float GetMaxDistance() override { return sPlayerbotAIConfig.followDistance + dr; }
++    float GetMaxDistance() override { return botAI->GetRange("follow") + dr; }
+ 
+ private:
+     time_t lastChangeTime;
+@@ -288,7 +290,7 @@ public:
+         if (!group)
+             return Formation::NullLocation;
+ 
+-        float range = sPlayerbotAIConfig.followDistance;
++        float range = botAI->GetRange("follow");
+ 
+         Player* master = GetMaster();
+         if (!master)
+@@ -356,7 +358,7 @@ public:
+             return Formation::NullLocation;
+ 
+         float range = sPlayerbotAIConfig.farDistance;
+-        float followRange = sPlayerbotAIConfig.followDistance;
++        float followRange = botAI->GetRange("follow");
+ 
+         if (ServerFacade::instance().GetDistance2d(bot, master) <= range)
+             return Formation::NullLocation;
+diff --git a/src/Ai/Base/Value/Formations.h b/src/Ai/Base/Value/Formations.h
+index aa67ba14..57c5dac0 100644
+--- a/src/Ai/Base/Value/Formations.h
++++ b/src/Ai/Base/Value/Formations.h
+@@ -22,7 +22,7 @@ public:
+     virtual ~Formation() = default;
+     virtual std::string const GetTargetName() { return ""; }
+     virtual WorldLocation GetLocation() { return NullLocation; }
+-    virtual float GetMaxDistance() { return sPlayerbotAIConfig.followDistance; }
++    virtual float GetMaxDistance();
+     static WorldLocation NullLocation;
+     static bool IsNullLocation(WorldLocation const& loc);
+ 
+diff --git a/src/Bot/PlayerbotAI.cpp b/src/Bot/PlayerbotAI.cpp
+index ff9059be..afcf976d 100644
+--- a/src/Bot/PlayerbotAI.cpp
++++ b/src/Bot/PlayerbotAI.cpp
+@@ -5412,6 +5412,9 @@ float PlayerbotAI::GetRange(std::string const type)
+     if (type == "melee")
+         return sPlayerbotAIConfig.meleeDistance;
+ 
++    if (type == "follow")
++        return sPlayerbotAIConfig.followDistance;
++
+     return 0;
+ }
+ 

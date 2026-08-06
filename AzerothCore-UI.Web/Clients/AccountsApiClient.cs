@@ -385,6 +385,23 @@ public sealed class AccountsApiClient(HttpClient httpClient)
     public Task<AdministrationResult?> DismissQuestingCompanionAsync(
         QuestingCompanionRequest request) =>
         PostAsync("api/server-administration/questing-companions/dismiss", request);
+    public Task<AdministrationResult?> ResetQuestingCompanionAsync(
+        QuestingCompanionResetRequest request) =>
+        PostAsync("api/server-administration/questing-companions/reset", request);
+    public Task<AdministrationResult?> SetQuestingCompanionBehaviorAsync(
+        QuestingCompanionBehaviorRequest request) =>
+        PostAsync("api/server-administration/questing-companions/behavior", request);
+    public Task<AdministrationResult?> SetQuestingCompanionPresetAsync(
+        QuestingCompanionPresetRequest request) =>
+        PostAsync("api/server-administration/questing-companions/preset", request);
+    public Task<AdministrationResult?> RegroupQuestingCompanionAsync(
+        QuestingCompanionResetRequest request) =>
+        PostAsync("api/server-administration/questing-companions/regroup", request);
+    public Task<AdministrationResult?> SetQuestingCompanionEquipmentProtectionAsync(
+        QuestingCompanionEquipmentProtectionRequest request) =>
+        PostAsync(
+            "api/server-administration/questing-companions/equipment-protection",
+            request);
     public Task<AdministrationResult?> SetQuestingCompanionAccountLinkAsync(
         QuestingCompanionAccountLinkRequest request) =>
         PostAsync("api/server-administration/questing-companions/account-link", request);
