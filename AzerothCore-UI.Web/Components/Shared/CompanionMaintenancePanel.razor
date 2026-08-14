@@ -1,7 +1,7 @@
-<div class="companion-maintenance mt-2">
-    <div class="d-flex flex-wrap align-items-center gap-1 mb-2">
+<div class="companion-maintenance">
+    <div class="d-flex flex-wrap align-items-center gap-1 mb-3">
         <span class="badge @(Companion.AutoSellTrash ? "text-bg-success" : "text-bg-secondary")">
-            Auto-sell grey @(Companion.AutoSellTrash ? "on" : "off")
+            Auto-sell cleanup @(Companion.AutoSellTrash ? "on" : "off")
         </span>
         <span class="badge @(Companion.AutoRepair ? "text-bg-success" : "text-bg-secondary")">
             Auto-repair @(Companion.AutoRepair ? "on" : "off")
@@ -26,146 +26,19 @@
         </div>
     }
 
-    <details open>
-        <summary class="small fw-semibold">Equipment (@Companion.Equipment.Count)</summary>
-        @if (Companion.Equipment.Count == 0)
-        {
-            <div class="small text-muted mt-1">No equipment details were returned.</div>
-        }
-        else
-        {
-            <div class="companion-equipment-grid mt-2">
-                @foreach (var item in Companion.Equipment.OrderBy(value => value.Slot))
-                {
-                    <div class="companion-equipment-item">
-                        <div class="min-width-0">
-                            <div class="small text-muted">@EquipmentSlotName(item.Slot)</div>
-                            <div class="text-truncate @QualityClass(item.Quality)" title="@item.Name">
-                                @item.Name
-                            </div>
-                            <div class="small text-muted">
-                                iLvl @item.ItemLevel
-                                @if (item.MaximumDurability > 0)
-                                {
-                                    <span> · @item.Durability/@item.MaximumDurability durability</span>
-                                }
-                            </div>
-                        </div>
-                        <button class="btn btn-sm @(item.Protected ? "btn-warning" : "btn-outline-secondary")"
-                                type="button" disabled="@Disabled"
-                                title="@(item.Protected ? "Allow automatic replacement" : "Keep this item equipped for this companion session")"
-                                @onclick="() => ToggleProtectionAsync(item)">
-                            <i class="bi @(item.Protected ? "bi-lock-fill" : "bi-unlock")"></i>
-                            @(item.Protected ? "Protected" : "Protect")
-                        </button>
-                    </div>
-                }
-            </div>
-        }
-    </details>
-
-    @if (QuestItems.Count > 0)
-    {
-        <details class="mt-2" open>
-            <summary class="small fw-semibold">Quest items in bags (@QuestItems.Count)</summary>
-            <div class="d-flex flex-wrap gap-1 mt-2">
-                @foreach (var item in QuestItems)
-                {
-                    <span class="badge text-bg-info">@item.Name ×@item.Count</span>
-                }
-            </div>
-        </details>
-    }
-
-    <details class="mt-2">
-        <summary class="small fw-semibold">
-            Bag contents (@Companion.Inventory.Count stacks ·
-            @Companion.FreeBagSlots/@Companion.TotalBagSlots slots free)
-        </summary>
-        @if (Companion.Inventory.Count == 0)
-        {
-            <div class="small text-muted mt-1">The bags are empty.</div>
-        }
-        else
-        {
-            <div class="table-responsive mt-1">
-                <table class="table table-sm align-middle mb-0 companion-inventory-table">
-                    <thead><tr><th>Item</th><th>Qty</th><th>iLvl</th></tr></thead>
-                    <tbody>
-                        @foreach (var item in Companion.Inventory
-                            .OrderByDescending(value => IsQuestItem(value.ItemId))
-                            .ThenByDescending(value => value.Quality)
-                            .ThenBy(value => value.Name))
-                        {
-                            <tr>
-                                <td class="@QualityClass(item.Quality)">
-                                    @item.Name
-                                    @if (IsQuestItem(item.ItemId))
-                                    {
-                                        <span class="badge text-bg-info ms-1">Quest</span>
-                                    }
-                                </td>
-                                <td>@item.Count</td>
-                                <td>@item.ItemLevel</td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-        }
-    </details>
-
-    @if (Companion.RecentEquipmentChanges.Count > 0)
-    {
-        <details class="mt-2">
-            <summary class="small fw-semibold">Recent equipment changes</summary>
-            <ul class="small mb-0 mt-1 ps-3">
-                @foreach (var change in Companion.RecentEquipmentChanges)
-                {
-                    <li>
-                        <span class="text-muted">@ChangeTime(change.ChangedAtUnix)</span>
-                        @change.Description
-                    </li>
-                }
-            </ul>
-        </details>
-    }
-    @if (Companion.RecentInventoryChanges.Count > 0)
-    {
-        <details class="mt-2" open>
-            <summary class="small fw-semibold">Recent bag additions</summary>
-            <ul class="small mb-0 mt-1 ps-3">
-                @foreach (var change in Companion.RecentInventoryChanges)
-                {
-                    <li>
-                        <span class="text-muted">@ChangeTime(change.ChangedAtUnix)</span>
-                        @change.Description
-                    </li>
-                }
-            </ul>
-        </details>
-    }
+    <p class="small text-muted mb-0">
+        Selling and repair happen only while the companion is alive, out of combat,
+        and beside a suitable NPC. Change these switches from the Behaviour tab.
+    </p>
 </div>
 
 @code {
-    [Parameter, EditorRequired]
-    public ActiveQuestingCompanion Companion { get; set; } = default!;
-
-    [Parameter]
-    public bool Disabled { get; set; }
-
-    [Parameter]
-    public EventCallback<string> ResetRequested { get; set; }
-
-    [Parameter]
-    public EventCallback<QuestingCompanionEquipmentProtectionRequest>
-        ProtectionRequested { get; set; }
+    [Parameter, EditorRequired] public ActiveQuestingCompanion Companion { get; set; } = default!;
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public EventCallback<string> ResetRequested { get; set; }
 
     private IReadOnlyList<QuestingCompanionItem> DurableEquipment =>
         Companion.Equipment.Where(item => item.MaximumDurability > 0).ToArray();
-
-    private IReadOnlyList<QuestingCompanionItem> QuestItems =>
-        Companion.Inventory.Where(item => IsQuestItem(item.ItemId)).ToArray();
 
     private int DurabilityPercent
     {
@@ -179,50 +52,10 @@
 
     private string DurabilityClass => DurabilityPercent switch
     {
-        < 25 => "bg-danger",
-        < 60 => "bg-warning",
+        var value when value < 25 => "bg-danger",
+        var value when value < 60 => "bg-warning",
         _ => "bg-success"
     };
 
     private Task ResetAsync() => ResetRequested.InvokeAsync(Companion.Name);
-
-    private Task ToggleProtectionAsync(QuestingCompanionItem item) =>
-        ProtectionRequested.InvokeAsync(new(
-            "", Companion.Name, item.Slot, !item.Protected));
-
-    private bool IsQuestItem(uint itemId) => Companion.Quests
-        .SelectMany(quest => quest.Objectives)
-        .Any(objective => objective.Kind.Equals(
-            "item", StringComparison.OrdinalIgnoreCase)
-            && objective.Entry == itemId);
-
-    private static string ChangeTime(long changedAtUnix)
-    {
-        try
-        {
-            return DateTimeOffset.FromUnixTimeSeconds(changedAtUnix)
-                .ToLocalTime().ToString("HH:mm");
-        }
-        catch (ArgumentOutOfRangeException)
-        {
-            return "";
-        }
-    }
-
-    private static string EquipmentSlotName(int slot) => slot switch
-    {
-        0 => "Head", 1 => "Neck", 2 => "Shoulders", 3 => "Shirt",
-        4 => "Chest", 5 => "Waist", 6 => "Legs", 7 => "Feet",
-        8 => "Wrists", 9 => "Hands", 10 => "Finger 1", 11 => "Finger 2",
-        12 => "Trinket 1", 13 => "Trinket 2", 14 => "Back",
-        15 => "Main hand", 16 => "Off hand", 17 => "Ranged", 18 => "Tabard",
-        _ => $"Slot {slot}"
-    };
-
-    private static string QualityClass(int quality) => quality switch
-    {
-        0 => "quality-poor", 2 => "quality-uncommon", 3 => "quality-rare",
-        4 => "quality-epic", 5 => "quality-legendary", 7 => "quality-heirloom",
-        _ => ""
-    };
 }

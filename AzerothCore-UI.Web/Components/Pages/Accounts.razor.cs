@@ -33,8 +33,13 @@ public partial class Accounts
     private bool isLoading = true;
     private string? errorMessage;
     private string? gmMessage;
+    private string newAccountUsername = "";
+    private string newAccountPassword = "";
+    private string confirmAccountPassword = "";
+    private string? createMessage;
     private uint? pendingGmAccountId;
     private bool isChangingGm, gmSucceeded;
+    private bool isCreatingAccount, createSucceeded, showNewAccountPassword;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -144,5 +149,43 @@ public partial class Accounts
         }
         catch (Exception exception) { gmSucceeded = false; gmMessage = exception.Message; }
         finally { pendingGmAccountId = null; isChangingGm = false; }
+    }
+
+    private async Task CreateGameAccountAsync()
+    {
+        createSucceeded = false;
+        createMessage = null;
+        var username = newAccountUsername.Trim();
+        if (!string.Equals(newAccountPassword, confirmAccountPassword,
+                StringComparison.Ordinal))
+        {
+            createMessage = "The two passwords do not match.";
+            return;
+        }
+
+        isCreatingAccount = true;
+        try
+        {
+            var response = await AccountsClient.CreateGameAccountAsync(
+                new(username, newAccountPassword));
+            createSucceeded = response?.Success == true;
+            createMessage = response?.Message ?? "The account API returned no result.";
+            if (!createSucceeded) return;
+
+            newAccountUsername = "";
+            newAccountPassword = "";
+            confirmAccountPassword = "";
+            searchInput = username;
+            typeInput = "human";
+            Navigate(username, "human", Sort, Descending, 1, PageSize);
+        }
+        catch (Exception exception)
+        {
+            createMessage = exception.Message;
+        }
+        finally
+        {
+            isCreatingAccount = false;
+        }
     }
 }

@@ -1,4 +1,6 @@
 using AzerothCore_UI.Api.Controllers;
+using AzerothCore_UI.Api.Data;
+using AzerothCore_UI.Api.Models;
 using Xunit;
 
 namespace AzerothCore_UI.Api.Tests.Controllers;
@@ -24,7 +26,7 @@ public sealed class ServerAdministrationControllerTests
     public void CompanionInspectionParsesLootBagsAndComparableQuestProgress()
     {
         const string output = """
-            WEBADMIN_COMPANION_PROTOCOL	3
+            WEBADMIN_COMPANION_PROTOCOL	4
             WEBADMIN_COMPANION_QUEST	Leader	101	0	A Test Quest
             WEBADMIN_COMPANION_OBJECTIVE	Leader	101	item	2001	2	6	Test Claw
             WEBADMIN_COMPANION	Helper	12	3	1	1	14	36
@@ -33,6 +35,7 @@ public sealed class ServerAdministrationControllerTests
             WEBADMIN_COMPANION_ITEM	Helper	bag	255	23	2001	4	1	8	0	0	0	Test Claw
             WEBADMIN_COMPANION_MAINTENANCE	Helper	1	1
             WEBADMIN_COMPANION_BEHAVIOR	Helper	dungeon-healer	healer	follow	defend	8.0	1	0	1	1
+            WEBADMIN_COMPANION_LOGISTICS	Helper	4	8	1	2	Mailed 2 material stacks.
             WEBADMIN_COMPANION_EQUIPMENT_CHANGE	Helper	1785776400	Main hand: Withered Staff -> Dignified Headmaster's Charge
             WEBADMIN_COMPANION_INVENTORY_CHANGE	Helper	1785776401	Added Test Claw x2
             WEBADMIN_COMPANION_QUEST	Helper	101	0	A Test Quest
@@ -61,6 +64,11 @@ public sealed class ServerAdministrationControllerTests
         Assert.Equal(8, companion.Behavior.FollowDistance);
         Assert.True(companion.Behavior.LootEnabled);
         Assert.False(companion.Behavior.GatherEnabled);
+        Assert.True(companion.Logistics.AutomaticEnabled);
+        Assert.Equal(4, companion.Logistics.TriggerFreeSlots);
+        Assert.Equal(8, companion.Logistics.TargetFreeSlots);
+        Assert.Equal(2, companion.Logistics.RouteCount);
+        Assert.Equal("Mailed 2 material stacks.", companion.Logistics.Status);
         var equipment = Assert.Single(companion.Equipment);
         Assert.Equal((uint)42947, equipment.ItemId);
         Assert.True(equipment.Protected);
@@ -103,6 +111,8 @@ public sealed class ServerAdministrationControllerTests
         Assert.Equal("auto", companion.Behavior.Role);
         Assert.Equal("follow", companion.Behavior.Movement);
         Assert.True(companion.Behavior.GatherEnabled);
+        Assert.False(companion.Logistics.AutomaticEnabled);
+        Assert.Equal(0, companion.Logistics.RouteCount);
         Assert.Empty(companion.Quests);
         Assert.Empty(companion.QuestObjectStatus);
         Assert.Empty(inspection.LeaderQuests);
@@ -158,5 +168,95 @@ public sealed class ServerAdministrationControllerTests
         Assert.Equal(
             "Players may inspect only their own questing companions.",
             inspection.Error);
+    }
+
+    [Fact]
+    public void CompanionLogisticsCommandIncludesOnlyPersistedValidRoutes()
+    {
+        var command = ServerAdministrationController.BuildCompanionLogisticsCommand(
+            "Leader", "Helper", new CompanionLogisticsSettings(4, 9, true),
+            [
+                new StoredCompanionLogisticsRoute("cloth", 12, 40, true),
+                new StoredCompanionLogisticsRoute("metal", 13, 0, true),
+                new StoredCompanionLogisticsRoute("catchall", 14, 0, true),
+                new StoredCompanionLogisticsRoute("herbs", 99, 20, true)
+            ],
+            new Dictionary<uint, string>
+            {
+                [12] = "Tailor", [13] = "Smith", [14] = "Banker"
+            });
+
+        Assert.Equal(
+            "webadmin companion logistics Leader Helper 4 9 1 "
+            + "cloth Tailor 40 metal Smith 0 catchall Banker 0",
+            command);
+    }
+
+    [Fact]
+    public void CompanionLogisticsPreviewCommandCarriesPolicyWithoutChangingIt()
+    {
+        var command = ServerAdministrationController
+            .BuildCompanionLogisticsPreviewCommand(
+                "Leader", "Helper",
+                [
+                    new StoredCompanionLogisticsRoute("catchall", 14, 0, true),
+                    new StoredCompanionLogisticsRoute("cloth", 12, 40, true),
+                    new StoredCompanionLogisticsRoute("herbs", 99, 20, true)
+                ],
+                new Dictionary<uint, string>
+                {
+                    [12] = "Tailor", [14] = "Banker"
+                });
+
+        Assert.Equal(
+            "webadmin companion logistics-preview Leader Helper "
+            + "cloth Tailor 40 catchall Banker 0",
+            command);
+    }
+
+    [Fact]
+    public void CompanionLogisticsPreviewParsesSummaryAndEveryDecision()
+    {
+        const string output = """
+            WEBADMIN_LOGISTICS_PREVIEW	Helper	2	36	6	60	0	1
+            WEBADMIN_LOGISTICS_PREVIEW_ITEM	4306	20	1	19	3	Mail	Tailor	Matches the cloth route above its configured reserve.	Silk Cloth
+            WEBADMIN_LOGISTICS_PREVIEW_ITEM	7073	1	0	255	24	Sell	Nearby vendor	Grey-quality vendor item.	Broken Fang
+            WEBADMIN_LOGISTICS_PREVIEW_ITEM	6948	1	1	255	23	Protected	Companion bags	The item cannot be traded.	Hearthstone
+            WEBADMIN_LOGISTICS_PREVIEW_ITEM	1179	5	1	20	1	Keep	Companion bags	PlayerBots does not consider this item routing surplus.	Ice Cold Milk
+            """;
+
+        var preview = ServerAdministrationController
+            .ParseCompanionLogisticsPreview(output, "Requested");
+
+        Assert.Equal("Helper", preview.CompanionName);
+        Assert.Equal(2, preview.CurrentFreeSlots);
+        Assert.Equal(36, preview.TotalBagSlots);
+        Assert.Equal(6, preview.PotentialFreeSlots);
+        Assert.Equal(60, preview.PostageCopper);
+        Assert.False(preview.MailboxNearby);
+        Assert.True(preview.VendorNearby);
+        Assert.Collection(preview.Items,
+            item =>
+            {
+                Assert.Equal((uint)4306, item.ItemId);
+                Assert.Equal(19, item.Bag);
+                Assert.Equal(3, item.Slot);
+                Assert.Equal("Mail", item.Action);
+                Assert.Equal("Tailor", item.Destination);
+                Assert.Equal("Silk Cloth", item.Name);
+            },
+            item => Assert.Equal("Sell", item.Action),
+            item => Assert.Equal("Protected", item.Action),
+            item => Assert.Equal("Keep", item.Action));
+    }
+
+    [Fact]
+    public void CompanionLogisticsPreviewPreservesBridgeDiagnostic()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            ServerAdministrationController.ParseCompanionLogisticsPreview(
+                "Unknown command: logistics-preview", "Helper"));
+
+        Assert.Equal("Unknown command: logistics-preview", exception.Message);
     }
 }

@@ -10,6 +10,9 @@ public sealed class AzerothCoreConnectionFactory(IConfiguration configuration)
     public MySqlConnection CreateMaintenanceConnection() =>
         Create("AzerothCoreMaintenance");
 
+    public MySqlConnection CreateAdministrationConnection() =>
+        Create("AzerothCoreUi");
+
     private MySqlConnection Create(string name)
     {
         var connectionString = configuration.GetConnectionString(name)

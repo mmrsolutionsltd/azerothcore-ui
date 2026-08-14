@@ -58,11 +58,20 @@ The solution targets .NET 10 and contains:
   looting, and compare leader/companion item and kill progress with bag-space warnings.
   Inspect their equipment and complete bag contents, monitor durability and recent item
   changes, protect selected equipment for the session, reset stalled AI, and automatically
-  sell grey items or repair when beside suitable NPCs. Apply Questing, Dungeon Tank,
+  sell grey items and permanently unusable white equipment, or repair when beside
+  suitable NPCs. Apply Questing, Dungeon Tank,
   or Dungeon Healer behaviour presets; assign compatible roles; switch between follow
   and stay; choose leader-assist or party-defence combat focus; adjust follow distance;
   and independently toggle loot, gathering, selling, and repair from the website or
-  companion addon.
+  companion addon. Configure mailbox-only bag logistics that preserve per-item reserves
+  and route surplus cloth, leather, ore, herbs, enchanting materials, gems, meat,
+  elemental materials, and engineering parts to profession-ranked characters. An
+  optional catch-all recipient receives otherwise unrouted items that the companion
+  cannot use, after the explicit material routes have run. Preview every bag stack as
+  **Mail**, **Sell**, **Keep**, or **Protected** before processing, with the decision
+  reason, recipient, postage, nearby-service warnings, and potential freed space.
+  Compact per-companion **Behaviour**, **Inventory**, and **Maintenance** tabs keep the
+  page manageable; each inventory row shows its effective routing or cleanup rule.
 - Use the bundled 3.3.5a `AzerothCompanion` addon for the same shared quest progress,
   bag capacity, loot state, and gathering status directly inside the game client.
 - Download its versioned ZIP from the authenticated **Adventures > Client addons**
@@ -221,6 +230,8 @@ See [docs/server-administration.md](docs/server-administration.md) for detailed 
 See [docs/production-deployment.md](docs/production-deployment.md) for the
 localhost-only API, Windows service, Caddy HTTPS, DNS, and CGNAT deployment
 procedure.
+See [docs/linux-deployment.md](docs/linux-deployment.md) for atomic updates to
+the Linux-hosted website and secure local Windows development through SSH.
 
 ## Configuration
 
@@ -245,6 +256,10 @@ schema-administration account, then grant a dedicated application login only
 `SELECT`, `INSERT`, `UPDATE`, and `DELETE` access to `azerothcore_ui`. On first
 run, visit `/admin/setup` to create the initial Owner. That one-time route
 automatically closes as soon as an account exists.
+
+Existing version-2 installations can apply
+`database/azerothcore-ui-companion-logistics-v3.sql` to add the persistent companion
+material-routing tables without replacing administration accounts or permissions.
 
 Protect web-to-API traffic with the same randomly generated service key in both
 projects:

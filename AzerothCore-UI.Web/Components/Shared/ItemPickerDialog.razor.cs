@@ -1,12 +1,15 @@
 using AzerothCore_UI.Web.Models;
+using AzerothCore_UI.Web.Services;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
+using Microsoft.JSInterop;
 
 namespace AzerothCore_UI.Web.Components.Shared;
 
 public partial class ItemPickerDialog : IDisposable
 {
     [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public string? InitialSearchText { get; set; }
     [Parameter] public IReadOnlyCollection<string> TargetNames { get; set; } = [];
     [Parameter] public EventCallback<AdministrationItem> ItemSelected { get; set; }
     [Parameter] public EventCallback Closed { get; set; }
@@ -24,12 +27,41 @@ public partial class ItemPickerDialog : IDisposable
     private int? maximumRequiredLevel;
     private string suitability = "all";
     private string? errorMessage;
+    private ElementReference searchInput;
+    private bool focusSearch;
+    private IReadOnlyList<AdministrationItem> recentItems = [];
 
     protected override async Task OnParametersSetAsync()
     {
         if (IsOpen && !wasOpen)
+        {
+            search = InitialSearchText?.Trim() ?? "";
+            var storedItems = await RecentSelections.GetAsync<AdministrationItem>(
+                RecentPickerKeys.Items);
+            if (storedItems.Count > 0 || recentItems.Count == 0)
+                recentItems = storedItems;
+            focusSearch = true;
             await LoadAsync(1);
+        }
         wasOpen = IsOpen;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!IsOpen || !focusSearch)
+            return;
+
+        focusSearch = false;
+        try
+        {
+            await Javascript.InvokeVoidAsync(
+                "azerothCoreUi.focusAndSelect", searchInput);
+        }
+        catch (Exception exception) when (
+            exception is InvalidOperationException or JSDisconnectedException
+                or TaskCanceledException)
+        {
+        }
     }
 
     private async Task SearchAsync(ChangeEventArgs args)
@@ -75,12 +107,20 @@ public partial class ItemPickerDialog : IDisposable
         }
     }
 
-    private Task SelectAsync(AdministrationItem item) => ItemSelected.InvokeAsync(item);
+    private async Task SelectAsync(AdministrationItem item)
+    {
+        recentItems = await RecentSelections.RememberAsync(
+            RecentPickerKeys.Items, item, value => value.ItemId.ToString());
+        await ItemSelected.InvokeAsync(item);
+    }
 
     private Task SelectFromKeyboardAsync(KeyboardEventArgs args, AdministrationItem item) =>
         args.Key is "Enter" or " " ? SelectAsync(item) : Task.CompletedTask;
 
     private Task CloseAsync() => Closed.InvokeAsync();
+
+    private static string ItemDisplayText(AdministrationItem item) =>
+        $"{item.Name} ({item.ItemId})";
 
     private static string QualityName(byte quality) => quality switch
     {

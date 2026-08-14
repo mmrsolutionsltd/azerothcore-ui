@@ -1,0 +1,410 @@
+@inject AccountsApiClient Api
+
+<details class="mt-3" open="@open">
+    <summary class="fw-semibold">Bag logistics</summary>
+    <div class="mt-2">
+        <div class="d-flex flex-wrap gap-2 align-items-center small mb-2">
+            <span class="badge @(Companion.FreeBagSlots <= Companion.Logistics.TriggerFreeSlots
+                ? "text-bg-warning" : "text-bg-secondary")">
+                @Companion.FreeBagSlots free
+            </span>
+            <span class="text-muted">@Companion.Logistics.Status</span>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(message))
+        {
+            <div class="alert @(succeeded ? "alert-success" : "alert-danger") py-2 small">
+                @message
+            </div>
+        }
+
+        @if (loading)
+        {
+            <div class="small text-muted">Loading material routes...</div>
+        }
+        else if (configuration is null)
+        {
+            <button class="btn btn-sm btn-outline-secondary" type="button"
+                    disabled="@(Disabled || working)" @onclick="LoadAsync">
+                Retry loading routes
+            </button>
+        }
+        else
+        {
+            <div class="row g-2 align-items-end mb-2">
+                <div class="col-6 col-lg-3">
+                    <label class="form-label small mb-1">Act at free slots</label>
+                    <input class="form-control form-control-sm" type="number"
+                           min="1" max="20" @bind="triggerFreeSlots" />
+                </div>
+                <div class="col-6 col-lg-3">
+                    <label class="form-label small mb-1">Refill to</label>
+                    <input class="form-control form-control-sm" type="number"
+                           min="1" max="40" @bind="targetFreeSlots" />
+                </div>
+                <div class="col-12 col-lg-6">
+                    <div class="form-check form-switch mb-1">
+                        <input class="form-check-input" type="checkbox"
+                               id="auto-logistics-@Companion.Name"
+                               @bind="automaticEnabled" />
+                        <label class="form-check-label small"
+                               for="auto-logistics-@Companion.Name">
+                            Automatically route at a nearby mailbox
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-sm align-middle companion-logistics-table">
+                    <thead>
+                        <tr>
+                            <th>Route</th>
+                            <th>Recipient</th>
+                            <th class="text-nowrap">Keep each</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var route in routes)
+                        {
+                            <tr>
+                                <td>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox"
+                                               id="route-@Companion.Name-@route.CategoryKey"
+                                               @bind="route.Enabled" />
+                                        <label class="form-check-label"
+                                               for="route-@Companion.Name-@route.CategoryKey">
+                                            @route.CategoryName
+                                        </label>
+                                    </div>
+                                    <div class="small text-muted">@route.Description</div>
+                                </td>
+                                <td>
+                                    <select class="form-select form-select-sm"
+                                            disabled="@(!route.Enabled)"
+                                            @bind="route.RecipientGuid">
+                                        <option value="">Choose character</option>
+                                        @foreach (var recipient in OrderedRecipients(route))
+                                        {
+                                            <option value="@recipient.CharacterGuid">
+                                                @recipient.Name (@RecipientDetail(recipient))@(route.SuggestedRecipientGuids.Contains(recipient.CharacterGuid) ? " - suggested" : "")
+                                            </option>
+                                        }
+                                    </select>
+                                </td>
+                                <td>
+                                    @if (route.IsCatchAll)
+                                    {
+                                        <span class="small text-muted">Not applicable</span>
+                                    }
+                                    else
+                                    {
+                                        <input class="form-control form-control-sm logistics-keep"
+                                               type="number" min="0" max="1000"
+                                               disabled="@(!route.Enabled)"
+                                               @bind="route.KeepQuantity" />
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="d-flex flex-wrap gap-2 justify-content-end">
+                <button class="btn btn-sm btn-outline-primary" type="button"
+                        disabled="@(Disabled || working)" @onclick="PreviewAsync">
+                    Preview cleanup
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" type="button"
+                        disabled="@(Disabled || working)" @onclick="SaveAsync">
+                    Save routes
+                </button>
+                <button class="btn btn-sm btn-primary" type="button"
+                        disabled="@(Disabled || working || !routes.Any(route => route.Enabled))"
+                        @onclick="RunAsync">
+                    Process now at mailbox
+                </button>
+            </div>
+
+            @if (preview is not null)
+            {
+                <div class="companion-logistics-preview mt-3">
+                    <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+                        <strong>Cleanup preview</strong>
+                        <span class="badge text-bg-secondary">
+                            @preview.CurrentFreeSlots/@preview.TotalBagSlots currently free
+                        </span>
+                        <span class="badge text-bg-success">
+                            Up to @preview.PotentialFreeSlots free afterwards
+                        </span>
+                        <span class="small text-muted">
+                            Postage @FormatCopper(preview.PostageCopper)
+                        </span>
+                    </div>
+                    @if (!preview.MailboxNearby && preview.Items.Any(item => item.Action == "Mail"))
+                    {
+                        <div class="alert alert-warning py-2 small">
+                            Mail actions will wait until the companion is beside a mailbox.
+                        </div>
+                    }
+                    @if (!preview.VendorNearby && preview.Items.Any(item => item.Action == "Sell"))
+                    {
+                        <div class="alert alert-warning py-2 small">
+                            Sell actions will wait until the companion is beside a usable vendor.
+                        </div>
+                    }
+                    @if (preview.Items.Count == 0)
+                    {
+                        <div class="small text-muted">The companion's bags are empty.</div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive companion-logistics-preview-items">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Item</th>
+                                        <th>Action</th>
+                                        <th>Destination</th>
+                                        <th>Reason</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var item in OrderedPreviewItems)
+                                    {
+                                        <tr>
+                                            <td>
+                                                @item.Name
+                                                @if (item.Count > 1)
+                                                {
+                                                    <span class="text-muted">×@item.Count</span>
+                                                }
+                                                <div class="small text-muted">Item @item.ItemId</div>
+                                            </td>
+                                            <td>
+                                                <span class="badge @ActionBadge(item.Action)">
+                                                    @item.Action
+                                                </span>
+                                            </td>
+                                            <td>@item.Destination</td>
+                                            <td class="small">@item.Reason</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    <div class="small text-muted mt-2">
+                        The preview uses the controls above without saving them and does not
+                        move, mail or sell any item. Potential free space assumes all listed
+                        mail and vendor actions can subsequently complete.
+                    </div>
+                </div>
+            }
+            <div class="small text-muted mt-2">
+                Reserves apply to each material item. Only complete tradable stacks above
+                the reserve are mailed, so routing frees an actual bag slot. Explicit material
+                routes take priority; the catch-all then mails otherwise unrouted items that
+                PlayerBots considers vendor or auction surplus. Grey items and incompatible
+                white gear remain available for vendor cleanup. Normal postage and
+                cross-account delivery delay apply.
+            </div>
+        }
+    </div>
+</details>
+
+@code {
+    [Parameter, EditorRequired] public string LeaderName { get; set; } = "";
+    [Parameter, EditorRequired] public ActiveQuestingCompanion Companion { get; set; } = default!;
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public EventCallback RefreshRequested { get; set; }
+
+    private CompanionLogisticsConfiguration? configuration;
+    private CompanionLogisticsPreview? preview;
+    private List<RouteEditor> routes = [];
+    private string loadedCompanion = "";
+    private string? message;
+    private bool loading, working, succeeded, open;
+    private int triggerFreeSlots = 4, targetFreeSlots = 8;
+    private bool automaticEnabled;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!loadedCompanion.Equals(Companion.Name, StringComparison.OrdinalIgnoreCase)
+            || configuration is null)
+            await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        loading = true;
+        message = null;
+        try
+        {
+            configuration = await Api.GetCompanionLogisticsAsync(
+                LeaderName, Companion.Name);
+            if (configuration is null)
+                throw new InvalidOperationException("No logistics configuration was returned.");
+            loadedCompanion = Companion.Name;
+            preview = null;
+            triggerFreeSlots = configuration.Settings.TriggerFreeSlots;
+            targetFreeSlots = configuration.Settings.TargetFreeSlots;
+            automaticEnabled = configuration.Settings.AutomaticEnabled;
+            routes = configuration.Routes.Select(route =>
+            {
+                var category = configuration.Categories.First(value =>
+                    value.Key.Equals(route.CategoryKey, StringComparison.OrdinalIgnoreCase));
+                return new RouteEditor
+                {
+                    CategoryKey = route.CategoryKey,
+                    CategoryName = route.CategoryName,
+                    Description = category.Description,
+                    SuggestedRecipientGuids = category.SuggestedRecipientGuids.ToHashSet(),
+                    RecipientGuid = route.RecipientGuid,
+                    KeepQuantity = route.CategoryKey.Equals(
+                        "catchall", StringComparison.OrdinalIgnoreCase)
+                        ? 0 : route.KeepQuantity,
+                    Enabled = route.Enabled
+                };
+            }).ToList();
+        }
+        catch (Exception exception)
+        {
+            succeeded = false;
+            message = exception.Message;
+            open = true;
+        }
+        finally { loading = false; }
+    }
+
+    private IEnumerable<CompanionLogisticsRecipient> OrderedRecipients(RouteEditor route) =>
+        configuration!.Recipients
+            .OrderByDescending(value => route.SuggestedRecipientGuids.Contains(value.CharacterGuid))
+            .ThenBy(value => value.Name);
+
+    private static string RecipientDetail(CompanionLogisticsRecipient recipient) =>
+        recipient.Professions.Count == 0
+            ? recipient.Username
+            : string.Join(", ", recipient.Professions);
+
+    private async Task SaveAsync()
+    {
+        working = true;
+        message = null;
+        try
+        {
+            preview = null;
+            var result = await Api.SaveCompanionLogisticsAsync(BuildSaveRequest());
+            succeeded = result?.Success == true;
+            message = result?.Message ?? "Material routes were saved.";
+            open = true;
+            await RefreshRequested.InvokeAsync();
+        }
+        catch (Exception exception)
+        {
+            succeeded = false;
+            message = exception.Message;
+            open = true;
+        }
+        finally { working = false; }
+    }
+
+    private async Task RunAsync()
+    {
+        working = true;
+        message = null;
+        try
+        {
+            preview = null;
+            await Api.SaveCompanionLogisticsAsync(BuildSaveRequest());
+            var result = await Api.RunCompanionLogisticsAsync(
+                new(LeaderName, Companion.Name));
+            succeeded = result?.Success == true;
+            message = result?.Message ?? "Companion logistics completed.";
+            open = true;
+            await RefreshRequested.InvokeAsync();
+        }
+        catch (Exception exception)
+        {
+            succeeded = false;
+            message = exception.Message;
+            open = true;
+        }
+        finally { working = false; }
+    }
+
+    private async Task PreviewAsync()
+    {
+        working = true;
+        message = null;
+        try
+        {
+            preview = await Api.PreviewCompanionLogisticsAsync(BuildSaveRequest())
+                ?? throw new InvalidOperationException(
+                    "No companion logistics preview was returned.");
+            succeeded = true;
+            open = true;
+        }
+        catch (Exception exception)
+        {
+            preview = null;
+            succeeded = false;
+            message = exception.Message;
+            open = true;
+        }
+        finally { working = false; }
+    }
+
+    private IEnumerable<CompanionLogisticsPreviewItem> OrderedPreviewItems =>
+        preview is null ? [] : preview.Items
+            .OrderBy(item => item.Action switch
+            {
+                "Mail" => 0,
+                "Sell" => 1,
+                "Protected" => 2,
+                _ => 3
+            })
+            .ThenBy(item => item.Name);
+
+    private static string ActionBadge(string action) => action switch
+    {
+        "Mail" => "text-bg-primary",
+        "Sell" => "text-bg-warning",
+        "Protected" => "text-bg-info",
+        _ => "text-bg-secondary"
+    };
+
+    private static string FormatCopper(int copper)
+    {
+        var gold = copper / 10_000;
+        var silver = copper % 10_000 / 100;
+        var remainder = copper % 100;
+        return gold > 0 ? $"{gold}g {silver}s {remainder}c"
+            : silver > 0 ? $"{silver}s {remainder}c"
+            : $"{remainder}c";
+    }
+
+    private SaveCompanionLogisticsRequest BuildSaveRequest() => new(
+        LeaderName, Companion.Name,
+        new(triggerFreeSlots, targetFreeSlots, automaticEnabled),
+        routes.Select(route => new CompanionLogisticsRoute(
+            route.CategoryKey, route.CategoryName, route.RecipientGuid,
+            configuration?.Recipients.FirstOrDefault(value =>
+                value.CharacterGuid == route.RecipientGuid)?.Name,
+            route.KeepQuantity, route.Enabled)).ToArray());
+
+    private sealed class RouteEditor
+    {
+        public string CategoryKey { get; init; } = "";
+        public string CategoryName { get; init; } = "";
+        public string Description { get; init; } = "";
+        public HashSet<uint> SuggestedRecipientGuids { get; init; } = [];
+        public uint? RecipientGuid { get; set; }
+        public int KeepQuantity { get; set; }
+        public bool Enabled { get; set; }
+        public bool IsCatchAll => CategoryKey.Equals(
+            "catchall", StringComparison.OrdinalIgnoreCase);
+    }
+}

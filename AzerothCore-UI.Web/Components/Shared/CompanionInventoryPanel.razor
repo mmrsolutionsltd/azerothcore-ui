@@ -1,0 +1,248 @@
+@inject AccountsApiClient Api
+
+<div class="companion-inventory">
+    <details open>
+        <summary class="small fw-semibold">Equipment (@Companion.Equipment.Count)</summary>
+        @if (Companion.Equipment.Count == 0)
+        {
+            <div class="small text-muted mt-1">No equipment details were returned.</div>
+        }
+        else
+        {
+            <div class="companion-equipment-grid mt-2">
+                @foreach (var item in Companion.Equipment.OrderBy(value => value.Slot))
+                {
+                    <div class="companion-equipment-item">
+                        <div class="min-width-0">
+                            <div class="small text-muted">@EquipmentSlotName(item.Slot)</div>
+                            <div class="text-truncate @QualityClass(item.Quality)" title="@item.Name">
+                                @item.Name
+                            </div>
+                            <div class="small text-muted">
+                                iLvl @item.ItemLevel
+                                @if (item.MaximumDurability > 0)
+                                {
+                                    <span> · @item.Durability/@item.MaximumDurability durability</span>
+                                }
+                            </div>
+                        </div>
+                        <button class="btn btn-sm @(item.Protected ? "btn-warning" : "btn-outline-secondary")"
+                                type="button" disabled="@Disabled"
+                                title="@(item.Protected ? "Allow automatic replacement" : "Keep this item equipped for this companion session")"
+                                @onclick="() => ToggleProtectionAsync(item)">
+                            <i class="bi @(item.Protected ? "bi-lock-fill" : "bi-unlock")"></i>
+                            @(item.Protected ? "Protected" : "Protect")
+                        </button>
+                    </div>
+                }
+            </div>
+        }
+    </details>
+
+    @if (QuestItems.Count > 0)
+    {
+        <div class="mt-3">
+            <div class="small fw-semibold">Quest items in bags (@QuestItems.Count)</div>
+            <div class="d-flex flex-wrap gap-1 mt-2">
+                @foreach (var item in QuestItems)
+                {
+                    <span class="badge text-bg-info">@item.Name ×@item.Count</span>
+                }
+            </div>
+        </div>
+    }
+
+    <div class="d-flex flex-wrap justify-content-between gap-2 align-items-center mt-3">
+        <div class="small fw-semibold">
+            Bag contents (@Companion.Inventory.Count stacks ·
+            @Companion.FreeBagSlots/@Companion.TotalBagSlots slots free)
+        </div>
+        <button class="btn btn-sm btn-outline-secondary" type="button"
+                disabled="@rulesLoading" @onclick="LoadRulesAsync">
+            <i class="bi bi-arrow-clockwise"></i> Refresh rules
+        </button>
+    </div>
+    @if (!string.IsNullOrWhiteSpace(ruleError))
+    {
+        <div class="alert alert-warning py-2 small mt-2 mb-0">@ruleError</div>
+    }
+    @if (Companion.Inventory.Count == 0)
+    {
+        <div class="small text-muted mt-1">The bags are empty.</div>
+    }
+    else
+    {
+        <div class="table-responsive mt-1">
+            <table class="table table-sm align-middle mb-0 companion-inventory-table">
+                <thead><tr><th>Item</th><th>Qty</th><th>iLvl</th><th>Effective rule</th></tr></thead>
+                <tbody>
+                    @foreach (var item in Companion.Inventory
+                        .OrderByDescending(value => IsQuestItem(value.ItemId))
+                        .ThenByDescending(value => value.Quality)
+                        .ThenBy(value => value.Name))
+                    {
+                        var rule = RuleFor(item);
+                        <tr>
+                            <td class="@QualityClass(item.Quality)">
+                                @item.Name
+                                @if (IsQuestItem(item.ItemId))
+                                {
+                                    <span class="badge text-bg-info ms-1">Quest</span>
+                                }
+                            </td>
+                            <td>@item.Count</td>
+                            <td>@item.ItemLevel</td>
+                            <td class="small">
+                                @if (rulesLoading)
+                                {
+                                    <span class="text-muted">Checking…</span>
+                                }
+                                else if (rule is null)
+                                {
+                                    <span class="text-muted">Not available</span>
+                                }
+                                else
+                                {
+                                    <span class="badge @RuleBadge(rule.Action)"
+                                          title="@rule.Reason">@rule.Action</span>
+                                    @if (!rule.Destination.Equals(
+                                        "Companion bags", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        <span class="ms-1">→ @rule.Destination</span>
+                                    }
+                                    <i class="bi bi-info-circle ms-1 text-muted"
+                                       title="@rule.Reason"></i>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    @if (Companion.RecentEquipmentChanges.Count > 0)
+    {
+        <details class="mt-3">
+            <summary class="small fw-semibold">Recent equipment changes</summary>
+            <ul class="small mb-0 mt-1 ps-3">
+                @foreach (var change in Companion.RecentEquipmentChanges)
+                {
+                    <li><span class="text-muted">@ChangeTime(change.ChangedAtUnix)</span> @change.Description</li>
+                }
+            </ul>
+        </details>
+    }
+    @if (Companion.RecentInventoryChanges.Count > 0)
+    {
+        <details class="mt-2">
+            <summary class="small fw-semibold">Recent bag additions</summary>
+            <ul class="small mb-0 mt-1 ps-3">
+                @foreach (var change in Companion.RecentInventoryChanges)
+                {
+                    <li><span class="text-muted">@ChangeTime(change.ChangedAtUnix)</span> @change.Description</li>
+                }
+            </ul>
+        </details>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string LeaderName { get; set; } = "";
+    [Parameter, EditorRequired] public ActiveQuestingCompanion Companion { get; set; } = default!;
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public EventCallback<QuestingCompanionEquipmentProtectionRequest>
+        ProtectionRequested { get; set; }
+
+    private Dictionary<(int Bag, int Slot), CompanionLogisticsPreviewItem> rules = [];
+    private string? loadedSignature, ruleError;
+    private bool rulesLoading;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var signature = $"{LeaderName}|{Companion.Name}|"
+            + string.Join(',', Companion.Inventory.Select(item =>
+                $"{item.Bag}:{item.Slot}:{item.ItemId}:{item.Count}"));
+        if (signature == loadedSignature)
+            return;
+        loadedSignature = signature;
+        await LoadRulesAsync();
+    }
+
+    private async Task LoadRulesAsync()
+    {
+        rulesLoading = true;
+        ruleError = null;
+        try
+        {
+            var configuration = await Api.GetCompanionLogisticsAsync(
+                LeaderName, Companion.Name)
+                ?? throw new InvalidOperationException(
+                    "No bag-logistics configuration was returned.");
+            var preview = await Api.PreviewCompanionLogisticsAsync(new(
+                LeaderName, Companion.Name, configuration.Settings,
+                configuration.Routes))
+                ?? throw new InvalidOperationException(
+                    "No bag-rule preview was returned.");
+            rules = preview.Items.ToDictionary(
+                item => (item.Bag, item.Slot), item => item);
+        }
+        catch (Exception exception)
+        {
+            rules = [];
+            ruleError = $"Item rules are unavailable: {exception.Message}";
+        }
+        finally { rulesLoading = false; }
+    }
+
+    private CompanionLogisticsPreviewItem? RuleFor(QuestingCompanionItem item) =>
+        rules.GetValueOrDefault((item.Bag, item.Slot));
+
+    private IReadOnlyList<QuestingCompanionItem> QuestItems =>
+        Companion.Inventory.Where(item => IsQuestItem(item.ItemId)).ToArray();
+
+    private Task ToggleProtectionAsync(QuestingCompanionItem item) =>
+        ProtectionRequested.InvokeAsync(new(
+            "", Companion.Name, item.Slot, !item.Protected));
+
+    private bool IsQuestItem(uint itemId) => Companion.Quests
+        .SelectMany(quest => quest.Objectives)
+        .Any(objective => objective.Kind.Equals(
+            "item", StringComparison.OrdinalIgnoreCase)
+            && objective.Entry == itemId);
+
+    private static string RuleBadge(string action) => action switch
+    {
+        "Mail" => "text-bg-primary",
+        "Sell" => "text-bg-warning",
+        "Protected" => "text-bg-info",
+        _ => "text-bg-secondary"
+    };
+
+    private static string ChangeTime(long changedAtUnix)
+    {
+        try
+        {
+            return DateTimeOffset.FromUnixTimeSeconds(changedAtUnix)
+                .ToLocalTime().ToString("HH:mm");
+        }
+        catch (ArgumentOutOfRangeException) { return ""; }
+    }
+
+    private static string EquipmentSlotName(int slot) => slot switch
+    {
+        0 => "Head", 1 => "Neck", 2 => "Shoulders", 3 => "Shirt",
+        4 => "Chest", 5 => "Waist", 6 => "Legs", 7 => "Feet",
+        8 => "Wrists", 9 => "Hands", 10 => "Finger 1", 11 => "Finger 2",
+        12 => "Trinket 1", 13 => "Trinket 2", 14 => "Back",
+        15 => "Main hand", 16 => "Off hand", 17 => "Ranged", 18 => "Tabard",
+        _ => $"Slot {slot}"
+    };
+
+    private static string QualityClass(int quality) => quality switch
+    {
+        0 => "quality-poor", 2 => "quality-uncommon", 3 => "quality-rare",
+        4 => "quality-epic", 5 => "quality-legendary", 7 => "quality-heirloom",
+        _ => ""
+    };
+}

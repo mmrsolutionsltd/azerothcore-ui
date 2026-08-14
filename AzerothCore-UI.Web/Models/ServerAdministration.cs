@@ -200,7 +200,8 @@ public sealed record ActiveQuestingCompanion(
     IReadOnlyList<QuestingCompanionItem> Inventory,
     IReadOnlyList<QuestingCompanionEquipmentChange> RecentEquipmentChanges,
     IReadOnlyList<QuestingCompanionEquipmentChange> RecentInventoryChanges,
-    QuestingCompanionBehavior Behavior);
+    QuestingCompanionBehavior Behavior,
+    QuestingCompanionLogisticsStatus Logistics);
 public sealed record QuestingCompanionStatus(
     string LeaderName, IReadOnlyList<ActiveQuestingCompanion> ActiveCompanions,
     IReadOnlyList<QuestingCompanionCandidate> Candidates,
@@ -219,6 +220,38 @@ public sealed record QuestingCompanionPresetRequest(
     string LeaderName, string CompanionName, string Preset);
 public sealed record QuestingCompanionAccountLinkRequest(
     string LeaderName, string CompanionName, bool Linked, bool Confirmed);
+public sealed record CompanionLogisticsSettings(
+    int TriggerFreeSlots, int TargetFreeSlots, bool AutomaticEnabled);
+public sealed record CompanionLogisticsRoute(
+    string CategoryKey, string CategoryName, uint? RecipientGuid,
+    string? RecipientName, int KeepQuantity, bool Enabled);
+public sealed record CompanionLogisticsRecipient(
+    uint CharacterGuid, string Name, string Username,
+    IReadOnlyList<string> Professions);
+public sealed record CompanionLogisticsCategory(
+    string Key, string Name, string Description,
+    int SuggestedKeepQuantity, IReadOnlyList<uint> SuggestedRecipientGuids);
+public sealed record CompanionLogisticsConfiguration(
+    string CompanionName, CompanionLogisticsSettings Settings,
+    IReadOnlyList<CompanionLogisticsRoute> Routes,
+    IReadOnlyList<CompanionLogisticsCategory> Categories,
+    IReadOnlyList<CompanionLogisticsRecipient> Recipients);
+public sealed record SaveCompanionLogisticsRequest(
+    string LeaderName, string CompanionName,
+    CompanionLogisticsSettings Settings,
+    IReadOnlyList<CompanionLogisticsRoute> Routes);
+public sealed record RunCompanionLogisticsRequest(
+    string LeaderName, string CompanionName);
+public sealed record CompanionLogisticsPreviewItem(
+    uint ItemId, int Count, int Quality, int Bag, int Slot, string Name,
+    string Action, string Destination, string Reason);
+public sealed record CompanionLogisticsPreview(
+    string CompanionName, int CurrentFreeSlots, int TotalBagSlots,
+    int PotentialFreeSlots, int PostageCopper, bool MailboxNearby,
+    bool VendorNearby, IReadOnlyList<CompanionLogisticsPreviewItem> Items);
+public sealed record QuestingCompanionLogisticsStatus(
+    int TriggerFreeSlots, int TargetFreeSlots, bool AutomaticEnabled,
+    int RouteCount, string Status);
 public sealed record DungeonDestination(uint DungeonId, string Name, int MinimumLevel,
     int MaximumLevel, uint MapId, string Difficulty);
 public sealed record DungeonLockout(string PlayerName, uint MapId, int Difficulty, DateTime ResetAtUtc);
@@ -303,6 +336,7 @@ public sealed record SpawnCreatureRequest(
 public sealed record UtilityNpc(uint CreatureId, string Name, string Service, string Description, int Level);
 public sealed record SummonUtilityNpcRequest(
     string PlayerName, uint CreatureId, int DespawnMinutes, bool Confirmed);
+public sealed record CreateGameAccountRequest(string Username, string Password);
 public sealed record SetAccountGmRequest(string Username, bool Enabled, bool Confirmed);
 public sealed record SetPlayerSpeedRequest(string PlayerName, decimal Speed);
 public sealed record CharacterServiceRequest(string PlayerName, string Service, int? Level, bool Confirmed);

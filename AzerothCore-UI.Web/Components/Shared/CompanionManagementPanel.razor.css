@@ -1,0 +1,9 @@
+.companion-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+.companion-tabs .nav-link {
+    white-space: nowrap;
+}

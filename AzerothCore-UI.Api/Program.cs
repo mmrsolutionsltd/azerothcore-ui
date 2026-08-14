@@ -25,10 +25,14 @@ builder.Logging.AddDebug();
 // Add services to the container.
 
 builder.Services.AddControllers();
-builder.Services.AddWindowsService(options =>
-    options.ServiceName = "AzerothCore UI API");
+if (OperatingSystem.IsWindows())
+    builder.Services.AddWindowsService(options =>
+        options.ServiceName = "AzerothCore UI API");
+else if (OperatingSystem.IsLinux())
+    builder.Services.AddSystemd();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Data.AzerothCoreConnectionFactory>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Data.AdministrationAccountStore>();
+builder.Services.AddSingleton<AzerothCore_UI.Api.Data.CompanionLogisticsStore>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Security.AdministrationPasswordHasher>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Security.AdministrationRequestAuthorizer>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Security.AdministrationActivityAudit>();

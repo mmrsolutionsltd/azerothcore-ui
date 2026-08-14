@@ -1,0 +1,36 @@
+.companion-logistics-table {
+    min-width: 42rem;
+}
+
+.companion-logistics-table td:first-child {
+    width: 44%;
+}
+
+.companion-logistics-table td:nth-child(2) {
+    width: 44%;
+}
+
+.logistics-keep {
+    min-width: 5rem;
+}
+
+.companion-logistics-preview {
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+    padding: .75rem;
+    background: var(--bs-tertiary-bg);
+}
+
+.companion-logistics-preview-items {
+    max-height: 24rem;
+}
+
+.companion-logistics-preview-items table {
+    min-width: 46rem;
+}
+
+.companion-logistics-preview-items thead {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}

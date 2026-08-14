@@ -8,6 +8,20 @@ namespace AzerothCore_UI.Web.Tests;
 public sealed class ClientAddonPackageBuilderTests
 {
     [Fact]
+    public void BundledAddonDisplaysCompanionOnlyQuestProgress()
+    {
+        var directory = ClientAddonPackageBuilder.ResolveAddonDirectory();
+        var info = ClientAddonPackageBuilder.GetPackageInfo(directory);
+        var script = File.ReadAllText(
+            Path.Combine(directory, "AzerothCompanion.lua"));
+
+        Assert.Equal("0.7.0", info.Version);
+        Assert.Contains("Companion-only quests", script);
+        Assert.Contains("CompanionObjectiveText", script);
+        Assert.Contains("companionPlayer.questOrder", script);
+    }
+
+    [Fact]
     public void PackageContainsVersionedAddonFolderAndOnlyAllowlistedFiles()
     {
         var directory = CreateAddonDirectory();

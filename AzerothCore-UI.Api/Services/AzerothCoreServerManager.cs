@@ -14,7 +14,18 @@ public sealed class AzerothCoreServerManager(
 {
     private readonly string rootPath = configuration["AzerothCore:Server:RootPath"]
         ?? @"C:\AzerothServer-PlayerBots";
+    private readonly string logPath = configuration["AzerothCore:Server:LogPath"]
+        ?? configuration["AzerothCore:Server:RootPath"]
+        ?? @"C:\AzerothServer-PlayerBots";
     private readonly int authStartDelaySeconds = configuration.GetValue("AzerothCore:Server:AuthStartDelaySeconds", 30);
+    private readonly bool useSystemd = configuration.GetValue(
+        "AzerothCore:Server:UseSystemd", OperatingSystem.IsLinux());
+    private readonly bool systemctlUseSudo = configuration.GetValue(
+        "AzerothCore:Server:SystemctlUseSudo", true);
+    private readonly string worldServiceName = configuration[
+        "AzerothCore:Server:WorldServiceName"] ?? "azerothcore-world.service";
+    private readonly string authServiceName = configuration[
+        "AzerothCore:Server:AuthServiceName"] ?? "azerothcore-auth.service";
 
     public async Task<ServerStatus> GetStatusAsync(CancellationToken cancellationToken)
     {
@@ -45,16 +56,31 @@ public sealed class AzerothCoreServerManager(
         if (GetProcessStatus("worldserver").IsRunning || GetProcessStatus("authserver").IsRunning)
             throw new InvalidOperationException("One or more AzerothCore server processes are already running.");
 
-        StartExecutable("worldserver.exe");
+        if (useSystemd)
+            await RunSystemctlAsync("start", worldServiceName, cancellationToken);
+        else
+            StartExecutable(ExecutableName("worldserver"));
         await Task.Delay(TimeSpan.FromSeconds(authStartDelaySeconds), cancellationToken);
         if (!GetProcessStatus("worldserver").IsRunning)
             throw new InvalidOperationException("Worldserver exited during startup. Check the server logs.");
-        StartExecutable("authserver.exe");
+        if (useSystemd)
+            await RunSystemctlAsync("start", authServiceName, cancellationToken);
+        else
+            StartExecutable(ExecutableName("authserver"));
         logger.LogWarning("ADMIN AUDIT: AzerothCore servers started through the administration API.");
     }
 
     public async Task StopAsync(bool force, CancellationToken cancellationToken)
     {
+        if (useSystemd)
+        {
+            await StopSystemdServicesAsync(force, cancellationToken);
+            logger.LogWarning(
+                "ADMIN AUDIT: AzerothCore systemd services stopped through the administration API. Force={Force}",
+                force);
+            return;
+        }
+
         using var world = Process.GetProcessesByName("worldserver").FirstOrDefault();
         if (world is not null)
         {
@@ -113,6 +139,82 @@ public sealed class AzerothCoreServerManager(
         Process.Start(new ProcessStartInfo(path) { WorkingDirectory = rootPath, UseShellExecute = true });
     }
 
+    private async Task StopSystemdServicesAsync(bool force, CancellationToken cancellationToken)
+    {
+        using var world = Process.GetProcessesByName("worldserver").FirstOrDefault();
+        if (world is not null)
+        {
+            if (soapClient.IsConfigured)
+            {
+                try
+                {
+                    await soapClient.ExecuteAsync("server shutdown 1", cancellationToken);
+                    await WaitForExitAsync(world, TimeSpan.FromSeconds(60), cancellationToken);
+                }
+                catch (Exception exception) when (force
+                    && exception is (HttpRequestException or InvalidOperationException))
+                {
+                    logger.LogWarning(exception,
+                        "Graceful worldserver shutdown failed; confirmed systemd stop will be used.");
+                }
+                catch (Exception exception) when (
+                    exception is HttpRequestException or InvalidOperationException)
+                {
+                    throw new InvalidOperationException(
+                        "The graceful worldserver shutdown command could not be delivered through SOAP. Confirm a forced stop or correct the SOAP configuration.",
+                        exception);
+                }
+            }
+            else if (!force)
+                throw new InvalidOperationException(
+                    "Worldserver cannot be stopped gracefully because SOAP credentials are not configured. Configure SOAP or confirm a forced stop.");
+
+            if (!world.HasExited && !force)
+                throw new InvalidOperationException(
+                    "Worldserver did not exit within 60 seconds. Confirm a forced stop only after checking its logs.");
+        }
+
+        await RunSystemctlAsync("stop", worldServiceName, cancellationToken);
+        await RunSystemctlAsync("stop", authServiceName, cancellationToken);
+    }
+
+    private async Task RunSystemctlAsync(
+        string action, string serviceName, CancellationToken cancellationToken)
+    {
+        if (serviceName.Any(character => !char.IsAsciiLetterOrDigit(character)
+                && character is not ('-' or '_' or '.' or '@')))
+            throw new InvalidOperationException("The configured systemd service name is invalid.");
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = systemctlUseSudo ? "/usr/bin/sudo" : "/usr/bin/systemctl",
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        if (systemctlUseSudo)
+        {
+            startInfo.ArgumentList.Add("-n");
+            startInfo.ArgumentList.Add("/usr/bin/systemctl");
+        }
+        startInfo.ArgumentList.Add(action);
+        startInfo.ArgumentList.Add(serviceName);
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Could not start systemctl.");
+        var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+        var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+        await process.WaitForExitAsync(cancellationToken);
+        var output = await outputTask;
+        var error = await errorTask;
+        if (process.ExitCode != 0)
+            throw new InvalidOperationException(
+                $"systemctl {action} {serviceName} failed: {(string.IsNullOrWhiteSpace(error) ? output : error).Trim()}");
+    }
+
+    private static string ExecutableName(string name) =>
+        OperatingSystem.IsWindows() ? $"{name}.exe" : name;
+
     private static ManagedProcessStatus GetProcessStatus(string name)
     {
         using var process = Process.GetProcessesByName(name).FirstOrDefault();
@@ -126,7 +228,7 @@ public sealed class AzerothCoreServerManager(
         var entries = new List<ServerLogEntry>();
         foreach (var name in new[] { "Errors.log", "Server.log", "Auth.log", "Playerbots.log" })
         {
-            var path = Path.Combine(rootPath, name);
+            var path = Path.Combine(logPath, name);
             if (!File.Exists(path)) continue;
             try { entries.AddRange(File.ReadLines(path).TakeLast(20).Where(line => !string.IsNullOrWhiteSpace(line))
                 .Select(line => new ServerLogEntry(name, line.Length <= 500 ? line : line[..500]))); }

@@ -1,5 +1,7 @@
 @using AzerothCore_UI.Web.Models
 @inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
+@inject AzerothCore_UI.Web.Services.RecentPickerSelectionStore RecentSelections
+@inject IJSRuntime Javascript
 
 @if (IsOpen)
 {
@@ -21,7 +23,7 @@
                             <input id="creature-picker-search" class="form-control"
                                    value="@search" @oninput="SearchAsync"
                                    placeholder="Start typing a creature name..."
-                                   autocomplete="off" autofocus />
+                                   autocomplete="off" autofocus @ref="searchInput" />
                         </div>
                         <div class="col-md-4">
                             <label class="form-label" for="creature-picker-filter">Templates</label>
@@ -68,6 +70,10 @@
                         </div>
                     </div>
 
+                    <RecentPickerSelections TItem="AdministrationCreature"
+                                            Items="recentCreatures"
+                                            DisplayText="CreatureDisplayText"
+                                            Selected="SelectAsync" />
                     @if (errorMessage is not null)
                     {
                         <div class="alert alert-danger">@errorMessage</div>

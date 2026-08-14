@@ -1,6 +1,8 @@
 using AzerothCore_UI.Web.Models;
+using AzerothCore_UI.Web.Services;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
+using Microsoft.JSInterop;
 
 namespace AzerothCore_UI.Web.Components.Shared;
 
@@ -13,6 +15,7 @@ public partial class CreaturePickerDialog : IDisposable
     ];
 
     [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public string? InitialSearchText { get; set; }
     [Parameter] public EventCallback<AdministrationCreature> CreatureSelected { get; set; }
     [Parameter] public EventCallback Closed { get; set; }
 
@@ -28,12 +31,41 @@ public partial class CreaturePickerDialog : IDisposable
     private int? minimumLevel;
     private int? maximumLevel;
     private long queryGeneration;
+    private ElementReference searchInput;
+    private bool focusSearch;
+    private IReadOnlyList<AdministrationCreature> recentCreatures = [];
 
     protected override async Task OnParametersSetAsync()
     {
         if (IsOpen && !wasOpen)
+        {
+            search = InitialSearchText?.Trim() ?? "";
+            var storedCreatures = await RecentSelections.GetAsync<AdministrationCreature>(
+                RecentPickerKeys.Creatures);
+            if (storedCreatures.Count > 0 || recentCreatures.Count == 0)
+                recentCreatures = storedCreatures;
+            focusSearch = true;
             await LoadAsync(1);
+        }
         wasOpen = IsOpen;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!IsOpen || !focusSearch)
+            return;
+
+        focusSearch = false;
+        try
+        {
+            await Javascript.InvokeVoidAsync(
+                "azerothCoreUi.focusAndSelect", searchInput);
+        }
+        catch (Exception exception) when (
+            exception is InvalidOperationException or JSDisconnectedException
+                or TaskCanceledException)
+        {
+        }
     }
 
     private async Task SearchAsync(ChangeEventArgs args)
@@ -96,8 +128,13 @@ public partial class CreaturePickerDialog : IDisposable
         }
     }
 
-    private Task SelectAsync(AdministrationCreature creature) =>
-        CreatureSelected.InvokeAsync(creature);
+    private async Task SelectAsync(AdministrationCreature creature)
+    {
+        recentCreatures = await RecentSelections.RememberAsync(
+            RecentPickerKeys.Creatures, creature,
+            value => value.CreatureId.ToString());
+        await CreatureSelected.InvokeAsync(creature);
+    }
 
     private Task SelectFromKeyboardAsync(
         KeyboardEventArgs args,
@@ -105,6 +142,9 @@ public partial class CreaturePickerDialog : IDisposable
         args.Key is "Enter" or " " ? SelectAsync(creature) : Task.CompletedTask;
 
     private Task CloseAsync() => Closed.InvokeAsync();
+
+    private static string CreatureDisplayText(AdministrationCreature creature) =>
+        $"{creature.Name} ({creature.CreatureId})";
 
     public void Dispose()
     {

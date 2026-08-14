@@ -64,6 +64,7 @@
 <PlayerActionFeedback Results="Results" />
 
 <CreaturePickerDialog IsOpen="@showPicker"
+                      InitialSearchText="@selectedCreature?.Name"
                       CreatureSelected="SelectCreature"
                       Closed="() => showPicker = false" />
 

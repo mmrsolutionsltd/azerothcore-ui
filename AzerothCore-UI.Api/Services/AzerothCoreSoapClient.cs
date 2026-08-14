@@ -127,6 +127,22 @@ public sealed class AzerothCoreSoapClient(IConfiguration configuration, IHttpCli
         $"character changeaccount {RequireAccountName(destinationAccountName)} "
         + RequirePlayerName(playerName);
 
+    public static string BuildCreateAccountCommand(string accountName, string password) =>
+        $"account create {RequireCreatableAccountName(accountName)} "
+        + RequireAccountPassword(password);
+
+    public static string RequireCreatableAccountName(string value) =>
+        Regex.IsMatch(value, "^[A-Za-z0-9]{3,17}$")
+            ? value
+            : throw new ArgumentException(
+                "Account names must contain 3 to 17 letters or numbers.");
+
+    public static string RequireAccountPassword(string value) =>
+        Regex.IsMatch(value, "^[!-~]{8,16}$")
+            ? value
+            : throw new ArgumentException(
+                "Account passwords must contain 8 to 16 non-space ASCII characters.");
+
     public static string RequireAccountName(string value) =>
         Regex.IsMatch(value, "^[A-Za-z0-9]{3,32}$")
             ? value : throw new ArgumentException("Account names must contain 3 to 32 letters or numbers.");

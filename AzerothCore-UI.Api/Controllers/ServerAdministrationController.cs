@@ -15,6 +15,7 @@ public sealed class ServerAdministrationController(
     AzerothCoreSoapClient soapClient,
     AzerothCoreConfigurationManager configurationManager,
     AzerothCoreConnectionFactory connectionFactory,
+    CompanionLogisticsStore companionLogisticsStore,
     SpellMetadataProvider spellMetadataProvider,
     DungeonGuideService dungeonGuideService,
     DatabaseBackupService databaseBackupService,
@@ -53,6 +54,25 @@ public sealed class ServerAdministrationController(
         new(19572, "Gant", "Food and drink", "Food, drink and somewhere to sell unwanted items.", 65),
         new(14337, "Field Repair Bot 74A", "Repair bot", "Portable sales and repair service.", 50)
     ];
+
+    private static readonly LogisticsCategoryDefinition[] LogisticsCategories =
+    [
+        new("cloth", "Cloth", "Keep a First Aid reserve and send the surplus to a tailor.", 40, [197]),
+        new("leather", "Leather and scales", "Raw leatherworking materials.", 0, [165]),
+        new("metal", "Ore, bars and stone", "Mining materials for blacksmiths, engineers, or jewelcrafters.", 0, [164, 202, 755]),
+        new("herbs", "Herbs", "Herbs for alchemy or inscription.", 0, [171, 773]),
+        new("enchanting", "Enchanting materials", "Dust, essences, shards, and crystals.", 0, [333]),
+        new("jewelcrafting", "Gems and jewelcrafting", "Raw gems and jewelcrafting materials.", 0, [755]),
+        new("meat", "Meat", "Cooking ingredients; keep a small personal supply if wanted.", 20, [185]),
+        new("elemental", "Elemental materials", "Elemental crafting reagents.", 0, [171, 333, 202]),
+        new("parts", "Engineering parts", "Mechanical parts and engineering components.", 0, [202]),
+        new("catchall", "Other unused items (catch-all)",
+            "Mail other surplus when no material route handles it. Grey items and permanently unusable white equipment are sold at vendors instead.",
+            0, [])
+    ];
+
+    private static readonly IReadOnlyDictionary<ushort, string> LogisticsProfessionNames =
+        ProfessionCatalog.All.ToDictionary(value => value.Key, value => value.Value.Name);
 
     [HttpGet("status")]
     public async Task<ActionResult<ServerStatus>> GetStatus(CancellationToken cancellationToken) =>
@@ -1024,6 +1044,61 @@ public sealed class ServerAdministrationController(
         return Ok(new AdministrationResult(true, request.Enabled ? $"GM access enabled for {username}." : $"GM access removed from {username}.", output));
     }
 
+    [HttpPost("accounts/create")]
+    public async Task<ActionResult<AdministrationResult>> CreateGameAccount(
+        CreateGameAccountRequest request, CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+
+        string username;
+        string command;
+        try
+        {
+            username = AzerothCoreSoapClient.RequireCreatableAccountName(
+                request.Username?.Trim() ?? "");
+            command = AzerothCoreSoapClient.BuildCreateAccountCommand(
+                username, request.Password ?? "");
+        }
+        catch (ArgumentException exception)
+        {
+            return BadRequest(new AdministrationResult(false, exception.Message));
+        }
+
+        await using (var connection = connectionFactory.CreateConnection())
+        {
+            var exists = await connection.ExecuteScalarAsync<bool>(new CommandDefinition("""
+                SELECT EXISTS(
+                    SELECT 1 FROM acore_auth.account
+                    WHERE UPPER(username) = UPPER(@Username));
+                """, new { Username = username }, cancellationToken: cancellationToken));
+            if (exists)
+                return Conflict(new AdministrationResult(
+                    false, $"A WoW account named {username.ToUpperInvariant()} already exists."));
+        }
+
+        var output = await soapClient.ExecuteAsync(command, cancellationToken);
+        uint? accountId;
+        await using (var connection = connectionFactory.CreateConnection())
+        {
+            accountId = await connection.ExecuteScalarAsync<uint?>(new CommandDefinition("""
+                SELECT id FROM acore_auth.account
+                WHERE UPPER(username) = UPPER(@Username)
+                LIMIT 1;
+                """, new { Username = username }, cancellationToken: cancellationToken));
+        }
+
+        if (accountId is null)
+            throw new InvalidOperationException(
+                "AzerothCore reported success, but the new account could not be found.");
+
+        var normalizedUsername = username.ToUpperInvariant();
+        Audit("CreateGameAccount", normalizedUsername, $"AccountId={accountId.Value}");
+        return Ok(new AdministrationResult(
+            true,
+            $"WoW account {normalizedUsername} created (account ID {accountId.Value}).",
+            output));
+    }
+
     [HttpPost("players/speed")]
     public async Task<ActionResult<AdministrationResult>> SetPlayerSpeed(
         SetPlayerSpeedRequest request, CancellationToken cancellationToken)
@@ -1377,6 +1452,17 @@ public sealed class ServerAdministrationController(
         await ValidateCompanionPairAsync(leader, companion, true, cancellationToken);
         var output = await soapClient.ExecuteAsync(
             $"webadmin companion start {leader} {companion}", cancellationToken);
+        try
+        {
+            await ActivateStoredCompanionLogisticsAsync(
+                leader, companion, cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            logger.LogWarning(exception,
+                "Could not activate stored logistics for {Companion} immediately after login.",
+                companion);
+        }
         Audit("StartQuestingCompanion", companion, $"Leader={leader}");
         return Ok(new AdministrationResult(
             true, $"{companion} is logging in and joining {leader}.", output));
@@ -1587,6 +1673,170 @@ public sealed class ServerAdministrationController(
             request.Linked
                 ? $"The accounts for {leader} and {companion} are now trusted. Backup {backup.BackupId} was created first."
                 : $"The trusted account link was removed. Backup {backup.BackupId} was created first."));
+    }
+
+    [HttpGet("questing-companions/{leaderName}/{companionName}/logistics")]
+    public async Task<ActionResult<CompanionLogisticsConfiguration>>
+        GetCompanionLogistics(
+            string leaderName, string companionName,
+            CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        var leader = AzerothCoreSoapClient.RequirePlayerName(leaderName);
+        var companion = AzerothCoreSoapClient.RequirePlayerName(companionName);
+        await ValidateCompanionPairAsync(leader, companion, false, cancellationToken);
+        var context = await GetCompanionLogisticsContextAsync(
+            companion, cancellationToken);
+        var stored = await companionLogisticsStore.GetAsync(
+            context.CompanionGuid, cancellationToken);
+        var recipients = await GetCompanionLogisticsRecipientsAsync(
+            context, cancellationToken);
+        var recipientsByGuid = recipients.ToDictionary(value => value.CharacterGuid);
+        var storedByCategory = stored.Routes.ToDictionary(
+            value => value.CategoryKey, StringComparer.OrdinalIgnoreCase);
+
+        var routes = LogisticsCategories.Select(category =>
+        {
+            storedByCategory.TryGetValue(category.Key, out var route);
+            recipientsByGuid.TryGetValue(route?.RecipientGuid ?? 0, out var recipient);
+            return new CompanionLogisticsRoute(
+                category.Key, category.Name, route?.RecipientGuid,
+                recipient?.Name, route?.KeepQuantity ?? category.SuggestedKeepQuantity,
+                route?.Enabled ?? false);
+        }).ToArray();
+        var categories = LogisticsCategories.Select(category =>
+            new CompanionLogisticsCategory(
+                category.Key, category.Name, category.Description,
+                category.SuggestedKeepQuantity,
+                recipients.Where(recipient => recipient.SkillIds.Any(
+                        skill => category.SuggestedProfessionSkills.Contains(skill)))
+                    .Select(recipient => recipient.CharacterGuid).ToArray()))
+            .ToArray();
+        return Ok(new CompanionLogisticsConfiguration(
+            companion, stored.Settings, routes, categories,
+            recipients.Select(value => new CompanionLogisticsRecipient(
+                value.CharacterGuid, value.Name, value.Username,
+                value.SkillIds.Select(skill =>
+                    LogisticsProfessionNames.GetValueOrDefault(
+                        skill, $"Skill {skill}")).ToArray())).ToArray()));
+    }
+
+    [HttpPost("questing-companions/logistics")]
+    public async Task<ActionResult<AdministrationResult>> SaveCompanionLogistics(
+        SaveCompanionLogisticsRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        var leader = AzerothCoreSoapClient.RequirePlayerName(request.LeaderName);
+        var companion = AzerothCoreSoapClient.RequirePlayerName(request.CompanionName);
+        await ValidateCompanionPairAsync(leader, companion, false, cancellationToken);
+        var validation = ValidateCompanionLogisticsRequest(request);
+        if (validation is not null)
+            return BadRequest(new AdministrationResult(false, validation));
+
+        var context = await GetCompanionLogisticsContextAsync(
+            companion, cancellationToken);
+        var recipients = await GetCompanionLogisticsRecipientsAsync(
+            context, cancellationToken);
+        var recipientNames = recipients.ToDictionary(
+            value => value.CharacterGuid, value => value.Name);
+        var enabledRoutes = request.Routes
+            .Where(route => route.Enabled && route.RecipientGuid is not null)
+            .Select(route => new StoredCompanionLogisticsRoute(
+                route.CategoryKey, route.RecipientGuid!.Value,
+                route.KeepQuantity, true)).ToArray();
+        if (enabledRoutes.Any(route => !recipientNames.ContainsKey(route.RecipientGuid)))
+            return BadRequest(new AdministrationResult(
+                false, "Every recipient must be a different, same-faction character within your account scope."));
+
+        await companionLogisticsStore.SaveAsync(
+            context.CompanionGuid, request.Settings, enabledRoutes,
+            cancellationToken);
+        var command = BuildCompanionLogisticsCommand(
+            leader, companion, request.Settings, enabledRoutes, recipientNames);
+        var output = await soapClient.ExecuteAsync(command, cancellationToken);
+        Audit("SaveCompanionLogistics", companion,
+            $"Leader={leader};Routes={enabledRoutes.Length};"
+            + $"Trigger={request.Settings.TriggerFreeSlots};"
+            + $"Target={request.Settings.TargetFreeSlots};"
+            + $"Automatic={request.Settings.AutomaticEnabled}");
+        return Ok(new AdministrationResult(
+            true, enabledRoutes.Length == 0
+                ? "Companion logistics was saved with no active bag routes."
+                : $"Saved and activated {enabledRoutes.Length} bag route(s).",
+            output));
+    }
+
+    [HttpPost("questing-companions/logistics/run")]
+    public async Task<ActionResult<AdministrationResult>> RunCompanionLogistics(
+        RunCompanionLogisticsRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        var leader = AzerothCoreSoapClient.RequirePlayerName(request.LeaderName);
+        var companion = AzerothCoreSoapClient.RequirePlayerName(request.CompanionName);
+        await ValidateCompanionPairAsync(leader, companion, false, cancellationToken);
+        var context = await GetCompanionLogisticsContextAsync(
+            companion, cancellationToken);
+        var stored = await companionLogisticsStore.GetAsync(
+            context.CompanionGuid, cancellationToken);
+        var recipients = await GetCompanionLogisticsRecipientsAsync(
+            context, cancellationToken);
+        var recipientNames = recipients.ToDictionary(
+            value => value.CharacterGuid, value => value.Name);
+        var validRoutes = stored.Routes.Where(route => route.Enabled
+            && recipientNames.ContainsKey(route.RecipientGuid)).ToArray();
+        if (validRoutes.Length == 0)
+            return Conflict(new AdministrationResult(
+                false, "Configure at least one valid bag route first."));
+
+        await soapClient.ExecuteAsync(BuildCompanionLogisticsCommand(
+            leader, companion, stored.Settings, validRoutes, recipientNames),
+            cancellationToken);
+        var output = await soapClient.ExecuteAsync(
+            $"webadmin companion logistics-run {leader} {companion}",
+            cancellationToken);
+        Audit("RunCompanionLogistics", companion,
+            $"Leader={leader};Routes={validRoutes.Length}");
+        var resultLine = output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+            .LastOrDefault() ?? "Companion logistics completed.";
+        return Ok(new AdministrationResult(true, resultLine, output));
+    }
+
+    [HttpPost("questing-companions/logistics/preview")]
+    public async Task<ActionResult<CompanionLogisticsPreview>>
+        PreviewCompanionLogistics(
+            SaveCompanionLogisticsRequest request,
+            CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        var leader = AzerothCoreSoapClient.RequirePlayerName(request.LeaderName);
+        var companion = AzerothCoreSoapClient.RequirePlayerName(request.CompanionName);
+        await ValidateCompanionPairAsync(leader, companion, false, cancellationToken);
+        var validation = ValidateCompanionLogisticsRequest(request);
+        if (validation is not null)
+            return BadRequest(new AdministrationResult(false, validation));
+
+        var context = await GetCompanionLogisticsContextAsync(
+            companion, cancellationToken);
+        var recipients = await GetCompanionLogisticsRecipientsAsync(
+            context, cancellationToken);
+        var recipientNames = recipients.ToDictionary(
+            value => value.CharacterGuid, value => value.Name);
+        var enabledRoutes = request.Routes
+            .Where(route => route.Enabled && route.RecipientGuid is not null)
+            .Select(route => new StoredCompanionLogisticsRoute(
+                route.CategoryKey, route.RecipientGuid!.Value,
+                route.KeepQuantity, true)).ToArray();
+        if (enabledRoutes.Any(route => !recipientNames.ContainsKey(route.RecipientGuid)))
+            return BadRequest(new AdministrationResult(
+                false, "Every recipient must be a different, same-faction character within your account scope."));
+
+        var output = await soapClient.ExecuteAsync(
+            BuildCompanionLogisticsPreviewCommand(
+                leader, companion, enabledRoutes, recipientNames),
+            cancellationToken);
+        return Ok(ParseCompanionLogisticsPreview(output, companion));
     }
 
     [HttpGet("dungeons")]
@@ -2276,6 +2526,9 @@ public sealed class ServerAdministrationController(
             StringComparer.OrdinalIgnoreCase);
         var behaviorByCharacter = new Dictionary<string, QuestingCompanionBehavior>(
             StringComparer.OrdinalIgnoreCase);
+        var logisticsByCharacter = new Dictionary<
+            string, QuestingCompanionLogisticsStatus>(
+                StringComparer.OrdinalIgnoreCase);
         var protocolVersion = 0;
         string? error = null;
 
@@ -2313,6 +2566,19 @@ public sealed class ServerAdministrationController(
                 && fields[0] == "WEBADMIN_COMPANION_GATHER")
             {
                 questObjectStatuses[fields[1]] = fields[2];
+                continue;
+            }
+
+            if (fields.Length >= 7
+                && fields[0] == "WEBADMIN_COMPANION_LOGISTICS"
+                && int.TryParse(fields[2], out var triggerFreeSlots)
+                && int.TryParse(fields[3], out var targetFreeSlots)
+                && int.TryParse(fields[4], out var automaticLogistics)
+                && int.TryParse(fields[5], out var routeCount))
+            {
+                logisticsByCharacter[fields[1]] = new(
+                    triggerFreeSlots, targetFreeSlots,
+                    automaticLogistics != 0, routeCount, fields[6]);
                 continue;
             }
 
@@ -2464,7 +2730,11 @@ public sealed class ServerAdministrationController(
                     companion.Name, []).ToArray(),
                 inventoryChangesByCharacter.GetValueOrDefault(
                     companion.Name, []).ToArray(),
-                behavior);
+                behavior,
+                logisticsByCharacter.GetValueOrDefault(
+                    companion.Name, new QuestingCompanionLogisticsStatus(
+                        4, 8, false, 0,
+                        "Install bridge protocol 5 to use companion logistics.")));
         }).ToArray();
         return new QuestingCompanionInspection(
             companions, BuildQuests(leaderName), protocolVersion, error);
@@ -2480,6 +2750,219 @@ public sealed class ServerAdministrationController(
         quests = [];
         questsByCharacter.Add(characterName, quests);
         return quests;
+    }
+
+    private static string? ValidateCompanionLogisticsRequest(
+        SaveCompanionLogisticsRequest request)
+    {
+        if (request.Settings.TriggerFreeSlots is < 1 or > 20)
+            return "The routing trigger must be between 1 and 20 free slots.";
+        if (request.Settings.TargetFreeSlots < request.Settings.TriggerFreeSlots
+            || request.Settings.TargetFreeSlots > 40)
+            return "The target must be at least the trigger and no more than 40 free slots.";
+        var validCategories = LogisticsCategories.Select(value => value.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (request.Routes.Any(route => !validCategories.Contains(route.CategoryKey)))
+            return "One or more material categories are not supported.";
+        if (request.Routes.GroupBy(route => route.CategoryKey,
+                StringComparer.OrdinalIgnoreCase).Any(group => group.Count() > 1))
+            return "Each material category can have only one route.";
+        if (request.Routes.Any(route => route.KeepQuantity is < 0 or > 1000))
+            return "Material reserves must be between 0 and 1,000 of each item.";
+        if (request.Routes.Any(route =>
+                route.CategoryKey.Equals("catchall", StringComparison.OrdinalIgnoreCase)
+                && route.KeepQuantity != 0))
+            return "The catch-all route cannot reserve item quantities.";
+        if (request.Routes.Any(route => route.Enabled && route.RecipientGuid is null))
+            return "Choose a recipient for every enabled route.";
+        return null;
+    }
+
+    internal static string BuildCompanionLogisticsCommand(
+        string leader, string companion, CompanionLogisticsSettings settings,
+        IReadOnlyList<StoredCompanionLogisticsRoute> routes,
+        IReadOnlyDictionary<uint, string> recipientNames)
+    {
+        var command = new System.Text.StringBuilder(
+            $"webadmin companion logistics {leader} {companion} "
+            + $"{settings.TriggerFreeSlots} {settings.TargetFreeSlots} "
+            + (settings.AutomaticEnabled ? "1" : "0"));
+        foreach (var route in routes
+            .OrderBy(value => value.CategoryKey.Equals(
+                "catchall", StringComparison.OrdinalIgnoreCase))
+            .ThenBy(value => value.CategoryKey))
+        {
+            if (!recipientNames.TryGetValue(route.RecipientGuid, out var recipientName))
+                continue;
+            command.Append(' ').Append(route.CategoryKey)
+                .Append(' ').Append(recipientName)
+                .Append(' ').Append(route.KeepQuantity);
+        }
+        return command.ToString();
+    }
+
+    internal static CompanionLogisticsPreview ParseCompanionLogisticsPreview(
+        string output, string requestedCompanion)
+    {
+        string companionName = requestedCompanion;
+        int currentFreeSlots = 0, totalBagSlots = 0, potentialFreeSlots = 0;
+        int postageCopper = 0;
+        bool mailboxNearby = false, vendorNearby = false, foundSummary = false;
+        var items = new List<CompanionLogisticsPreviewItem>();
+        foreach (var line in output.Split(
+                     ['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var fields = line.Split('\t');
+            if (fields.Length >= 8
+                && fields[0] == "WEBADMIN_LOGISTICS_PREVIEW")
+            {
+                companionName = fields[1];
+                int.TryParse(fields[2], out currentFreeSlots);
+                int.TryParse(fields[3], out totalBagSlots);
+                int.TryParse(fields[4], out potentialFreeSlots);
+                int.TryParse(fields[5], out postageCopper);
+                mailboxNearby = fields[6] == "1";
+                vendorNearby = fields[7] == "1";
+                foundSummary = true;
+            }
+            else if (fields.Length >= 10
+                     && fields[0] == "WEBADMIN_LOGISTICS_PREVIEW_ITEM"
+                     && uint.TryParse(fields[1], out var itemId)
+                     && int.TryParse(fields[2], out var count)
+                     && int.TryParse(fields[3], out var quality)
+                     && int.TryParse(fields[4], out var bag)
+                     && int.TryParse(fields[5], out var slot))
+            {
+                items.Add(new CompanionLogisticsPreviewItem(
+                    itemId, count, quality, bag, slot, fields[9], fields[6],
+                    fields[7], fields[8]));
+            }
+        }
+        if (!foundSummary)
+        {
+            var diagnostic = output.Split(
+                    ['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+                .LastOrDefault(line => !line.StartsWith("WEBADMIN_",
+                    StringComparison.OrdinalIgnoreCase));
+            throw new InvalidOperationException(diagnostic
+                ?? "The worldserver returned an unrecognized logistics preview. Rebuild and install the latest mod-web-admin module.");
+        }
+        return new CompanionLogisticsPreview(
+            companionName, currentFreeSlots, totalBagSlots,
+            potentialFreeSlots, postageCopper, mailboxNearby,
+            vendorNearby, items);
+    }
+
+    internal static string BuildCompanionLogisticsPreviewCommand(
+        string leader, string companion,
+        IReadOnlyList<StoredCompanionLogisticsRoute> routes,
+        IReadOnlyDictionary<uint, string> recipientNames)
+    {
+        var command = new System.Text.StringBuilder(
+            $"webadmin companion logistics-preview {leader} {companion}");
+        foreach (var route in routes
+            .OrderBy(value => value.CategoryKey.Equals(
+                "catchall", StringComparison.OrdinalIgnoreCase))
+            .ThenBy(value => value.CategoryKey))
+        {
+            if (!recipientNames.TryGetValue(route.RecipientGuid, out var recipientName))
+                continue;
+            command.Append(' ').Append(route.CategoryKey)
+                .Append(' ').Append(recipientName)
+                .Append(' ').Append(route.KeepQuantity);
+        }
+        return command.ToString();
+    }
+
+    private async Task<CompanionLogisticsContextRow>
+        GetCompanionLogisticsContextAsync(
+            string companion, CancellationToken cancellationToken)
+    {
+        var identity = HttpContext.AdministrationIdentity();
+        await using var connection = connectionFactory.CreateConnection();
+        var context = await connection.QuerySingleOrDefaultAsync<CompanionLogisticsContextRow>(
+            new CommandDefinition("""
+                SELECT c.guid CompanionGuid, c.account AccountId,
+                       c.race CharacterRace
+                FROM acore_characters.characters c
+                WHERE c.name=@Companion
+                  AND (@AllAccounts OR c.account IN @AllowedAccounts)
+                LIMIT 1;
+                """, new
+                {
+                    Companion = companion,
+                    AllAccounts = identity?.AccountScope == "All",
+                    AllowedAccounts = identity?.GameAccountIds ?? []
+                }, cancellationToken: cancellationToken));
+        return context ?? throw new InvalidOperationException(
+            "The companion is outside your permitted game-account scope.");
+    }
+
+    private async Task<IReadOnlyList<CompanionLogisticsRecipientInfo>>
+        GetCompanionLogisticsRecipientsAsync(
+            CompanionLogisticsContextRow context,
+            CancellationToken cancellationToken)
+    {
+        var identity = HttpContext.AdministrationIdentity();
+        await using var connection = connectionFactory.CreateConnection();
+        var rows = await connection.QueryAsync<CompanionLogisticsRecipientRow>(
+            new CommandDefinition("""
+                SELECT c.guid CharacterGuid, c.name Name, a.username Username,
+                       c.race CharacterRace,
+                       GROUP_CONCAT(DISTINCT skills.skill ORDER BY skills.skill
+                           SEPARATOR ',') SkillIdsCsv
+                FROM acore_characters.characters c
+                JOIN acore_auth.account a ON a.id=c.account
+                LEFT JOIN acore_characters.character_skills skills
+                  ON skills.guid=c.guid AND skills.skill IN @ProfessionSkillIds
+                WHERE c.guid<>@CompanionGuid
+                  AND a.username NOT LIKE CONCAT(@BotPrefix, '%')
+                  AND UPPER(a.username)<>'AHBOT'
+                  AND (@AllAccounts OR c.account IN @AllowedAccounts)
+                GROUP BY c.guid, c.name, a.username, c.race
+                ORDER BY c.name;
+                """, new
+                {
+                    context.CompanionGuid,
+                    ProfessionSkillIds = LogisticsProfessionNames.Keys.ToArray(),
+                    BotPrefix = "rndbot",
+                    AllAccounts = identity?.AccountScope == "All",
+                    AllowedAccounts = identity?.GameAccountIds ?? []
+                }, cancellationToken: cancellationToken));
+        return rows.Where(row => IsAllianceRace(row.CharacterRace)
+                == IsAllianceRace(context.CharacterRace))
+            .Select(row => new CompanionLogisticsRecipientInfo(
+                row.CharacterGuid, row.Name, row.Username,
+                string.IsNullOrWhiteSpace(row.SkillIdsCsv)
+                    ? []
+                    : row.SkillIdsCsv.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                        .Select(ushort.Parse).ToArray()))
+            .OrderByDescending(value => value.SkillIds.Count > 0)
+            .ThenBy(value => value.Name)
+            .ToArray();
+    }
+
+    private async Task ActivateStoredCompanionLogisticsAsync(
+        string leader, string companion, CancellationToken cancellationToken)
+    {
+        var context = await GetCompanionLogisticsContextAsync(
+            companion, cancellationToken);
+        var stored = await companionLogisticsStore.GetAsync(
+            context.CompanionGuid, cancellationToken);
+        if (stored.Routes.Count == 0)
+            return;
+        var recipients = await GetCompanionLogisticsRecipientsAsync(
+            context, cancellationToken);
+        var recipientNames = recipients.ToDictionary(
+            value => value.CharacterGuid, value => value.Name);
+        var validRoutes = stored.Routes.Where(route => route.Enabled
+            && recipientNames.ContainsKey(route.RecipientGuid)).ToArray();
+        if (validRoutes.Length == 0)
+            return;
+        await Task.Delay(1000, cancellationToken);
+        await soapClient.ExecuteAsync(BuildCompanionLogisticsCommand(
+            leader, companion, stored.Settings, validRoutes, recipientNames),
+            cancellationToken);
     }
 
     private async Task ValidateCompanionPairAsync(
@@ -2636,6 +3119,31 @@ public sealed class ServerAdministrationController(
         public bool Online { get; init; }
         public uint GuildId { get; init; }
     }
+
+    private sealed record LogisticsCategoryDefinition(
+        string Key, string Name, string Description,
+        int SuggestedKeepQuantity,
+        IReadOnlyList<ushort> SuggestedProfessionSkills);
+
+    private sealed class CompanionLogisticsContextRow
+    {
+        public uint CompanionGuid { get; init; }
+        public uint AccountId { get; init; }
+        public int CharacterRace { get; init; }
+    }
+
+    private sealed class CompanionLogisticsRecipientRow
+    {
+        public uint CharacterGuid { get; init; }
+        public string Name { get; init; } = "";
+        public string Username { get; init; } = "";
+        public int CharacterRace { get; init; }
+        public string? SkillIdsCsv { get; init; }
+    }
+
+    private sealed record CompanionLogisticsRecipientInfo(
+        uint CharacterGuid, string Name, string Username,
+        IReadOnlyList<ushort> SkillIds);
 
     internal sealed record QuestingCompanionInspection(
         IReadOnlyList<ActiveQuestingCompanion> ActiveCompanions,

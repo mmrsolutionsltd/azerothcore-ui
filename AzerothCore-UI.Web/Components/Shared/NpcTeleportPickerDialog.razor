@@ -1,5 +1,7 @@
 @using AzerothCore_UI.Web.Models
 @inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
+@inject AzerothCore_UI.Web.Services.RecentPickerSelectionStore RecentSelections
+@inject IJSRuntime Javascript
 
 @if (IsOpen)
 {
@@ -16,7 +18,11 @@
                     <label class="form-label" for="npc-teleport-search">NPC name</label>
                     <input id="npc-teleport-search" class="form-control mb-3" value="@search"
                            @oninput="SearchAsync" placeholder="Type at least two characters…"
-                           autocomplete="off" autofocus />
+                           autocomplete="off" autofocus @ref="searchInput" />
+                    <RecentPickerSelections TItem="NpcTeleportSpawn"
+                                            Items="recentNpcs"
+                                            DisplayText="NpcDisplayText"
+                                            Selected="SelectAsync" />
                     <div class="form-text mb-3">
                         Results are ranked from @AnchorPlayerName.
                         Potentially hostile NPCs are allowed with explicit confirmation.

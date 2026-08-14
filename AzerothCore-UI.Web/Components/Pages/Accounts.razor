@@ -8,6 +8,61 @@
 <PageTitle>Accounts</PageTitle>
 
 <p class="text-muted">Search and select an account to view its characters.</p>
+<AuthorizeView Policy="players.actions">
+    <Authorized>
+        <details class="card mb-4">
+            <summary class="card-header fw-semibold">Create WoW account</summary>
+            <div class="card-body">
+                <p class="text-muted">
+                    Create a login for the WoW 3.3.5a client. This is separate from a website user.
+                </p>
+                @if (createMessage is not null)
+                {
+                    <div class="alert @(createSucceeded ? "alert-success" : "alert-danger")"
+                         role="alert">@createMessage</div>
+                }
+                <form class="row g-2 align-items-end" @onsubmit="CreateGameAccountAsync"
+                      @onsubmit:preventDefault>
+                    <div class="col-lg-4">
+                        <label class="form-label" for="new-account-username">Username</label>
+                        <input id="new-account-username" class="form-control"
+                               autocomplete="off" minlength="3" maxlength="17"
+                               pattern="[A-Za-z0-9]{3,17}" required
+                               disabled="@isCreatingAccount" @bind="newAccountUsername" />
+                        <div class="form-text">3–17 letters or numbers; stored in uppercase.</div>
+                    </div>
+                    <div class="col-lg-3">
+                        <label class="form-label" for="new-account-password">Password</label>
+                        <input id="new-account-password" class="form-control"
+                               type="@(showNewAccountPassword ? "text" : "password")"
+                               autocomplete="new-password" minlength="8" maxlength="16" required
+                               disabled="@isCreatingAccount" @bind="newAccountPassword" />
+                    </div>
+                    <div class="col-lg-3">
+                        <label class="form-label" for="confirm-account-password">Confirm password</label>
+                        <input id="confirm-account-password" class="form-control"
+                               type="@(showNewAccountPassword ? "text" : "password")"
+                               autocomplete="new-password" minlength="8" maxlength="16" required
+                               disabled="@isCreatingAccount" @bind="confirmAccountPassword" />
+                    </div>
+                    <div class="col-lg-2 d-grid">
+                        <button class="btn btn-primary" type="submit"
+                                disabled="@isCreatingAccount">
+                            @(isCreatingAccount ? "Creating…" : "Create account")
+                        </button>
+                    </div>
+                    <div class="col-12">
+                        <div class="form-check">
+                            <input id="show-account-password" class="form-check-input" type="checkbox"
+                                   disabled="@isCreatingAccount" @bind="showNewAccountPassword" />
+                            <label class="form-check-label" for="show-account-password">Show password</label>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </details>
+    </Authorized>
+</AuthorizeView>
 @if (gmMessage is not null) { <div class="alert @(gmSucceeded ? "alert-success" : "alert-danger")">@gmMessage</div> }
 
 <form class="row g-2 align-items-end mb-4" @onsubmit="ApplyFilters" @onsubmit:preventDefault>

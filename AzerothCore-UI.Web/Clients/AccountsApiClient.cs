@@ -405,6 +405,22 @@ public sealed class AccountsApiClient(HttpClient httpClient)
     public Task<AdministrationResult?> SetQuestingCompanionAccountLinkAsync(
         QuestingCompanionAccountLinkRequest request) =>
         PostAsync("api/server-administration/questing-companions/account-link", request);
+    public Task<CompanionLogisticsConfiguration?> GetCompanionLogisticsAsync(
+        string leaderName, string companionName) =>
+        GetAdministrationAsync<CompanionLogisticsConfiguration>(
+            $"api/server-administration/questing-companions/"
+            + $"{Uri.EscapeDataString(leaderName)}/"
+            + $"{Uri.EscapeDataString(companionName)}/logistics");
+    public Task<AdministrationResult?> SaveCompanionLogisticsAsync(
+        SaveCompanionLogisticsRequest request) =>
+        PostAsync("api/server-administration/questing-companions/logistics", request);
+    public Task<AdministrationResult?> RunCompanionLogisticsAsync(
+        RunCompanionLogisticsRequest request) =>
+        PostAsync("api/server-administration/questing-companions/logistics/run", request);
+    public Task<CompanionLogisticsPreview?> PreviewCompanionLogisticsAsync(
+        SaveCompanionLogisticsRequest request) =>
+        PostResultAsync<SaveCompanionLogisticsRequest, CompanionLogisticsPreview>(
+            "api/server-administration/questing-companions/logistics/preview", request);
     public async Task<IReadOnlyList<DungeonDestination>> GetDungeonsAsync() =>
         await GetAdministrationAsync<DungeonDestination[]>("api/server-administration/dungeons") ?? [];
     public async Task<IReadOnlyList<DungeonLibraryCharacter>>
@@ -464,6 +480,9 @@ public sealed class AccountsApiClient(HttpClient httpClient)
         PostAsync("api/server-administration/players/utility-npcs/summon", request);
     public Task<AdministrationResult?> SetAccountGmAsync(SetAccountGmRequest request) =>
         PostAsync("api/server-administration/accounts/gm", request);
+    public Task<AdministrationResult?> CreateGameAccountAsync(
+        CreateGameAccountRequest request) =>
+        PostAsync("api/server-administration/accounts/create", request);
     public Task<AdministrationResult?> SetPlayerSpeedAsync(SetPlayerSpeedRequest request) =>
         PostAsync("api/server-administration/players/speed", request);
     public Task<AdministrationResult?> ApplyCharacterServiceAsync(CharacterServiceRequest request) =>

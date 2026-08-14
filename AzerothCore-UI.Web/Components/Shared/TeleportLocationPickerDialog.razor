@@ -1,5 +1,7 @@
 @using AzerothCore_UI.Web.Models
 @inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
+@inject AzerothCore_UI.Web.Services.RecentPickerSelectionStore RecentSelections
+@inject IJSRuntime Javascript
 
 @if (IsOpen)
 {
@@ -18,7 +20,11 @@
                     <label class="form-label" for="location-search">Location name</label>
                     <input id="location-search" class="form-control mb-3" value="@search"
                            @oninput="SearchAsync" placeholder="Start typing a location name…"
-                           autocomplete="off" autofocus />
+                           autocomplete="off" autofocus @ref="searchInput" />
+                    <RecentPickerSelections TItem="TeleportLocation"
+                                            Items="recentLocations"
+                                            DisplayText="LocationDisplayText"
+                                            Selected="SelectAsync" />
                     @if (errorMessage is not null)
                     {
                         <div class="alert alert-danger">@errorMessage</div>

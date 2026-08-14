@@ -8,6 +8,8 @@
 #include "AiObjectContext.h"
 #include "Bag.h"
 #include "Chat.h"
+#include "CharacterCache.h"
+#include "ChatHelper.h"
 #include "Creature.h"
 #include "DatabaseEnv.h"
 #include "GameObject.h"
@@ -18,9 +20,11 @@
 #include "DBCStores.h"
 #include "Item.h"
 #include "ItemTemplate.h"
+#include "ItemUsageValue.h"
 #include "LFGMgr.h"
 #include "LootObjectStack.h"
 #include "Map.h"
+#include "Mail.h"
 #include "MotionMaster.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
@@ -31,9 +35,13 @@
 #include "Playerbots.h"
 #include "QuestDef.h"
 #include "Random.h"
+#include "RandomItemMgr.h"
 #include "RandomPlayerbotMgr.h"
 #include "ScriptMgr.h"
+#include "SpellInfo.h"
+#include "SpellMgr.h"
 #include "TemporarySummon.h"
+#include "Trainer.h"
 #include "World.h"
 #include "WorldSession.h"
 
@@ -50,7 +58,16 @@ using namespace Acore::ChatCommands;
 
 namespace
 {
-static constexpr uint32 CompanionProtocolVersion = 3;
+static constexpr uint32 CompanionProtocolVersion = 5;
+static constexpr float CompanionGatherRadius = 40.0f;
+
+struct CompanionLogisticsRoute
+{
+    std::string Category;
+    ObjectGuid RecipientGuid;
+    std::string RecipientName;
+    uint32 KeepQuantity = 0;
+};
 
 struct CompanionEquipmentChange
 {
@@ -65,7 +82,10 @@ struct QuestingCompanionRegistration
     bool InitialSyncPending = true;
     bool LeaderWasDead = false;
     uint32 QuestObjectCheckTimer = 0;
+    uint32 SpecialQuestCheckTimer = 0;
     uint32 TrashSellCheckTimer = 0;
+    uint32 ProfessionTrainingCheckTimer = 0;
+    uint32 LogisticsCheckTimer = 0;
     std::string QuestObjectStatus = "Waiting for quest-object scan.";
     std::string BehaviorPreset = "questing";
     std::string Role = "auto";
@@ -76,6 +96,11 @@ struct QuestingCompanionRegistration
     bool GatherEnabled = true;
     bool AutoSellTrash = true;
     bool AutoRepair = true;
+    uint32 LogisticsTriggerFreeSlots = 4;
+    uint32 LogisticsTargetFreeSlots = 8;
+    bool AutomaticLogistics = false;
+    std::vector<CompanionLogisticsRoute> LogisticsRoutes;
+    std::string LogisticsStatus = "Logistics is not configured.";
     ObjectGuid PrioritizedLeaderTarget;
     bool EquipmentSnapshotInitialized = false;
     std::array<uint32, EQUIPMENT_SLOT_END> EquipmentEntries{};
@@ -188,6 +213,9 @@ static void ConfigureCompanionActivity(
         companionAI->ChangeStrategy(
             (registration.LootEnabled ? "+loot" : "-loot"),
             BOT_STATE_NON_COMBAT);
+        companionAI->ChangeStrategy(
+            (registration.GatherEnabled ? "+gather" : "-gather"),
+            BOT_STATE_NON_COMBAT);
         std::string const role = ResolveCompanionRole(registration, companion);
         companionAI->ChangeStrategy(
             role == "tank"
@@ -219,6 +247,115 @@ static void UpdateCompanionCombatFocus(
     else
         prioritizedTargets->Reset();
     registration.PrioritizedLeaderTarget = desiredTarget;
+}
+
+static bool IsCompanionProfessionTool(ItemTemplate const* itemTemplate)
+{
+    if (!itemTemplate)
+        return false;
+
+    // Profession tools such as mining picks, skinning knives, blacksmith
+    // hammers, enchanting rods and engineering spanners use a totem category.
+    // Fishing poles are the exception and are identified by weapon subclass.
+    return itemTemplate->TotemCategory != 0
+        || (itemTemplate->Class == ITEM_CLASS_WEAPON
+            && itemTemplate->SubClass == ITEM_SUBCLASS_WEAPON_FISHING_POLE);
+}
+
+static bool IsPermanentlyUnusableWhiteEquipment(
+    Player* companion, Item* item)
+{
+    if (!companion || !item || !item->GetTemplate())
+        return false;
+
+    ItemTemplate const* itemTemplate = item->GetTemplate();
+    if (IsCompanionProfessionTool(itemTemplate)
+        || itemTemplate->Quality != ITEM_QUALITY_NORMAL
+        || (itemTemplate->Class != ITEM_CLASS_ARMOR
+            && itemTemplate->Class != ITEM_CLASS_WEAPON)
+        || itemTemplate->SellPrice == 0
+        || companion->HasQuestForItem(item->GetEntry()))
+        return false;
+
+    InventoryResult usability = companion->BotCanUseItem(itemTemplate);
+    if (usability == EQUIP_ERR_YOU_CAN_NEVER_USE_THAT_ITEM
+        || usability == EQUIP_ERR_YOU_CAN_NEVER_USE_THAT_ITEM2)
+        return true;
+
+    if (itemTemplate->Class == ITEM_CLASS_WEAPON)
+        return !sRandomItemMgr.CanEquipWeapon(
+            itemTemplate, companion->getClass());
+
+    if (itemTemplate->SubClass >= ITEM_SUBCLASS_ARMOR_CLOTH
+        && itemTemplate->SubClass <= ITEM_SUBCLASS_ARMOR_PLATE)
+    {
+        uint32 maximumArmorSubclass = ITEM_SUBCLASS_ARMOR_CLOTH;
+        switch (companion->getClass())
+        {
+            case CLASS_DRUID:
+            case CLASS_ROGUE:
+                maximumArmorSubclass = ITEM_SUBCLASS_ARMOR_LEATHER;
+                break;
+            case CLASS_HUNTER:
+            case CLASS_SHAMAN:
+                maximumArmorSubclass = ITEM_SUBCLASS_ARMOR_MAIL;
+                break;
+            case CLASS_DEATH_KNIGHT:
+            case CLASS_PALADIN:
+            case CLASS_WARRIOR:
+                maximumArmorSubclass = ITEM_SUBCLASS_ARMOR_PLATE;
+                break;
+            default:
+                break;
+        }
+        return itemTemplate->SubClass > maximumArmorSubclass;
+    }
+
+    if (itemTemplate->SubClass == ITEM_SUBCLASS_ARMOR_SHIELD)
+        return !sRandomItemMgr.CanEquipArmor(
+            itemTemplate, companion->getClass(), 80);
+    return false;
+}
+
+static std::string BuildCompanionVendorCleanupSellList(Player* companion)
+{
+    std::vector<uint32> entries;
+    std::string itemLinks;
+    auto appendItem = [companion, &entries, &itemLinks](Item* item)
+    {
+        if (!item || !item->GetTemplate())
+            return;
+
+        ItemTemplate const* itemTemplate = item->GetTemplate();
+        bool const sellableTrash = !IsCompanionProfessionTool(itemTemplate)
+            && !companion->HasQuestForItem(item->GetEntry())
+            && itemTemplate->SellPrice > 0
+            && (itemTemplate->Quality == ITEM_QUALITY_POOR
+                || IsPermanentlyUnusableWhiteEquipment(companion, item));
+        if (!sellableTrash
+            || std::find(entries.begin(), entries.end(), item->GetEntry())
+                != entries.end())
+            return;
+
+        entries.push_back(item->GetEntry());
+        if (!itemLinks.empty())
+            itemLinks += ' ';
+        itemLinks += ChatHelper::FormatItem(item->GetTemplate());
+    };
+
+    for (uint8 slot = INVENTORY_SLOT_ITEM_START;
+         slot < INVENTORY_SLOT_ITEM_END; ++slot)
+        appendItem(companion->GetItemByPos(INVENTORY_SLOT_BAG_0, slot));
+    for (uint8 bagSlot = INVENTORY_SLOT_BAG_START;
+         bagSlot < INVENTORY_SLOT_BAG_END; ++bagSlot)
+    {
+        Bag* bag = companion->GetBagByPos(bagSlot);
+        if (!bag)
+            continue;
+        for (uint32 slot = 0; slot < bag->GetBagSize(); ++slot)
+            appendItem(bag->GetItemByPos(slot));
+    }
+    return itemLinks;
 }
 
 static void MaintainCompanionAtVendor(
@@ -253,13 +390,114 @@ static void MaintainCompanionAtVendor(
 
     if (registration.AutoSellTrash && canUseVendor)
     {
-        companionAI->DoSpecificAction(
-            "sell", Event("webadmin companion auto sell", "gray"), true);
+        std::string vendorCleanup =
+            BuildCompanionVendorCleanupSellList(companion);
+        if (!vendorCleanup.empty())
+        {
+            companionAI->DoSpecificAction(
+                "sell", Event(
+                    "webadmin companion auto sell cleanup",
+                    vendorCleanup), true);
+        }
     }
     if (registration.AutoRepair && canUseRepairer)
     {
         companionAI->DoSpecificAction(
             "repair", Event("webadmin companion auto repair"), true);
+    }
+}
+
+static bool IsKnownCompanionProfessionSpell(
+    Player* companion, Trainer::Spell const& trainerSpell)
+{
+    static std::array<uint32, 14> const professionSkills = {
+        SKILL_ALCHEMY, SKILL_BLACKSMITHING, SKILL_COOKING,
+        SKILL_ENCHANTING, SKILL_ENGINEERING, SKILL_FIRST_AID,
+        SKILL_FISHING, SKILL_HERBALISM, SKILL_INSCRIPTION,
+        SKILL_JEWELCRAFTING, SKILL_LEATHERWORKING, SKILL_MINING,
+        SKILL_SKINNING, SKILL_TAILORING
+    };
+
+    SpellInfo const* trainerSpellInfo =
+        sSpellMgr->GetSpellInfo(trainerSpell.SpellId);
+    if (!trainerSpellInfo)
+        return false;
+
+    for (uint32 skillId : professionSkills)
+    {
+        if (!companion->HasSkill(skillId))
+            continue;
+
+        if (trainerSpell.ReqSkillLine == skillId
+            || IsPartOfSkillLine(skillId, trainerSpell.SpellId))
+            return true;
+
+        for (SpellEffectInfo const& effect : trainerSpellInfo->GetEffects())
+        {
+            if (effect.IsEffect(SPELL_EFFECT_LEARN_SPELL)
+                && effect.TriggerSpell
+                && IsPartOfSkillLine(skillId, effect.TriggerSpell))
+                return true;
+        }
+    }
+
+    return false;
+}
+
+static void TrainCompanionAtProfessionTrainer(
+    Player* leader, Player* companion)
+{
+    if (!leader || !companion || !leader->IsAlive() || !companion->IsAlive()
+        || leader->IsInCombat() || companion->IsInCombat())
+        return;
+
+    PlayerbotAI* companionAI =
+        PlayerbotsMgr::instance().GetPlayerbotAI(companion);
+    if (!companionAI)
+        return;
+
+    GuidVector nearbyNpcs = companionAI->GetAiObjectContext()
+        ->GetValue<GuidVector>("nearest npcs")->Get();
+    for (ObjectGuid const& guid : nearbyNpcs)
+    {
+        Creature* trainerNpc = companion->GetNPCIfCanInteractWith(
+            guid, UNIT_NPC_FLAG_TRAINER);
+        if (!trainerNpc)
+            continue;
+
+        Trainer::Trainer* trainer =
+            sObjectMgr->GetTrainer(trainerNpc->GetEntry());
+        if (!trainer
+            || trainer->GetTrainerType() != Trainer::Type::Tradeskill
+            || !trainer->IsTrainerValidForPlayer(companion))
+            continue;
+
+        uint32 learnedCount = 0;
+        for (Trainer::Spell const& trainerSpell : trainer->GetSpells())
+        {
+            if (!IsKnownCompanionProfessionSpell(companion, trainerSpell)
+                || !trainer->CanTeachSpell(companion, &trainerSpell))
+                continue;
+
+            int32 const moneyCost = int32(
+                trainerSpell.MoneyCost
+                * companion->GetReputationPriceDiscount(trainerNpc));
+            if (!companion->HasEnoughMoney(moneyCost))
+                continue;
+
+            trainer->TeachSpell(
+                trainerNpc, companion, trainerSpell.SpellId);
+            ++learnedCount;
+        }
+
+        if (learnedCount)
+        {
+            ChatHandler(leader->GetSession()).PSendSysMessage(
+                "{} learned {} profession training {} from {}.",
+                companion->GetName(), learnedCount,
+                learnedCount == 1 ? "ability" : "abilities",
+                trainerNpc->GetName());
+        }
     }
 }
 
@@ -283,6 +521,301 @@ static QuestingCompanionRegistration* FindCompanionRegistration(
             return value.CompanionGuid == companionGuid;
         });
     return registration != QuestingCompanions.end() ? &*registration : nullptr;
+}
+
+static bool IsCompanionLogisticsCategory(std::string const& category)
+{
+    static std::array<std::string, 10> const categories = {
+        "cloth", "leather", "metal", "herbs", "enchanting",
+        "jewelcrafting", "meat", "elemental", "parts", "catchall"
+    };
+    return std::find(categories.begin(), categories.end(), category)
+        != categories.end();
+}
+
+static bool MatchesCompanionLogisticsCategory(
+    ItemTemplate const* itemTemplate, std::string const& category)
+{
+    if (!itemTemplate || itemTemplate->Class != ITEM_CLASS_TRADE_GOODS)
+        return false;
+
+    uint32 subclass = itemTemplate->SubClass;
+    return (category == "cloth" && subclass == ITEM_SUBCLASS_CLOTH)
+        || (category == "leather" && subclass == ITEM_SUBCLASS_LEATHER)
+        || (category == "metal" && subclass == ITEM_SUBCLASS_METAL_STONE)
+        || (category == "herbs" && subclass == ITEM_SUBCLASS_HERB)
+        || (category == "enchanting" && subclass == ITEM_SUBCLASS_ENCHANTING)
+        || (category == "jewelcrafting" && subclass == ITEM_SUBCLASS_JEWELCRAFTING)
+        || (category == "meat" && subclass == ITEM_SUBCLASS_MEAT)
+        || (category == "elemental" && subclass == ITEM_SUBCLASS_ELEMENTAL)
+        || (category == "parts" && subclass == ITEM_SUBCLASS_PARTS);
+}
+
+static bool HasNearbyCompanionMailbox(Player* companion)
+{
+    PlayerbotAI* companionAI = companion
+        ? PlayerbotsMgr::instance().GetPlayerbotAI(companion) : nullptr;
+    if (!companionAI)
+        return false;
+
+    GuidVector gameObjects = companionAI->GetAiObjectContext()
+        ->GetValue<GuidVector>("nearest game objects")->Get();
+    for (ObjectGuid const& guid : gameObjects)
+    {
+        GameObject* gameObject = companionAI->GetGameObject(guid);
+        if (gameObject && gameObject->isSpawned()
+            && gameObject->GetGoType() == GAMEOBJECT_TYPE_MAILBOX
+            && companion->IsWithinDistInMap(gameObject, INTERACTION_DISTANCE))
+            return true;
+    }
+    return false;
+}
+
+static bool HasNearbyCompanionVendor(Player* companion)
+{
+    PlayerbotAI* companionAI = companion
+        ? PlayerbotsMgr::instance().GetPlayerbotAI(companion) : nullptr;
+    if (!companionAI)
+        return false;
+
+    GuidVector nearbyNpcs = companionAI->GetAiObjectContext()
+        ->GetValue<GuidVector>("nearest npcs")->Get();
+    return std::any_of(
+        nearbyNpcs.begin(), nearbyNpcs.end(),
+        [companion](ObjectGuid const& guid)
+        {
+            return companion->GetNPCIfCanInteractWith(
+                guid, UNIT_NPC_FLAG_VENDOR) != nullptr;
+        });
+}
+
+static void AddCompanionBagItems(Player* companion, std::vector<Item*>& items)
+{
+    for (uint8 slot = INVENTORY_SLOT_ITEM_START;
+         slot < INVENTORY_SLOT_ITEM_END; ++slot)
+    {
+        if (Item* item = companion->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
+            items.push_back(item);
+    }
+    for (uint8 bagSlot = INVENTORY_SLOT_BAG_START;
+         bagSlot < INVENTORY_SLOT_BAG_END; ++bagSlot)
+    {
+        Bag* bag = companion->GetBagByPos(bagSlot);
+        if (!bag)
+            continue;
+        for (uint32 slot = 0; slot < bag->GetBagSize(); ++slot)
+            if (Item* item = bag->GetItemByPos(slot))
+                items.push_back(item);
+    }
+}
+
+static bool IsSafeCompanionLogisticsItem(
+    Player* companion, Item* item, std::string const& category,
+    std::vector<CompanionLogisticsRoute> const& routes)
+{
+    if (!companion || !item || !item->GetTemplate()
+        || !item->CanBeTraded(true)
+        || item->IsConjuredConsumable()
+        || item->IsNotEmptyBag()
+        || item->GetUInt32Value(ITEM_FIELD_DURATION)
+        || companion->HasQuestForItem(item->GetEntry()))
+        return false;
+
+    ItemTemplate const* itemTemplate = item->GetTemplate();
+    if (IsCompanionProfessionTool(itemTemplate))
+        return false;
+    if (category != "catchall")
+        return MatchesCompanionLogisticsCategory(itemTemplate, category);
+
+    if (IsPermanentlyUnusableWhiteEquipment(companion, item)
+        || itemTemplate->Quality == ITEM_QUALITY_POOR
+        || itemTemplate->Class == ITEM_CLASS_CONSUMABLE
+        || itemTemplate->Class == ITEM_CLASS_CONTAINER
+        || itemTemplate->Class == ITEM_CLASS_QUIVER
+        || (itemTemplate->Class == ITEM_CLASS_GLYPH
+            && companion->BotCanUseItem(itemTemplate) == EQUIP_ERR_OK))
+        return false;
+
+    bool hasExplicitRoute = std::any_of(
+        routes.begin(), routes.end(),
+        [itemTemplate](CompanionLogisticsRoute const& route)
+        {
+            return route.Category != "catchall"
+                && MatchesCompanionLogisticsCategory(
+                    itemTemplate, route.Category);
+        });
+    if (hasExplicitRoute)
+        return false;
+
+    PlayerbotAI* companionAI =
+        PlayerbotsMgr::instance().GetPlayerbotAI(companion);
+    if (!companionAI)
+        return false;
+    ItemUsage usage = companionAI->GetAiObjectContext()
+        ->GetValue<ItemUsage>("item usage", item->GetEntry())->Get();
+    return usage == ITEM_USAGE_VENDOR || usage == ITEM_USAGE_AH;
+}
+
+static std::vector<Item*> SelectCompanionLogisticsAttachments(
+    Player* companion, CompanionLogisticsRoute const& route,
+    std::vector<CompanionLogisticsRoute> const& routes,
+    uint32 maximumStacks)
+{
+    std::vector<Item*> bagItems;
+    AddCompanionBagItems(companion, bagItems);
+    std::map<uint32, uint32> remainingCounts;
+    for (Item* item : bagItems)
+        if (IsSafeCompanionLogisticsItem(
+                companion, item, route.Category, routes))
+            remainingCounts[item->GetEntry()] += item->GetCount();
+
+    std::ranges::sort(bagItems, [](Item* left, Item* right)
+    {
+        return left && right ? left->GetCount() > right->GetCount()
+            : left != nullptr;
+    });
+
+    std::vector<Item*> attachments;
+    uint32 attachmentLimit = std::min<uint32>(MAX_MAIL_ITEMS, maximumStacks);
+    for (Item* item : bagItems)
+    {
+        if (attachments.size() >= attachmentLimit
+            || !IsSafeCompanionLogisticsItem(
+                companion, item, route.Category, routes))
+            continue;
+        uint32& remaining = remainingCounts[item->GetEntry()];
+        if (remaining < item->GetCount()
+            || remaining - item->GetCount() < route.KeepQuantity)
+            continue;
+        remaining -= item->GetCount();
+        attachments.push_back(item);
+    }
+    return attachments;
+}
+
+static uint32 MailCompanionLogisticsRoute(
+    Player* companion, CompanionLogisticsRoute const& route,
+    std::vector<CompanionLogisticsRoute> const& routes,
+    uint32 maximumStacks, std::string& failure)
+{
+    if (!companion || maximumStacks == 0)
+        return 0;
+
+    CharacterCacheEntry const* recipient =
+        sCharacterCache->GetCharacterCacheByGuid(route.RecipientGuid);
+    if (!recipient)
+    {
+        failure = route.RecipientName + " no longer exists.";
+        return 0;
+    }
+    if (recipient->MailCount > 100)
+    {
+        failure = route.RecipientName + " has reached the mailbox limit.";
+        return 0;
+    }
+    if (sCharacterCache->GetCharacterTeamByGuid(route.RecipientGuid)
+        != companion->GetTeamId())
+    {
+        failure = "Cross-faction material mail is not allowed.";
+        return 0;
+    }
+
+    std::vector<Item*> attachments = SelectCompanionLogisticsAttachments(
+        companion, route, routes, maximumStacks);
+    if (attachments.empty())
+        return 0;
+
+    uint32 postage = 30 * static_cast<uint32>(attachments.size());
+    if (!companion->HasEnoughMoney(postage))
+    {
+        failure = companion->GetName() + " cannot afford the mail postage.";
+        return 0;
+    }
+
+    MailDraft draft(
+        route.Category == "catchall" ? "Companion bag overflow" : "Profession materials",
+        route.Category == "catchall"
+            ? "Unused items routed by companion logistics."
+            : "Automatically routed by companion logistics.");
+    CharacterDatabaseTransaction transaction = CharacterDatabase.BeginTransaction();
+    for (Item* item : attachments)
+    {
+        companion->MoveItemFromInventory(
+            item->GetBagSlot(), item->GetSlot(), true);
+        item->DeleteFromInventoryDB(transaction);
+        if (item->GetState() == ITEM_UNCHANGED)
+            item->FSetState(ITEM_CHANGED);
+        item->SetOwnerGUID(route.RecipientGuid);
+        item->SaveToDB(transaction);
+        draft.AddItem(item);
+    }
+
+    companion->ModifyMoney(-static_cast<int32>(postage));
+    uint32 receiverAccount =
+        sCharacterCache->GetCharacterAccountIdByGuid(route.RecipientGuid);
+    uint32 deliveryDelay = receiverAccount == companion->GetSession()->GetAccountId()
+        ? 0 : sWorld->getIntConfig(CONFIG_MAIL_DELIVERY_DELAY);
+    Player* connectedRecipient =
+        ObjectAccessor::FindConnectedPlayer(route.RecipientGuid);
+    draft.SendMailTo(
+        transaction,
+        MailReceiver(connectedRecipient, route.RecipientGuid.GetCounter()),
+        MailSender(companion), MAIL_CHECK_MASK_HAS_BODY, deliveryDelay);
+    companion->SaveInventoryAndGoldToDB(transaction);
+    CharacterDatabase.CommitTransaction(transaction);
+    return static_cast<uint32>(attachments.size());
+}
+
+static void ProcessCompanionLogistics(
+    QuestingCompanionRegistration& registration, Player* companion,
+    bool force)
+{
+    if (!companion || !companion->IsAlive() || companion->IsInCombat())
+        return;
+    if (registration.LogisticsRoutes.empty())
+    {
+        registration.LogisticsStatus = "No bag routes are configured.";
+        return;
+    }
+    uint32 freeSlots = companion->GetFreeInventorySpace();
+    if (!force && (!registration.AutomaticLogistics
+        || freeSlots > registration.LogisticsTriggerFreeSlots))
+        return;
+    if (!HasNearbyCompanionMailbox(companion))
+    {
+        registration.LogisticsStatus =
+            "Bag threshold reached; waiting for a nearby mailbox.";
+        return;
+    }
+
+    uint32 totalSent = 0;
+    std::string failure;
+    for (CompanionLogisticsRoute const& route : registration.LogisticsRoutes)
+    {
+        uint32 maximumStacks = force
+            ? MAX_MAIL_ITEMS
+            : registration.LogisticsTargetFreeSlots > freeSlots
+                ? registration.LogisticsTargetFreeSlots - freeSlots : 0;
+        if (!force && maximumStacks == 0)
+            break;
+        uint32 sent = MailCompanionLogisticsRoute(
+            companion, route, registration.LogisticsRoutes,
+            maximumStacks, failure);
+        totalSent += sent;
+        freeSlots = companion->GetFreeInventorySpace();
+    }
+
+    if (totalSent)
+    {
+        registration.LogisticsStatus = "Mailed " + std::to_string(totalSent)
+            + (totalSent == 1 ? " item stack." : " item stacks.");
+        registration.InventorySnapshotInitialized = false;
+    }
+    else if (!failure.empty())
+        registration.LogisticsStatus = failure;
+    else
+        registration.LogisticsStatus =
+            "Nothing eligible exceeded the configured reserves or catch-all rules.";
 }
 
 static void EnforceCompanionEquipmentProtection(
@@ -450,7 +983,7 @@ static void CollectCompanionQuestObject(
     GuidVector gameObjects =
         context->GetValue<GuidVector>("nearest game objects")->Get();
     GameObject* nearest = nullptr;
-    float nearestDistance = 20.0f;
+    float nearestDistance = CompanionGatherRadius;
     for (ObjectGuid const& guid : gameObjects)
     {
         GameObject* candidate = companionAI->GetGameObject(guid);
@@ -468,7 +1001,7 @@ static void CollectCompanionQuestObject(
     if (!nearest)
     {
         registration.QuestObjectStatus =
-            "No needed quest object within 20 metres.";
+            "No needed quest object within 40 metres.";
         return;
     }
 
@@ -518,6 +1051,144 @@ static uint32 GetCompanionInventoryCapacity(Player* player)
             capacity += bag->GetBagSize();
     }
     return capacity;
+}
+
+static void ReportCompanionLogisticsPreview(
+    ChatHandler* handler, Player* companion,
+    std::vector<CompanionLogisticsRoute> const& routes,
+    bool autoSellTrash)
+{
+    std::vector<Item*> bagItems;
+    AddCompanionBagItems(companion, bagItems);
+    std::map<Item*, CompanionLogisticsRoute const*> mailedItems;
+    for (CompanionLogisticsRoute const& route : routes)
+    {
+        for (Item* item : SelectCompanionLogisticsAttachments(
+                 companion, route, routes,
+                 MAX_MAIL_ITEMS))
+            mailedItems[item] = &route;
+    }
+
+    bool mailboxNearby = HasNearbyCompanionMailbox(companion);
+    bool vendorNearby = HasNearbyCompanionVendor(companion);
+    uint32 sellStacks = 0;
+    for (Item* item : bagItems)
+        if (autoSellTrash && item && item->GetTemplate()
+            && !companion->HasQuestForItem(item->GetEntry())
+            && (item->GetTemplate()->Quality == ITEM_QUALITY_POOR
+                || IsPermanentlyUnusableWhiteEquipment(companion, item)))
+            ++sellStacks;
+
+    uint32 currentFreeSlots = companion->GetFreeInventorySpace();
+    uint32 capacity = GetCompanionInventoryCapacity(companion);
+    uint32 mailedStacks = static_cast<uint32>(mailedItems.size());
+    uint32 potentialFreeSlots = std::min<uint32>(
+        capacity, currentFreeSlots + mailedStacks + sellStacks);
+    handler->PSendSysMessage(
+        "WEBADMIN_LOGISTICS_PREVIEW\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+        companion->GetName(), currentFreeSlots, capacity, potentialFreeSlots,
+        mailedStacks * 30, mailboxNearby ? 1 : 0,
+        vendorNearby ? 1 : 0);
+
+    for (Item* item : bagItems)
+    {
+        if (!item || !item->GetTemplate())
+            continue;
+        ItemTemplate const* itemTemplate = item->GetTemplate();
+        std::string action = "Keep";
+        std::string destination = "Companion bags";
+        std::string reason = "PlayerBots does not consider this item routing surplus.";
+
+        auto mailed = mailedItems.find(item);
+        if (mailed != mailedItems.end())
+        {
+            action = "Mail";
+            destination = mailed->second->RecipientName;
+            reason = mailed->second->Category == "catchall"
+                ? "Catch-all route: PlayerBots considers this auction or vendor surplus."
+                : "Matches the " + mailed->second->Category
+                    + " route above its configured reserve.";
+        }
+        else if (companion->HasQuestForItem(item->GetEntry()))
+        {
+            action = "Protected";
+            reason = "Needed by an active quest.";
+        }
+        else if (IsCompanionProfessionTool(itemTemplate))
+        {
+            action = "Protected";
+            reason = "Profession tool retained for gathering or crafting.";
+        }
+        else if (autoSellTrash
+                 && itemTemplate->Quality == ITEM_QUALITY_POOR)
+        {
+            action = "Sell";
+            destination = vendorNearby ? "Nearby vendor" : "Vendor when nearby";
+            reason = "Grey-quality vendor item.";
+        }
+        else if (autoSellTrash
+                 && IsPermanentlyUnusableWhiteEquipment(companion, item))
+        {
+            action = "Sell";
+            destination = vendorNearby ? "Nearby vendor" : "Vendor when nearby";
+            reason = "White equipment this class can never use.";
+        }
+        else if (!item->CanBeTraded(true))
+        {
+            action = "Protected";
+            reason = "The item cannot be traded.";
+        }
+        else if (item->IsConjuredConsumable())
+        {
+            action = "Protected";
+            reason = "Conjured items cannot be routed safely.";
+        }
+        else if (item->IsNotEmptyBag())
+        {
+            action = "Protected";
+            reason = "Non-empty bags cannot be mailed.";
+        }
+        else if (item->GetUInt32Value(ITEM_FIELD_DURATION))
+        {
+            action = "Protected";
+            reason = "Temporary-duration items are not routed.";
+        }
+        else
+        {
+            CompanionLogisticsRoute const* matchingRoute = nullptr;
+            for (CompanionLogisticsRoute const& route : routes)
+            {
+                if ((route.Category != "catchall"
+                        && MatchesCompanionLogisticsCategory(
+                            itemTemplate, route.Category))
+                    || (route.Category == "catchall"
+                        && IsSafeCompanionLogisticsItem(
+                            companion, item, route.Category,
+                            routes)))
+                {
+                    matchingRoute = &route;
+                    break;
+                }
+            }
+            if (matchingRoute)
+                reason = matchingRoute->Category == "catchall"
+                    ? "Kept because the catch-all mail attachment limit was reached."
+                    : "Kept by the " + matchingRoute->Category
+                        + " reserve or mail attachment limit.";
+            else if (!autoSellTrash
+                     && (itemTemplate->Quality == ITEM_QUALITY_POOR
+                         || IsPermanentlyUnusableWhiteEquipment(companion, item)))
+                reason = "Vendor cleanup is disabled, so this item is kept.";
+        }
+
+        handler->PSendSysMessage(
+            "WEBADMIN_LOGISTICS_PREVIEW_ITEM\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            item->GetEntry(), item->GetCount(),
+            static_cast<uint32>(itemTemplate->Quality), item->GetBagSlot(),
+            item->GetSlot(), action,
+            CompanionProtocolText(destination), CompanionProtocolText(reason),
+            CompanionProtocolText(itemTemplate->Name1));
+    }
 }
 
 static void ReportCompanionItem(
@@ -777,6 +1448,27 @@ static bool IsClassOrProfessionQuestFor(Quest const* quest, Player* companion)
     return quest->GetRequiredSkill() != 0;
 }
 
+static void AcceptEligibleCompanionSpecialQuests(
+    Player* leader, Player* companion, WorldObject* questGiver,
+    QuestRelationBounds questRelations)
+{
+    if (!leader || !companion || !questGiver
+        || !IsActiveQuestingCompanion(leader, companion)
+        || !questGiver->IsWithinDistInMap(companion, INTERACTION_DISTANCE))
+        return;
+
+    for (auto relation = questRelations.first;
+         relation != questRelations.second; ++relation)
+    {
+        Quest const* quest = sObjectMgr->GetQuestTemplate(relation->second);
+        if (IsClassOrProfessionQuestFor(quest, companion))
+        {
+            AcceptCompanionQuest(
+                leader, companion, quest, questGiver, false);
+        }
+    }
+}
+
 static void AcceptCompanionSpecialQuests(
     Player* leader, WorldObject* questGiver, QuestRelationBounds questRelations)
 {
@@ -790,20 +1482,48 @@ static void AcceptCompanionSpecialQuests(
 
         Player* companion =
             ObjectAccessor::FindConnectedPlayer(registration.CompanionGuid);
-        if (!IsActiveQuestingCompanion(leader, companion)
-            || !questGiver->IsWithinDistInMap(companion, INTERACTION_DISTANCE))
+        AcceptEligibleCompanionSpecialQuests(
+            leader, companion, questGiver, questRelations);
+    }
+}
+
+static void AcceptNearbyCompanionSpecialQuests(
+    Player* leader, Player* companion)
+{
+    if (!leader || !companion || !leader->IsAlive() || !companion->IsAlive()
+        || leader->IsInCombat() || companion->IsInCombat())
+        return;
+
+    PlayerbotAI* companionAI =
+        PlayerbotsMgr::instance().GetPlayerbotAI(companion);
+    if (!companionAI)
+        return;
+
+    AiObjectContext* context = companionAI->GetAiObjectContext();
+    GuidVector nearbyNpcs = context->GetValue<GuidVector>("nearest npcs")->Get();
+    for (ObjectGuid const& guid : nearbyNpcs)
+    {
+        Creature* questGiver = companion->GetNPCIfCanInteractWith(
+            guid, UNIT_NPC_FLAG_QUESTGIVER);
+        if (!questGiver)
             continue;
 
-        for (auto relation = questRelations.first;
-             relation != questRelations.second; ++relation)
-        {
-            Quest const* quest = sObjectMgr->GetQuestTemplate(relation->second);
-            if (IsClassOrProfessionQuestFor(quest, companion))
-            {
-                AcceptCompanionQuest(
-                    leader, companion, quest, questGiver, false);
-            }
-        }
+        AcceptEligibleCompanionSpecialQuests(
+            leader, companion, questGiver,
+            sObjectMgr->GetCreatureQuestRelationBounds(questGiver->GetEntry()));
+    }
+
+    GuidVector nearbyObjects =
+        context->GetValue<GuidVector>("nearest game objects")->Get();
+    for (ObjectGuid const& guid : nearbyObjects)
+    {
+        GameObject* questGiver = companionAI->GetGameObject(guid);
+        if (!questGiver || !questGiver->isSpawned())
+            continue;
+
+        AcceptEligibleCompanionSpecialQuests(
+            leader, companion, questGiver,
+            sObjectMgr->GetGOQuestRelationBounds(questGiver->GetEntry()));
     }
 }
 
@@ -858,7 +1578,10 @@ public:
             { "protect", HandleCompanionProtectCommand, SEC_ADMINISTRATOR, Console::Yes },
             { "behavior", HandleCompanionBehaviorCommand, SEC_PLAYER, Console::Yes },
             { "preset", HandleCompanionPresetCommand, SEC_PLAYER, Console::Yes },
-            { "regroup", HandleCompanionRegroupCommand, SEC_PLAYER, Console::Yes }
+            { "regroup", HandleCompanionRegroupCommand, SEC_PLAYER, Console::Yes },
+            { "logistics", HandleCompanionLogisticsCommand, SEC_ADMINISTRATOR, Console::Yes },
+            { "logistics-preview", HandleCompanionLogisticsPreviewCommand, SEC_ADMINISTRATOR, Console::Yes },
+            { "logistics-run", HandleCompanionLogisticsRunCommand, SEC_ADMINISTRATOR, Console::Yes }
         };
         static ChatCommandTable webAdminCommands =
         {
@@ -1039,6 +1762,8 @@ private:
             registration->InitialSyncPending = true;
             registration->LeaderWasDead = false;
             registration->QuestObjectCheckTimer = 0;
+            registration->ProfessionTrainingCheckTimer = 0;
+            registration->LogisticsCheckTimer = 0;
         }
         handler->PSendSysMessage(
             "Reset questing companion {} and restored follow, combat and loot behaviour.",
@@ -1109,6 +1834,8 @@ private:
         ConfigureCompanionActivity(registration, companion);
         registration.QuestObjectCheckTimer = 0;
         registration.TrashSellCheckTimer = 0;
+        registration.ProfessionTrainingCheckTimer = 0;
+        registration.LogisticsCheckTimer = 0;
         handler->PSendSysMessage(
             "Updated {}: {} role, {}, {}, {}m follow distance; loot {}, gather {}, sell {}, repair {}.",
             companion->GetName(), ResolveCompanionRole(registration, companion),
@@ -1334,6 +2061,213 @@ private:
         return true;
     }
 
+    static bool HandleCompanionLogisticsCommand(
+        ChatHandler* handler, char const* args)
+    {
+        std::istringstream input(args ? args : "");
+        std::string leaderName, companionName;
+        uint32 triggerFreeSlots = 0, targetFreeSlots = 0;
+        int automatic = -1;
+        if (!(input >> leaderName >> companionName >> triggerFreeSlots
+              >> targetFreeSlots >> automatic)
+            || triggerFreeSlots < 1 || triggerFreeSlots > 20
+            || targetFreeSlots < triggerFreeSlots || targetFreeSlots > 40
+            || automatic < 0 || automatic > 1)
+        {
+            handler->SendErrorMessage(
+                "Usage: webadmin companion logistics <leader> <companion> <trigger 1-20> <target trigger-40> <auto 0|1> [category recipient keep]...");
+            return false;
+        }
+
+        std::vector<CompanionLogisticsRoute> routes;
+        std::string category, recipientName;
+        uint32 keepQuantity = 0;
+        while (input >> category)
+        {
+            if (!(input >> recipientName >> keepQuantity)
+                || !IsCompanionLogisticsCategory(category)
+                || keepQuantity > 1000
+                || std::any_of(routes.begin(), routes.end(),
+                    [&category](CompanionLogisticsRoute const& route)
+                    {
+                        return route.Category == category;
+                    }))
+            {
+                handler->SendErrorMessage(
+                    "Each route must be: <cloth|leather|metal|herbs|enchanting|jewelcrafting|meat|elemental|parts|catchall> <recipient> <keep 0-1000>. Catch-all keep must be 0.");
+                return false;
+            }
+            if (category == "catchall" && keepQuantity != 0)
+            {
+                handler->SendErrorMessage("The catch-all route must use a keep quantity of 0.");
+                return false;
+            }
+            if (!normalizePlayerName(recipientName))
+            {
+                handler->SendErrorMessage("A logistics recipient was not found.");
+                return false;
+            }
+            ObjectGuid recipientGuid =
+                sCharacterCache->GetCharacterGuidByName(recipientName);
+            if (recipientGuid.IsEmpty())
+            {
+                handler->SendErrorMessage("A logistics recipient was not found.");
+                return false;
+            }
+            routes.push_back({
+                category, recipientGuid, recipientName, keepQuantity });
+        }
+        std::stable_sort(
+            routes.begin(), routes.end(),
+            [](CompanionLogisticsRoute const& left,
+                CompanionLogisticsRoute const& right)
+            {
+                return left.Category != "catchall"
+                    && right.Category == "catchall";
+            });
+
+        std::string pairArguments = leaderName + " " + companionName;
+        Player* leader = nullptr;
+        ObjectGuid companionGuid;
+        if (!ParseCompanionArguments(
+                handler, pairArguments.c_str(), leader, companionName,
+                companionGuid))
+            return false;
+        Player* companion = nullptr;
+        PlayerbotAI* companionAI = nullptr;
+        if (!RequireActiveCompanion(
+                handler, leader, companionGuid, companion, companionAI))
+            return false;
+        for (CompanionLogisticsRoute const& route : routes)
+        {
+            if (route.RecipientGuid == companionGuid
+                || sCharacterCache->GetCharacterTeamByGuid(route.RecipientGuid)
+                    != companion->GetTeamId())
+            {
+                handler->SendErrorMessage(
+                    "Recipients must be different, same-faction characters.");
+                return false;
+            }
+        }
+
+        QuestingCompanionRegistration* registration =
+            FindCompanionRegistration(companionGuid);
+        registration->LogisticsTriggerFreeSlots = triggerFreeSlots;
+        registration->LogisticsTargetFreeSlots = targetFreeSlots;
+        registration->AutomaticLogistics = automatic != 0;
+        registration->LogisticsRoutes = std::move(routes);
+        registration->LogisticsCheckTimer = 0;
+        registration->LogisticsStatus = registration->LogisticsRoutes.empty()
+            ? "No bag routes are configured."
+            : "Bag routes configured; waiting for bag pressure or a manual run.";
+        handler->PSendSysMessage(
+            "Configured {} logistics route(s) for {}.",
+            registration->LogisticsRoutes.size(), companion->GetName());
+        return true;
+    }
+
+    static bool HandleCompanionLogisticsRunCommand(
+        ChatHandler* handler, char const* args)
+    {
+        Player* leader = nullptr;
+        std::string companionName;
+        ObjectGuid companionGuid;
+        if (!ParseCompanionArguments(
+                handler, args, leader, companionName, companionGuid))
+            return false;
+        Player* companion = nullptr;
+        PlayerbotAI* companionAI = nullptr;
+        if (!RequireActiveCompanion(
+                handler, leader, companionGuid, companion, companionAI))
+            return false;
+        QuestingCompanionRegistration* registration =
+            FindCompanionRegistration(companionGuid);
+        ProcessCompanionLogistics(*registration, companion, true);
+        handler->PSendSysMessage(
+            "{}: {}", companion->GetName(), registration->LogisticsStatus);
+        return true;
+    }
+
+    static bool HandleCompanionLogisticsPreviewCommand(
+        ChatHandler* handler, char const* args)
+    {
+        std::istringstream input(args ? args : "");
+        std::string leaderName, companionName;
+        if (!(input >> leaderName >> companionName))
+        {
+            handler->SendErrorMessage(
+                "Usage: webadmin companion logistics-preview <leader> <companion> [category recipient keep]...");
+            return false;
+        }
+        std::vector<CompanionLogisticsRoute> routes;
+        std::string category, recipientName;
+        uint32 keepQuantity = 0;
+        while (input >> category)
+        {
+            if (!(input >> recipientName >> keepQuantity)
+                || !IsCompanionLogisticsCategory(category)
+                || keepQuantity > 1000
+                || (category == "catchall" && keepQuantity != 0)
+                || std::any_of(routes.begin(), routes.end(),
+                    [&category](CompanionLogisticsRoute const& route)
+                    {
+                        return route.Category == category;
+                    })
+                || !normalizePlayerName(recipientName))
+            {
+                handler->SendErrorMessage(
+                    "Each preview route must be: <category> <recipient> <keep 0-1000>. Catch-all keep must be 0.");
+                return false;
+            }
+            ObjectGuid recipientGuid =
+                sCharacterCache->GetCharacterGuidByName(recipientName);
+            if (recipientGuid.IsEmpty())
+            {
+                handler->SendErrorMessage("A logistics recipient was not found.");
+                return false;
+            }
+            routes.push_back({
+                category, recipientGuid, recipientName, keepQuantity });
+        }
+        std::stable_sort(
+            routes.begin(), routes.end(),
+            [](CompanionLogisticsRoute const& left,
+                CompanionLogisticsRoute const& right)
+            {
+                return left.Category != "catchall"
+                    && right.Category == "catchall";
+            });
+
+        Player* leader = nullptr;
+        ObjectGuid companionGuid;
+        std::string pairArguments = leaderName + " " + companionName;
+        if (!ParseCompanionArguments(
+                handler, pairArguments.c_str(), leader, companionName,
+                companionGuid))
+            return false;
+        Player* companion = nullptr;
+        PlayerbotAI* companionAI = nullptr;
+        if (!RequireActiveCompanion(
+                handler, leader, companionGuid, companion, companionAI))
+            return false;
+        QuestingCompanionRegistration* registration =
+            FindCompanionRegistration(companionGuid);
+        for (CompanionLogisticsRoute const& route : routes)
+        {
+            if (route.RecipientGuid == companionGuid
+                || sCharacterCache->GetCharacterTeamByGuid(route.RecipientGuid)
+                    != companion->GetTeamId())
+            {
+                handler->SendErrorMessage(
+                    "Recipients must be different, same-faction characters.");
+                return false;
+            }
+        }
+        ReportCompanionLogisticsPreview(
+            handler, companion, routes, registration->AutoSellTrash);
+        return true;
+    }
+
     static bool HandleCompanionInspectCommand(ChatHandler* handler, char const* args)
     {
         Player* leader = ParseLeader(handler, args);
@@ -1385,6 +2319,13 @@ private:
                     "WEBADMIN_COMPANION_GATHER\t{}\t{}",
                     bot->GetName(),
                     CompanionProtocolText(registration->QuestObjectStatus));
+                handler->PSendSysMessage(
+                    "WEBADMIN_COMPANION_LOGISTICS\t{}\t{}\t{}\t{}\t{}\t{}",
+                    bot->GetName(), registration->LogisticsTriggerFreeSlots,
+                    registration->LogisticsTargetFreeSlots,
+                    registration->AutomaticLogistics ? 1 : 0,
+                    registration->LogisticsRoutes.size(),
+                    CompanionProtocolText(registration->LogisticsStatus));
             }
             ReportCompanionInventory(handler, bot, registration);
             ReportCompanionQuestProgress(handler, bot);
@@ -2188,6 +3129,16 @@ public:
             TrackCompanionInventory(registration, companion);
             UpdateCompanionCombatFocus(registration, player, companion);
 
+            if (registration.SpecialQuestCheckTimer > diff)
+            {
+                registration.SpecialQuestCheckTimer -= diff;
+            }
+            else
+            {
+                registration.SpecialQuestCheckTimer = 2000;
+                AcceptNearbyCompanionSpecialQuests(player, companion);
+            }
+
             if (registration.QuestObjectCheckTimer > diff)
             {
                 registration.QuestObjectCheckTimer -= diff;
@@ -2206,6 +3157,26 @@ public:
             {
                 registration.TrashSellCheckTimer = 5000;
                 MaintainCompanionAtVendor(registration, player, companion);
+            }
+
+            if (registration.ProfessionTrainingCheckTimer > diff)
+            {
+                registration.ProfessionTrainingCheckTimer -= diff;
+            }
+            else
+            {
+                registration.ProfessionTrainingCheckTimer = 10000;
+                TrainCompanionAtProfessionTrainer(player, companion);
+            }
+
+            if (registration.LogisticsCheckTimer > diff)
+            {
+                registration.LogisticsCheckTimer -= diff;
+            }
+            else
+            {
+                registration.LogisticsCheckTimer = 10000;
+                ProcessCompanionLogistics(registration, companion, false);
             }
         }
     }

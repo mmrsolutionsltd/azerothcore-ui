@@ -31,6 +31,9 @@ webadmin companion protect <leader> <companion> <equipmentSlot> <on|off>
 webadmin companion preset <leader> <companion> <questing|dungeon-tank|dungeon-healer>
 webadmin companion behavior <leader> <companion> <preset> <role> <movement> <focus> <distance> <loot> <gather> <sell> <repair>
 webadmin companion regroup <leader> <companion>
+webadmin companion logistics <leader> <companion> <trigger> <target> <auto> [category recipient keep]...
+webadmin companion logistics-preview <leader> <companion> [category recipient keep]...
+webadmin companion logistics-run <leader> <companion>
 ```
 
 The leader must be a real online player. Eligible bots are online random PlayerBots that
@@ -50,8 +53,10 @@ accounts. Starting a companion assigns the leader as its master and PlayerBots h
 party creation, following, combat, and quest synchronisation. The module mirrors the
 leader's eligible accepted quests to active companions, including quests already in the
 leader's log when a companion finishes logging in. When the leader talks to a nearby quest
-giver, companions may also independently accept eligible quests for their own class or
-professions. All normal race, class, level, reputation, prerequisite, proximity, and
+  giver, companions may also independently accept eligible quests for their own class or
+  professions. Active companions additionally scan nearby quest givers every two seconds,
+  so these personal quests do not depend on the leader accepting or opening the quest.
+  All normal race, class, level, reputation, prerequisite, proximity, and
 quest-log checks still apply. Companion startup enables PlayerBots' non-combat `loot`
 and `follow` strategies and clears stale passive/stay state. If the leader dies, the
 bridge records that state and restores normal companion activity when the leader becomes
@@ -59,12 +64,16 @@ alive again, including when an administrator uses the website's revive service i
 of reclaiming a corpse normally. The inspect command reports the loot strategy,
 free/total inventory slots, and per-character item and kill objective progress so the
 website can compare a companion's progress with its leader. Active companions also scan
-once per second for needed quest-item chests within 20 metres, explicitly move to and
+once per second for needed quest-item chests within 40 metres, explicitly move to and
 open them, and expose the current collection stage through the inspect command.
 While the leader and companion are alive and out of combat, companions also check every
 five seconds for interactable nearby vendors and repairers, automatically sell
-poor-quality (grey) items, and repair damaged equipment. White or better items are
-retained. Protocol-v2 inspection also reports equipped items, complete bag contents,
+poor-quality (grey) items and permanently unusable white equipment, and repair damaged
+equipment. Every ten seconds, an out-of-combat companion also checks for an interactable
+profession trainer. It automatically buys all currently available training for
+professions it already knows, using the normal skill, level, prerequisite, reputation,
+and money rules. It never learns a new profession or class abilities this way.
+Protocol-v2 inspection also reports equipped items, complete bag contents,
 durability, recent equipment changes and session equipment-protection state. A protected
 item is restored if PlayerBots tries to replace it while the companion is alive and out
 of combat. Protection intentionally lasts only for the current companion session.
@@ -74,17 +83,45 @@ Protocol v3 adds session-scoped behaviour presets and custom controls. Role can 
 auto, tank, healer, or damage; tank and healer are rejected unless the companion's
 current specialization supports them. Movement can follow or stay, combat focus can
 prioritize the leader's selected target or let PlayerBots defend the party naturally,
-and loot, quest-object gathering, grey-item selling, and repair can each be toggled.
+and loot, quest-object gathering, junk selling, and repair can each be toggled. Junk
+selling includes all grey items plus white armour and weapons the companion can never
+  use because of class, race, or missing equipment proficiency. Profession tools—including
+  mining picks, skinning knives, crafting tools, enchanting rods, and fishing poles—are
+  always retained. Higher-level usable gear, trade goods, recipes, consumables, and quest
+  requirements are retained.
 Follow distance is adjustable from 1 to 20 metres. Regroup clears transient AI state
 and resumes following. Behaviour changes are rejected during combat and do not alter
 talents, gear, or permanent character data.
+Protocol v4 adds companion bag logistics. The website persists routes for cloth,
+leather, metal and stone, herbs, enchanting materials, jewelcrafting materials, meat,
+elemental materials, and engineering parts. Automatic processing begins only when free
+bag slots reach the configured trigger and stops at the target. Manual processing can
+route eligible surplus at any time. Both modes require the companion to be alive, out
+of combat, and within normal interaction distance of a spawned mailbox. Only complete
+tradable stacks above the per-item reserve are sent; active quest requirements,
+conjured and timed items, equipment, and non-tradable items are excluded. Recipients
+must exist, be same-faction, and have mailbox capacity. Normal postage and configured
+cross-account delivery delay apply.
+Protocol v5 adds an optional catch-all recipient. Explicit material routes run first;
+the catch-all then receives otherwise unrouted, tradable items that PlayerBots classifies
+as vendor or auction surplus. Useful equipment, skill and quest items, consumables,
+containers, conjured or timed items, non-tradable items, grey trash, and permanently
+incompatible white equipment are excluded. The latter two are handled by vendor cleanup.
+The logistics preview command is read-only. It reports the same attachment selection
+used by a manual run, vendor-cleanup candidates, protected and retained stacks, decision
+reasons, destinations, postage, nearby mailbox/vendor availability, and potential free
+bag space. It does not move, mail, sell, or otherwise alter an item.
+The Gather toggle controls PlayerBots' gathering strategy as well as the bridge's
+needed quest-object scan. The bridge scans within 40 metres; normal herb, mineral,
+skinning, and loot travel uses `AiPlayerbot.LootDistance`, which should also be set to
+`40.0` in `playerbots.conf` for matching behaviour.
 
 The bundled `AzerothCompanion` 3.3.5a client addon uses AzerothCore's authenticated
 addon-command channel to request this same snapshot in game. A normal player may run
 the inspect command only for their own online character; SOAP/console administrators
 retain the ability to inspect a named leader. Starting and dismissing companions remain
 administrator-only operations. Inspect responses begin with
-`WEBADMIN_COMPANION_PROTOCOL\t3`, allowing the addon and website to identify a missing
+`WEBADMIN_COMPANION_PROTOCOL\t5`, allowing the addon and website to identify a missing
 or incompatible bridge without guessing from partial response data.
 
 For companions to collect their own quest items, use these PlayerBots settings:

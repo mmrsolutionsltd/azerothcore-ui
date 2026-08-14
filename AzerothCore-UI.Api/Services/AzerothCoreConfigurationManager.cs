@@ -9,16 +9,18 @@ namespace AzerothCore_UI.Api.Services;
 public sealed partial class AzerothCoreConfigurationManager(IConfiguration configuration)
 {
     private const int MaximumRandomBotCount = 5000;
-    private readonly string rootPath = Path.GetFullPath(configuration["AzerothCore:Server:RootPath"]
-        ?? @"C:\AzerothServer-PlayerBots");
+    private readonly string configurationPath = Path.GetFullPath(
+        configuration["AzerothCore:Server:ConfigurationPath"]
+        ?? Path.Combine(configuration["AzerothCore:Server:RootPath"]
+            ?? @"C:\AzerothServer-PlayerBots", "configs"));
     private readonly SemaphoreSlim writeLock = new(1, 1);
 
-    private string PlayerBotsPath => SafePath("configs", "modules", "playerbots.conf");
-    private string WorldServerPath => SafePath("configs", "worldserver.conf");
-    private string AuctionHouseBotPath => SafePath("configs", "modules", "mod_ahbot.conf");
-    private string AutoBalancePath => SafePath("configs", "modules", "AutoBalance.conf");
-    private string TransmogPath => SafePath("configs", "modules", "transmog.conf");
-    private string AoeLootPath => SafePath("configs", "modules", "mod_aoe_loot.conf");
+    private string PlayerBotsPath => SafeConfigurationPath("modules", "playerbots.conf");
+    private string WorldServerPath => SafeConfigurationPath("worldserver.conf");
+    private string AuctionHouseBotPath => SafeConfigurationPath("modules", "mod_ahbot.conf");
+    private string AutoBalancePath => SafeConfigurationPath("modules", "AutoBalance.conf");
+    private string TransmogPath => SafeConfigurationPath("modules", "transmog.conf");
+    private string AoeLootPath => SafeConfigurationPath("modules", "mod_aoe_loot.conf");
 
     public int GetPlayerLimit() => ReadIntFile(WorldServerPath, "PlayerLimit");
 
@@ -205,10 +207,11 @@ public sealed partial class AzerothCoreConfigurationManager(IConfiguration confi
         finally { writeLock.Release(); }
     }
 
-    private string SafePath(params string[] parts)
+    private string SafeConfigurationPath(params string[] parts)
     {
-        var path = Path.GetFullPath(Path.Combine([rootPath, .. parts]));
-        if (!path.StartsWith(rootPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+        var path = Path.GetFullPath(Path.Combine([configurationPath, .. parts]));
+        if (!path.StartsWith(configurationPath + Path.DirectorySeparatorChar,
+                StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("Invalid configuration path.");
         return path;
     }

@@ -13,6 +13,15 @@ public sealed class AzerothCoreDiagnosticsService(
     AzerothCoreConfigurationManager configurationManager)
 {
     private readonly string serverRoot = configuration["AzerothCore:Server:RootPath"] ?? @"C:\AzerothServer-PlayerBots";
+    private readonly string configurationRoot = configuration["AzerothCore:Server:ConfigurationPath"]
+        ?? Path.Combine(configuration["AzerothCore:Server:RootPath"]
+            ?? @"C:\AzerothServer-PlayerBots", "configs");
+    private readonly string logRoot = configuration["AzerothCore:Server:LogPath"]
+        ?? configuration["AzerothCore:Server:RootPath"]
+        ?? @"C:\AzerothServer-PlayerBots";
+    private readonly string backupRoot = configuration["AzerothCore:Backups:RootPath"]
+        ?? Path.Combine(configuration["AzerothCore:Server:RootPath"]
+            ?? @"C:\AzerothServer-PlayerBots", "backups", "database");
     private readonly string sourceRoot = configuration["AzerothCore:Diagnostics:SourcePath"] ?? @"C:\AzerothCore-PlayerBots";
     private readonly string buildRoot = configuration["AzerothCore:Diagnostics:BuildPath"] ?? @"C:\AzerothBuild-PlayerBots";
     private readonly string clientRoot = configuration["AzerothCore:Diagnostics:ClientPath"] ?? @"C:\TheraWoW wotlk";
@@ -106,8 +115,9 @@ public sealed class AzerothCoreDiagnosticsService(
 
     private void AddExecutableChecks(List<DiagnosticCheck> checks)
     {
-        foreach (var name in new[] { "worldserver.exe", "authserver.exe" })
+        foreach (var processName in new[] { "worldserver", "authserver" })
         {
+            var name = ExecutableName(processName);
             var path = Path.Combine(serverRoot, name);
             if (!File.Exists(path)) { checks.Add(Error("Binaries", name, $"Missing from {serverRoot}.")); continue; }
             var file = new FileInfo(path);
@@ -120,7 +130,7 @@ public sealed class AzerothCoreDiagnosticsService(
 
     private void AddSourceChecks(List<DiagnosticCheck> checks)
     {
-        var binaryPath = Path.Combine(serverRoot, "worldserver.exe");
+        var binaryPath = Path.Combine(serverRoot, ExecutableName("worldserver"));
         if (!Directory.Exists(sourceRoot) || !File.Exists(binaryPath))
         {
             checks.Add(new("Build", "Source versus worldserver", "Warning",
@@ -157,7 +167,7 @@ public sealed class AzerothCoreDiagnosticsService(
         foreach (var (module, config) in modules)
         {
             var sourceExists = Directory.Exists(Path.Combine(sourceRoot, "modules", module));
-            var configExists = config is null || File.Exists(Path.Combine(serverRoot, "configs", "modules", config));
+            var configExists = config is null || File.Exists(Path.Combine(configurationRoot, "modules", config));
             checks.Add(new("Modules", module,
                 sourceExists && configExists ? "Healthy" : "Warning",
                 sourceExists && configExists ? "Source and required configuration found."
@@ -185,7 +195,7 @@ public sealed class AzerothCoreDiagnosticsService(
 
     private void AddBackupChecks(List<DiagnosticCheck> checks)
     {
-        var directory = Path.Combine(serverRoot, "backups");
+        var directory = backupRoot;
         var newest = Directory.Exists(directory)
             ? Directory.EnumerateFiles(directory, "*.sql", SearchOption.AllDirectories)
                 .Select(path => new FileInfo(path)).OrderByDescending(file => file.LastWriteTimeUtc).FirstOrDefault()
@@ -196,7 +206,7 @@ public sealed class AzerothCoreDiagnosticsService(
             newest is null ? "No SQL backup found." : $"{newest.Name}; {FormatBytes(newest.Length)}; {FormatAge(age!.Value)} old.",
             newest?.FullName, newest?.LastWriteTimeUtc));
 
-        var configRoot = Path.Combine(serverRoot, "configs");
+        var configRoot = configurationRoot;
         var configBackup = Directory.Exists(configRoot)
             ? Directory.EnumerateFiles(configRoot, "*.bak", SearchOption.AllDirectories)
                 .Select(path => new FileInfo(path)).OrderByDescending(file => file.LastWriteTimeUtc).FirstOrDefault()
@@ -211,9 +221,9 @@ public sealed class AzerothCoreDiagnosticsService(
     {
         var paths = new[]
         {
-            Path.Combine(serverRoot, "configs", "worldserver.conf"),
-            Path.Combine(serverRoot, "configs", "authserver.conf"),
-            Path.Combine(serverRoot, "configs", "modules", "playerbots.conf")
+            Path.Combine(configurationRoot, "worldserver.conf"),
+            Path.Combine(configurationRoot, "authserver.conf"),
+            Path.Combine(configurationRoot, "modules", "playerbots.conf")
         };
         foreach (var path in paths)
             checks.Add(new("Configuration", Path.GetFileName(path), File.Exists(path) ? "Healthy" : "Error",
@@ -233,7 +243,7 @@ public sealed class AzerothCoreDiagnosticsService(
 
         if (status?.WorldServer.StartedAt is { } startedAt)
         {
-            var newer = Directory.EnumerateFiles(Path.Combine(serverRoot, "configs"), "*.conf", SearchOption.AllDirectories)
+            var newer = Directory.EnumerateFiles(configurationRoot, "*.conf", SearchOption.AllDirectories)
                 .Select(path => new FileInfo(path))
                 .Where(file => file.LastWriteTime > startedAt)
                 .OrderByDescending(file => file.LastWriteTime)
@@ -250,7 +260,7 @@ public sealed class AzerothCoreDiagnosticsService(
         var rows = new List<(string Source, string Category, string Text)>();
         foreach (var name in new[] { "Errors.log", "Server.log", "Auth.log", "Playerbots.log" })
         {
-            var path = Path.Combine(serverRoot, name);
+            var path = Path.Combine(logRoot, name);
             if (!File.Exists(path)) continue;
             try
             {
@@ -283,6 +293,8 @@ public sealed class AzerothCoreDiagnosticsService(
         : $"{bytes / 1024d:N1} KB";
     private static string FormatAge(TimeSpan age) => age.TotalDays >= 1
         ? $"{(int)age.TotalDays}d {age.Hours}h" : $"{(int)age.TotalHours}h {age.Minutes}m";
+    private static string ExecutableName(string name) =>
+        OperatingSystem.IsWindows() ? $"{name}.exe" : name;
 
     private sealed class VersionRow
     {

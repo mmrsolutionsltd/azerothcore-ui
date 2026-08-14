@@ -39,8 +39,11 @@ var dataProtection = builder.Services.AddDataProtection()
 if (!string.IsNullOrWhiteSpace(dataProtectionKeysPath))
     dataProtection.PersistKeysToFileSystem(
         new DirectoryInfo(Path.GetFullPath(dataProtectionKeysPath)));
-builder.Services.AddWindowsService(options =>
-    options.ServiceName = "AzerothCore UI Web");
+if (OperatingSystem.IsWindows())
+    builder.Services.AddWindowsService(options =>
+        options.ServiceName = "AzerothCore UI Web");
+else if (OperatingSystem.IsLinux())
+    builder.Services.AddSystemd();
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 builder.Services.AddCascadingAuthenticationState();
@@ -48,6 +51,7 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddTransient<AzerothCore_UI.Web.Services.AdministrationActorHandler>();
 builder.Services.AddScoped<AzerothCore_UI.Web.Services.SelectedCharacterStore>();
 builder.Services.AddScoped<AzerothCore_UI.Web.Services.DungeonWishlistStore>();
+builder.Services.AddScoped<AzerothCore_UI.Web.Services.RecentPickerSelectionStore>();
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {

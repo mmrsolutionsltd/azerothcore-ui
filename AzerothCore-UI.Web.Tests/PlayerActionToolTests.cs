@@ -36,6 +36,7 @@ public sealed class PlayerActionToolTests : BunitContext
                 AdministrationPermissions.ClaimType,
                 "world.creatures"));
         Services.AddScoped<SelectedCharacterStore>();
+        Services.AddScoped<RecentPickerSelectionStore>();
         JSInterop.Mode = JSRuntimeMode.Loose;
     }
 
@@ -175,6 +176,30 @@ public sealed class PlayerActionToolTests : BunitContext
     }
 
     [Fact]
+    public void ItemPickerShowsRecentChoicesAndSelectsTheCurrentSearchTextOnReopen()
+    {
+        var component = Render<GiveItemTool>(parameters => parameters
+            .Add(tool => tool.Targets, [OnlinePlayer])
+            .Add(tool => tool.Available, true));
+
+        component.Find("input.clickable-input").Click();
+        component.WaitForElement("tr.picker-result-row").Click();
+        component.Find("input.clickable-input").Click();
+
+        component.WaitForAssertion(() =>
+        {
+            Assert.Equal(
+                "Polished Breastplate",
+                component.Find("#item-search").GetAttribute("value"));
+            Assert.Contains(
+                "Polished Breastplate (2153)",
+                component.Find(".picker-recent-selections").TextContent);
+        });
+        Assert.Contains(JSInterop.Invocations, invocation =>
+            invocation.Identifier == "azerothCoreUi.focusAndSelect");
+    }
+
+    [Fact]
     public void TeleportPlayerModeFiltersDefaultToOnlinePlayers()
     {
         var component = Render<TeleportTool>(parameters => parameters
@@ -229,6 +254,48 @@ public sealed class PlayerActionToolTests : BunitContext
 
         npcInput.Click();
         component.WaitForElement("#npc-teleport-picker-title");
+    }
+
+    [Fact]
+    public void TeleportCanRememberAndReturnSuccessfulTargets()
+    {
+        var component = Render<TeleportTool>(parameters => parameters
+            .Add(tool => tool.Targets, [OnlinePlayer])
+            .Add(tool => tool.Available, true));
+
+        Assert.True(component.Find("#remember-teleport-origin")
+            .HasAttribute("checked"));
+        component.Find("input[aria-label='Choose teleport location']").Click();
+        component.WaitForElement("tr.picker-result-row").Click();
+        component.FindAll("button").Single(button =>
+            button.TextContent.Trim() == "Teleport to place").Click();
+
+        component.WaitForAssertion(() => Assert.Contains(
+            "Return available for Jaina",
+            component.Markup));
+        component.FindAll("button").Single(button =>
+            button.TextContent.Trim() == "Return").Click();
+        component.WaitForAssertion(() => Assert.DoesNotContain(
+            "Return available for Jaina",
+            component.Markup));
+    }
+
+    [Fact]
+    public void TeleportDoesNotOfferReturnWhenRememberingIsDisabled()
+    {
+        var component = Render<TeleportTool>(parameters => parameters
+            .Add(tool => tool.Targets, [OnlinePlayer])
+            .Add(tool => tool.Available, true));
+
+        component.Find("#remember-teleport-origin").Change(false);
+        component.Find("input[aria-label='Choose teleport location']").Click();
+        component.WaitForElement("tr.picker-result-row").Click();
+        component.FindAll("button").Single(button =>
+            button.TextContent.Trim() == "Teleport to place").Click();
+
+        component.WaitForAssertion(() => Assert.DoesNotContain(
+            component.FindAll("button"),
+            button => button.TextContent.Trim() == "Return"));
     }
 
     [Fact]
@@ -416,9 +483,15 @@ public sealed class PlayerActionToolTests : BunitContext
                             80)
                     },
                 "/api/server-administration/teleport-locations" =>
-                    new TeleportLocationSearchResult([], 1, 30, 0, 0),
+                    new TeleportLocationSearchResult(
+                        [new TeleportLocation { Id = 1, Name = "Orgrimmar", MapId = 1 }],
+                        1, 30, 1, 1),
                 "/api/server-administration/npc-teleports" =>
                     new NpcTeleportSearchResult([], 1, 30, 0, 0),
+                "/api/server-administration/players/teleport" =>
+                    new AdministrationResult(true, "Teleported."),
+                "/api/server-administration/players/return" =>
+                    new AdministrationResult(true, "Returned."),
                 "/api/server-administration/money/give" =>
                     new AdministrationResult(true, "Money sent."),
                 _ => throw new InvalidOperationException(

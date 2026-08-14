@@ -14,8 +14,11 @@ public sealed class DatabaseBackupScheduler(
     };
     private readonly SemaphoreSlim operationGate = new(1, 1);
     private readonly string statePath = Path.Combine(
-        configuration["AzerothCore:Server:RootPath"] ?? @"C:\AzerothServer-PlayerBots",
-        "backups", "database", "schedule.json");
+        configuration["AzerothCore:Backups:RootPath"]
+        ?? Path.Combine(
+            configuration["AzerothCore:Server:RootPath"] ?? @"C:\AzerothServer-PlayerBots",
+            "backups", "database"),
+        "schedule.json");
     private SchedulerState state = new();
 
     public DatabaseBackupDashboard GetDashboard()

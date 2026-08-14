@@ -1,0 +1,129 @@
+<div class="card h-100 companion-management">
+    <div class="card-header d-flex flex-wrap gap-2 align-items-center">
+        <div class="flex-grow-1">
+            <strong>@Companion.Name</strong>
+            <span class="small text-muted ms-1">
+                Level @Companion.Level · @ClassName(Companion.CharacterClass)
+            </span>
+        </div>
+        <span class="badge @(Companion.InLeaderParty ? "text-bg-success" : "text-bg-warning")">
+            @(Companion.InLeaderParty ? "In party" : "Not in party")
+        </span>
+        @if (Companion.TotalBagSlots > 0)
+        {
+            <span class="badge @(Companion.FreeBagSlots > 2 ? "text-bg-secondary" : "text-bg-danger")">
+                @Companion.FreeBagSlots/@Companion.TotalBagSlots free
+            </span>
+        }
+        <button class="btn btn-sm btn-outline-danger" type="button"
+                disabled="@Disabled" @onclick="DismissAsync">
+            Dismiss
+        </button>
+    </div>
+
+    <div class="card-body pt-2">
+        <ul class="nav nav-tabs companion-tabs mb-3" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link @(activeTab == "behaviour" ? "active" : null)"
+                        type="button" @onclick="ShowBehaviour">
+                    Behaviour
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link @(activeTab == "inventory" ? "active" : null)"
+                        type="button" @onclick="ShowInventory">
+                    Inventory
+                    @if (Companion.FreeBagSlots <= 2)
+                    {
+                        <span class="badge text-bg-danger ms-1">@Companion.FreeBagSlots</span>
+                    }
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link @(activeTab == "maintenance" ? "active" : null)"
+                        type="button" @onclick="ShowMaintenance">
+                    Maintenance
+                </button>
+            </li>
+        </ul>
+
+        @if (activeTab == "behaviour")
+        {
+            @if (ProtocolVersion >= 3)
+            {
+                <CompanionBehaviorPanel Companion="Companion" Disabled="Disabled"
+                    BehaviorRequested="BehaviorRequested"
+                    PresetRequested="PresetRequested"
+                    RegroupRequested="RegroupRequested" />
+            }
+            else
+            {
+                <div class="alert alert-warning py-2 small mb-0">
+                    Behaviour controls require bridge protocol 3.
+                </div>
+            }
+        }
+        else if (activeTab == "inventory")
+        {
+            @if (ProtocolVersion >= 2)
+            {
+                <CompanionInventoryPanel LeaderName="LeaderName"
+                    Companion="Companion" Disabled="Disabled"
+                    ProtectionRequested="ProtectionRequested" />
+            }
+            else
+            {
+                <div class="alert alert-warning py-2 small mb-0">
+                    Equipment and bag contents require bridge protocol 2.
+                </div>
+            }
+        }
+        else
+        {
+            <CompanionMaintenancePanel Companion="Companion" Disabled="Disabled"
+                ResetRequested="ResetRequested" />
+            @if (ProtocolVersion >= 5)
+            {
+                <CompanionLogisticsPanel LeaderName="LeaderName"
+                    Companion="Companion" Disabled="Disabled"
+                    RefreshRequested="RefreshRequested" />
+            }
+            else
+            {
+                <div class="alert alert-warning py-2 small mt-3 mb-0">
+                    Bag logistics requires bridge protocol 5.
+                </div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string LeaderName { get; set; } = "";
+    [Parameter, EditorRequired] public ActiveQuestingCompanion Companion { get; set; } = default!;
+    [Parameter] public int ProtocolVersion { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public EventCallback<string> DismissRequested { get; set; }
+    [Parameter] public EventCallback<QuestingCompanionBehaviorRequest> BehaviorRequested { get; set; }
+    [Parameter] public EventCallback<QuestingCompanionPresetRequest> PresetRequested { get; set; }
+    [Parameter] public EventCallback<string> RegroupRequested { get; set; }
+    [Parameter] public EventCallback<string> ResetRequested { get; set; }
+    [Parameter] public EventCallback<QuestingCompanionEquipmentProtectionRequest>
+        ProtectionRequested { get; set; }
+    [Parameter] public EventCallback RefreshRequested { get; set; }
+
+    private string activeTab = "behaviour";
+
+    private void ShowBehaviour() => activeTab = "behaviour";
+    private void ShowInventory() => activeTab = "inventory";
+    private void ShowMaintenance() => activeTab = "maintenance";
+
+    private Task DismissAsync() => DismissRequested.InvokeAsync(Companion.Name);
+
+    private static string ClassName(int value) => value switch
+    {
+        1 => "Warrior", 2 => "Paladin", 3 => "Hunter", 4 => "Rogue",
+        5 => "Priest", 6 => "Death Knight", 7 => "Shaman", 8 => "Mage",
+        9 => "Warlock", 11 => "Druid", _ => $"Class {value}"
+    };
+}

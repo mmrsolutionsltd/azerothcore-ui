@@ -17,9 +17,11 @@ public sealed class DatabaseBackupService(
         WriteIndented = true
     };
 
-    private readonly string backupRoot = Path.GetFullPath(Path.Combine(
-        configuration["AzerothCore:Server:RootPath"] ?? @"C:\AzerothServer-PlayerBots",
-        "backups", "database"));
+    private readonly string backupRoot = Path.GetFullPath(
+        configuration["AzerothCore:Backups:RootPath"]
+        ?? Path.Combine(
+            configuration["AzerothCore:Server:RootPath"] ?? @"C:\AzerothServer-PlayerBots",
+            "backups", "database"));
     private readonly int retentionCount = Math.Max(
         1, configuration.GetValue("AzerothCore:Backups:RetentionCount", 20));
     private readonly string connectionString =
@@ -219,6 +221,8 @@ public sealed class DatabaseBackupService(
 
     private static string ResolveExecutable(string name)
     {
+        if (!OperatingSystem.IsWindows() && name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            return Path.GetFileNameWithoutExtension(name);
         var configured = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
             "MySQL", "MySQL Server 8.0", "bin", name);

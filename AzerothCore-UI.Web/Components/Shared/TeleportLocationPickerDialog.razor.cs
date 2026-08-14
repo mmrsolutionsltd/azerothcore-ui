@@ -1,12 +1,15 @@
 using AzerothCore_UI.Web.Models;
+using AzerothCore_UI.Web.Services;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
+using Microsoft.JSInterop;
 
 namespace AzerothCore_UI.Web.Components.Shared;
 
 public partial class TeleportLocationPickerDialog : IDisposable
 {
     [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public string? InitialSearchText { get; set; }
     [Parameter] public EventCallback<TeleportLocation> LocationSelected { get; set; }
     [Parameter] public EventCallback Closed { get; set; }
 
@@ -16,12 +19,41 @@ public partial class TeleportLocationPickerDialog : IDisposable
     private bool isLoading;
     private string search = "";
     private string? errorMessage;
+    private ElementReference searchInput;
+    private bool focusSearch;
+    private IReadOnlyList<TeleportLocation> recentLocations = [];
 
     protected override async Task OnParametersSetAsync()
     {
         if (IsOpen && !wasOpen)
+        {
+            search = InitialSearchText?.Trim() ?? "";
+            var storedLocations = await RecentSelections.GetAsync<TeleportLocation>(
+                RecentPickerKeys.Locations);
+            if (storedLocations.Count > 0 || recentLocations.Count == 0)
+                recentLocations = storedLocations;
+            focusSearch = true;
             await LoadAsync(1);
+        }
         wasOpen = IsOpen;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!IsOpen || !focusSearch)
+            return;
+
+        focusSearch = false;
+        try
+        {
+            await Javascript.InvokeVoidAsync(
+                "azerothCoreUi.focusAndSelect", searchInput);
+        }
+        catch (Exception exception) when (
+            exception is InvalidOperationException or JSDisconnectedException
+                or TaskCanceledException)
+        {
+        }
     }
 
     private async Task SearchAsync(ChangeEventArgs args)
@@ -62,13 +94,20 @@ public partial class TeleportLocationPickerDialog : IDisposable
         }
     }
 
-    private Task SelectAsync(TeleportLocation location) =>
-        LocationSelected.InvokeAsync(location);
+    private async Task SelectAsync(TeleportLocation location)
+    {
+        recentLocations = await RecentSelections.RememberAsync(
+            RecentPickerKeys.Locations, location, value => value.Id.ToString());
+        await LocationSelected.InvokeAsync(location);
+    }
 
     private Task SelectFromKeyboardAsync(KeyboardEventArgs args, TeleportLocation location) =>
         args.Key is "Enter" or " " ? SelectAsync(location) : Task.CompletedTask;
 
     private Task CloseAsync() => Closed.InvokeAsync();
+
+    private static string LocationDisplayText(TeleportLocation location) =>
+        location.Name;
 
     private static string MapName(ushort mapId) => mapId switch
     {

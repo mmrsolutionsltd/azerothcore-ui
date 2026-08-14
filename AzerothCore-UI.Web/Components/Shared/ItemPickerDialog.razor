@@ -1,5 +1,7 @@
 @using AzerothCore_UI.Web.Models
 @inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
+@inject AzerothCore_UI.Web.Services.RecentPickerSelectionStore RecentSelections
+@inject IJSRuntime Javascript
 
 @if (IsOpen)
 {
@@ -18,7 +20,7 @@
                             <label class="form-label" for="item-search">Item name</label>
                             <input id="item-search" class="form-control" value="@search"
                                    @oninput="SearchAsync" placeholder="Start typing an item name…"
-                                   autocomplete="off" autofocus />
+                                   autocomplete="off" autofocus @ref="searchInput" />
                         </div>
                         <div class="col-md-4">
                             <label class="form-label" for="item-category">Category</label>
@@ -102,6 +104,10 @@
                             </div>
                         </div>
                     </div>
+                    <RecentPickerSelections TItem="AdministrationItem"
+                                            Items="recentItems"
+                                            DisplayText="ItemDisplayText"
+                                            Selected="SelectAsync" />
                     @if (errorMessage is not null)
                     {
                         <div class="alert alert-danger">@errorMessage</div>

@@ -12,6 +12,7 @@ public sealed class AdministrationPermissionResolverTests
     [InlineData("/api/server-administration/questing-companions/start", "adventures.quests")]
     [InlineData("/api/server-administration/dungeon-library/guide", "adventures.dungeons")]
     [InlineData("/api/server-administration/items/give", "players.actions")]
+    [InlineData("/api/server-administration/accounts/create", "players.actions")]
     [InlineData("/api/server-administration/characters/service/transfer", "players.services")]
     [InlineData("/api/server-administration/settings/rates", "server.settings")]
     [InlineData("/api/server-administration/restart", "server.control")]

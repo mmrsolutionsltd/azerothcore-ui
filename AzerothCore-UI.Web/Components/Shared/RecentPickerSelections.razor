@@ -1,0 +1,23 @@
+@typeparam TItem
+
+@if (Items.Count > 0)
+{
+    <div class="d-flex flex-wrap align-items-center gap-1 mb-3 picker-recent-selections"
+         aria-label="Recent selections">
+        <span class="small text-muted me-1">Recent:</span>
+        @foreach (var item in Items)
+        {
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    @key="item" @onclick="() => Selected.InvokeAsync(item)">
+                @DisplayText(item)
+            </button>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public IReadOnlyList<TItem> Items { get; set; } = [];
+    [Parameter, EditorRequired] public Func<TItem, string> DisplayText { get; set; } =
+        item => item?.ToString() ?? "Selection";
+    [Parameter] public EventCallback<TItem> Selected { get; set; }
+}

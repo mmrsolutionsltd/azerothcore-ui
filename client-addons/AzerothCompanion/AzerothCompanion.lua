@@ -1,7 +1,7 @@
 local ADDON_PREFIX = "AzerothCore"
 local REFRESH_SECONDS = 5
 local RESPONSE_TIMEOUT_SECONDS = 3
-local EXPECTED_PROTOCOL = 3
+local EXPECTED_PROTOCOL = 5
 local DEFAULT_WIDTH = 360
 local DEFAULT_HEIGHT = 510
 local MIN_WIDTH = 210
@@ -209,6 +209,11 @@ local function ObjectiveText(leaderName, companionName, leaderObjective,
         companionName, companionCurrent, companionRequired)
 end
 
+local function CompanionObjectiveText(objective)
+    return string.format("%s - %d/%d", objective.name,
+        objective.current, objective.required)
+end
+
 local function AddCompanionButtons(target, companionName, companion)
     local actions = {
         { "Quest", function()
@@ -331,7 +336,7 @@ local function Render(target)
         if companion.autoSell or companion.autoRepair then
             lineIndex = AddLine(lineIndex,
                 "Maintenance: "
-                    .. (companion.autoSell and "grey sales on" or "grey sales off")
+                    .. (companion.autoSell and "junk sales on" or "junk sales off")
                     .. " | "
                     .. (companion.autoRepair and "repairs on" or "repairs off"),
                 0.55, 0.85, 0.55, 12)
@@ -349,6 +354,16 @@ local function Render(target)
             lineIndex = AddLine(lineIndex,
                 "Gathering: " .. companion.gather, 0.45, 0.75, 1, 12)
         end
+        if companion.logisticsStatus and companion.logisticsStatus ~= "" then
+            lineIndex = AddLine(lineIndex,
+                string.format("Bag routes: %s | %d route%s | trigger %d / target %d",
+                    companion.logisticsStatus,
+                    companion.logisticsRouteCount or 0,
+                    companion.logisticsRouteCount == 1 and "" or "s",
+                    companion.logisticsTrigger or 4,
+                    companion.logisticsTarget or 8),
+                0.75, 0.75, 1, 12)
+        end
 
         local companionPlayer = target.players[companionName]
         local shared = 0
@@ -358,6 +373,10 @@ local function Render(target)
                 local companionQuest = companionPlayer.quests[questId]
                 if companionQuest then
                     shared = shared + 1
+                    if shared == 1 then
+                        lineIndex = AddLine(lineIndex, "Shared quests",
+                            0.7, 0.85, 1, 12)
+                    end
                     local complete = leaderQuest.complete and companionQuest.complete
                     lineIndex = AddLine(lineIndex,
                         (complete and "[Complete] " or "") .. leaderQuest.title,
@@ -379,8 +398,41 @@ local function Render(target)
                 end
             end
         end
-        if shared == 0 then
-            lineIndex = AddLine(lineIndex, "No shared quests.",
+
+        local companionOnly = 0
+        if companionPlayer then
+            for _, questId in ipairs(companionPlayer.questOrder) do
+                local leaderHasQuest = leader and leader.quests[questId]
+                if not leaderHasQuest then
+                    local quest = companionPlayer.quests[questId]
+                    companionOnly = companionOnly + 1
+                    if companionOnly == 1 then
+                        lineIndex = AddLine(lineIndex, "Companion-only quests",
+                            0.85, 0.7, 1, 12)
+                    end
+                    lineIndex = AddLine(lineIndex,
+                        (quest.complete and "[Complete] " or "") .. quest.title,
+                        quest.complete and 0.3 or 1,
+                        quest.complete and 1 or 0.75,
+                        quest.complete and 0.3 or 1, 12)
+                    for _, objectiveKey in ipairs(quest.objectiveOrder) do
+                        local objective = quest.objectives[objectiveKey]
+                        local objectiveComplete =
+                            objective.current >= objective.required
+                        lineIndex = AddLine(lineIndex,
+                            CompanionObjectiveText(objective),
+                            objectiveComplete and 0.45 or 0.85,
+                            objectiveComplete and 1 or 0.85,
+                            objectiveComplete and 0.45 or 0.85, 24)
+                    end
+                end
+            end
+        end
+        if shared == 0 and companionOnly == 0 then
+            lineIndex = AddLine(lineIndex, "No active quests.",
+                0.6, 0.6, 0.6, 12)
+        elseif shared == 0 then
+            lineIndex = AddLine(lineIndex, "No quests shared with you.",
                 0.6, 0.6, 0.6, 12)
         end
         if target.protocolVersion == EXPECTED_PROTOCOL then
@@ -425,6 +477,15 @@ local function ParseProtocolLine(target, body)
     elseif recordType == "WEBADMIN_COMPANION_GATHER" and #fields >= 3 then
         local companion = target.companions[fields[2]]
         if companion then companion.gather = fields[3] end
+    elseif recordType == "WEBADMIN_COMPANION_LOGISTICS" and #fields >= 7 then
+        local companion = target.companions[fields[2]]
+        if companion then
+            companion.logisticsTrigger = tonumber(fields[3]) or 4
+            companion.logisticsTarget = tonumber(fields[4]) or 8
+            companion.automaticLogistics = fields[5] == "1"
+            companion.logisticsRouteCount = tonumber(fields[6]) or 0
+            companion.logisticsStatus = fields[7]
+        end
     elseif recordType == "WEBADMIN_COMPANION_MAINTENANCE" and #fields >= 4 then
         local companion = target.companions[fields[2]]
         if companion then

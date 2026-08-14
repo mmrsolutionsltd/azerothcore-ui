@@ -63,10 +63,10 @@ public sealed class AdministrationRequestAuthorizer(
             result.CharacterGuids.Add(guid);
         if (uint.TryParse(context.Request.RouteValues["accountId"]?.ToString(), out var accountId))
             result.AccountIds.Add(accountId);
-        foreach (var key in new[] { "playerName", "leaderName" })
+        foreach (var key in new[] { "playerName", "leaderName", "companionName" })
             if (context.Request.RouteValues[key]?.ToString() is { Length: > 0 } name)
                 result.PlayerNames.Add(name);
-        foreach (var key in new[] { "characterName", "playerName", "leaderName" })
+        foreach (var key in new[] { "characterName", "playerName", "leaderName", "companionName" })
             foreach (var name in context.Request.Query[key])
                 if (!string.IsNullOrWhiteSpace(name))
                     result.PlayerNames.Add(name);
