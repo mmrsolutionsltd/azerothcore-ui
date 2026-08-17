@@ -1,0 +1,19 @@
+@inherits PlayerActionToolBase
+
+<PlayerActionToolHeader Title="Revive character" ShowResult="HasActionResult"
+                        Message="@ResultMessage" Succeeded="OperationSucceeded">
+    <button class="btn btn-primary" disabled="@(!CanExecute)" @onclick="ReviveAsync">
+        Revive
+    </button>
+</PlayerActionToolHeader>
+<p class="small text-muted mb-2">
+    Resurrects each selected dead character, whether online or offline.
+</p>
+<PlayerActionFeedback Results="Results" />
+
+@code {
+    private Task ReviveAsync() => RunBatchAsync(
+        "Revive",
+        player => AccountsClient.ApplyCharacterServiceAsync(
+            new CharacterServiceRequest(player, "revive", null, true)));
+}

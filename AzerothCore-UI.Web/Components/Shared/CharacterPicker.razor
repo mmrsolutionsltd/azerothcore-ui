@@ -20,7 +20,9 @@
 				</div>
 				@if (Multiple)
 				{
-					<button class="btn btn-sm btn-link p-0 flex-shrink-0" type="button" @onclick="SelectVisibleAsync">All</button>
+					<button class="btn btn-sm btn-link p-0 flex-shrink-0" type="button"
+							title="Select all online characters allowed by the bot filter"
+							@onclick="SelectOnlineAsync">Online</button>
 					<button class="btn btn-sm btn-link p-0 flex-shrink-0" type="button" @onclick="ClearAsync">Clear</button>
 				}
 			</div>
@@ -38,7 +40,11 @@
 				var selected = IsSelected(item.Value);
 				<button type="button"
 						class="character-picker-item btn btn-sm text-start d-inline-flex align-items-center gap-2 @(selected ? "btn-primary" : "btn-light")"
-						@onclick="() => ToggleAsync(item.Value)">
+						title="@SelectionHint(item)"
+						@onclick="() => ToggleAsync(item.Value)"
+						@ondblclick="() => SelectOnlineFromAsync(item)"
+						@oncontextmenu="() => SelectOnlyAsync(item)"
+						@oncontextmenu:preventDefault="true">
 					<span class="text-truncate">
 						<strong>@item.Name</strong>
 						@if (!string.IsNullOrWhiteSpace(item.Detail))
@@ -60,7 +66,7 @@
 	<div class="small text-muted mt-1">
 		@if (Multiple)
 		{
-			<span>@SelectedValues.Count selected</span>
+			<span>@SelectedValues.Count selected · Right-click selects only one · Double-click an online character selects all online</span>
 		}
 		else
 		{
@@ -162,14 +168,38 @@
 		await SelectedValuesChanged.InvokeAsync(values);
 	}
 
-	private async Task SelectVisibleAsync()
+	private async Task SelectOnlineAsync()
 	{
-		var values = SelectedValues.ToHashSet(StringComparer.OrdinalIgnoreCase);
-		foreach (var item in FilteredItems)
+		var values = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		foreach (var item in FilteredItems.Where(item => item.Online))
 		{
 			if (values.Count >= MaximumSelections) break;
 			values.Add(item.Value);
 		}
+		await SelectedValuesChanged.InvokeAsync(values);
+	}
+
+	private Task SelectOnlineFromAsync(CharacterPickerItem item) =>
+		item.Online ? SelectOnlineAsync() : Task.CompletedTask;
+
+	private static string SelectionHint(CharacterPickerItem item) => item.Online
+		? $"Right-click to select only {item.Name}; double-click to select all online characters"
+		: $"Right-click to select only {item.Name}";
+
+	private async Task SelectOnlyAsync(CharacterPickerItem item)
+	{
+		if (RememberSelection && !item.IsPlayerBot)
+			await SelectedCharacterStore.SetAsync(item.Name);
+
+		if (!Multiple)
+		{
+			await SelectedValueChanged.InvokeAsync(item.Value);
+			return;
+		}
+
+		IReadOnlySet<string> values = MaximumSelections > 0
+			? new HashSet<string>([item.Value], StringComparer.OrdinalIgnoreCase)
+			: new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 		await SelectedValuesChanged.InvokeAsync(values);
 	}
 

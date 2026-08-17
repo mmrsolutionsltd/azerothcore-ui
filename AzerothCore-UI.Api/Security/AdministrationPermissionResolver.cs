@@ -6,6 +6,8 @@ public static class AdministrationPermissionResolver
     {
         if (path.StartsWith("/api/administration-users/audit")) return "security.audit";
         if (path.StartsWith("/api/security-dashboard")) return "security.audit";
+        if (path.StartsWith("/api/operations-dashboard/alerts")) return "server.settings";
+        if (path.StartsWith("/api/operations-dashboard")) return "server.diagnostics";
         if (path.StartsWith("/api/administration-users/roles")
             || path.StartsWith("/api/administration-users/permissions")) return "security.roles";
         if (path.StartsWith("/api/administration-users")) return "security.users";

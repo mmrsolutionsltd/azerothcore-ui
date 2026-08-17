@@ -127,15 +127,15 @@ public sealed class AzerothCoreSoapClientTests
     [Fact]
     public void BuildCreateAccountCommand_UsesSupportedConsoleSyntax() =>
         Assert.Equal(
-            "account create Family2 Str0ng!Pass",
+            "account create Family2 A1b!",
             AzerothCoreSoapClient.BuildCreateAccountCommand(
-                "Family2", "Str0ng!Pass"));
+                "Family2", "A1b!"));
 
     [Theory]
     [InlineData("ab", "Str0ng!Pass")]
     [InlineData("Account-With-Dashes", "Str0ng!Pass")]
     [InlineData("AccountNameIsTooLong", "Str0ng!Pass")]
-    [InlineData("Family2", "short")]
+    [InlineData("Family2", "abc")]
     [InlineData("Family2", "password with spaces")]
     [InlineData("Family2", "ThisPasswordIsTooLong")]
     public void BuildCreateAccountCommand_RejectsUnsafeValues(

@@ -14,6 +14,7 @@ public sealed class ServerAdministrationController(
     AzerothCoreServerManager serverManager,
     AzerothCoreSoapClient soapClient,
     AzerothCoreConfigurationManager configurationManager,
+    GatheringAbundanceService gatheringAbundanceService,
     AzerothCoreConnectionFactory connectionFactory,
     CompanionLogisticsStore companionLogisticsStore,
     SpellMetadataProvider spellMetadataProvider,
@@ -63,11 +64,13 @@ public sealed class ServerAdministrationController(
         new("herbs", "Herbs", "Herbs for alchemy or inscription.", 0, [171, 773]),
         new("enchanting", "Enchanting materials", "Dust, essences, shards, and crystals.", 0, [333]),
         new("jewelcrafting", "Gems and jewelcrafting", "Raw gems and jewelcrafting materials.", 0, [755]),
+        new("disenchant", "Unusable green equipment",
+            "Green armour and weapons the companion can never use, sent to an enchanter.", 0, [333]),
         new("meat", "Meat", "Cooking ingredients; keep a small personal supply if wanted.", 20, [185]),
         new("elemental", "Elemental materials", "Elemental crafting reagents.", 0, [171, 333, 202]),
         new("parts", "Engineering parts", "Mechanical parts and engineering components.", 0, [202]),
         new("catchall", "Other unused items (catch-all)",
-            "Mail other surplus when no material route handles it. Grey items and permanently unusable white equipment are sold at vendors instead.",
+            "Mail other surplus when no material route handles it. Vendor rubbish and unusable or inferior white equipment are sold instead.",
             0, [])
     ];
 
@@ -728,8 +731,15 @@ public sealed class ServerAdministrationController(
     }
 
     [HttpGet("settings/rates")]
-    public ActionResult<GameplayRateSettings> GetGameplayRateSettings() =>
-        IsLocalRequest() ? Ok(configurationManager.GetGameplayRateSettings()) : NotFound();
+    public async Task<ActionResult<GameplayRateSettings>> GetGameplayRateSettings(
+        CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        var gathering = await gatheringAbundanceService.GetAsync(cancellationToken);
+        return Ok(configurationManager.GetGameplayRateSettings(
+            gathering.HerbAbundancePercent,
+            gathering.MiningAbundancePercent));
+    }
 
     [HttpPut("settings/rates")]
     public async Task<ActionResult<GameplayRateSettings>> UpdateGameplayRateSettings(
@@ -738,9 +748,32 @@ public sealed class ServerAdministrationController(
         if (!IsLocalRequest()) return NotFound();
         try
         {
+            var currentGathering =
+                await gatheringAbundanceService.GetAsync(cancellationToken);
             var result = await configurationManager.UpdateGameplayRateSettingsAsync(request, cancellationToken);
-            logger.LogWarning("ADMIN AUDIT: Gameplay rates configuration updated. A server restart is required.");
-            return Ok(result);
+            GatheringAbundanceSettings gathering = currentGathering;
+            if (request.HerbAbundancePercent
+                    != currentGathering.HerbAbundancePercent
+                || request.MiningAbundancePercent
+                    != currentGathering.MiningAbundancePercent)
+            {
+                var backup = await databaseBackupService.CreateAsync(cancellationToken);
+                gathering = await gatheringAbundanceService.UpdateAsync(
+                    request.HerbAbundancePercent,
+                    request.MiningAbundancePercent,
+                    cancellationToken);
+                logger.LogWarning(
+                    "ADMIN AUDIT: Gathering abundance updated after verified database backup {BackupId}.",
+                    backup.BackupId);
+            }
+
+            logger.LogWarning(
+                "ADMIN AUDIT: Gameplay rates configuration updated. A server restart is required for configuration-file rates.");
+            return Ok(result with
+            {
+                HerbAbundancePercent = gathering.HerbAbundancePercent,
+                MiningAbundancePercent = gathering.MiningAbundancePercent
+            });
         }
         catch (ArgumentException exception) { return BadRequest(new AdministrationResult(false, exception.Message)); }
         catch (InvalidOperationException exception) { return Conflict(new AdministrationResult(false, exception.Message)); }
@@ -1786,18 +1819,17 @@ public sealed class ServerAdministrationController(
             value => value.CharacterGuid, value => value.Name);
         var validRoutes = stored.Routes.Where(route => route.Enabled
             && recipientNames.ContainsKey(route.RecipientGuid)).ToArray();
-        if (validRoutes.Length == 0)
-            return Conflict(new AdministrationResult(
-                false, "Configure at least one valid bag route first."));
-
-        await soapClient.ExecuteAsync(BuildCompanionLogisticsCommand(
-            leader, companion, stored.Settings, validRoutes, recipientNames),
-            cancellationToken);
+        if (validRoutes.Length > 0)
+        {
+            await soapClient.ExecuteAsync(BuildCompanionLogisticsCommand(
+                leader, companion, stored.Settings, validRoutes, recipientNames),
+                cancellationToken);
+        }
         var output = await soapClient.ExecuteAsync(
             $"webadmin companion logistics-run {leader} {companion}",
             cancellationToken);
         Audit("RunCompanionLogistics", companion,
-            $"Leader={leader};Routes={validRoutes.Length}");
+            $"Leader={leader};Routes={(validRoutes.Length == 0 ? "Automatic" : validRoutes.Length.ToString())}");
         var resultLine = output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
             .LastOrDefault() ?? "Companion logistics completed.";
         return Ok(new AdministrationResult(true, resultLine, output));
@@ -2734,7 +2766,7 @@ public sealed class ServerAdministrationController(
                 logisticsByCharacter.GetValueOrDefault(
                     companion.Name, new QuestingCompanionLogisticsStatus(
                         4, 8, false, 0,
-                        "Install bridge protocol 5 to use companion logistics.")));
+                         "Install bridge protocol 6 to use companion logistics.")));
         }).ToArray();
         return new QuestingCompanionInspection(
             companions, BuildQuests(leaderName), protocolVersion, error);

@@ -67,7 +67,7 @@
         {
             @if (ProtocolVersion >= 2)
             {
-                <CompanionInventoryPanel LeaderName="LeaderName"
+                <CompanionInventoryPanel LeaderName="@LeaderName"
                     Companion="Companion" Disabled="Disabled"
                     ProtectionRequested="ProtectionRequested" />
             }
@@ -82,16 +82,16 @@
         {
             <CompanionMaintenancePanel Companion="Companion" Disabled="Disabled"
                 ResetRequested="ResetRequested" />
-            @if (ProtocolVersion >= 5)
+            @if (ProtocolVersion >= 6)
             {
-                <CompanionLogisticsPanel LeaderName="LeaderName"
+                <CompanionLogisticsPanel LeaderName="@LeaderName"
                     Companion="Companion" Disabled="Disabled"
                     RefreshRequested="RefreshRequested" />
             }
             else
             {
                 <div class="alert alert-warning py-2 small mt-3 mb-0">
-                    Bag logistics requires bridge protocol 5.
+                    Bag logistics requires bridge protocol 6.
                 </div>
             }
         }

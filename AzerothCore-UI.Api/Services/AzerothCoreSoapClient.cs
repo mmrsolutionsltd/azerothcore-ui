@@ -138,10 +138,10 @@ public sealed class AzerothCoreSoapClient(IConfiguration configuration, IHttpCli
                 "Account names must contain 3 to 17 letters or numbers.");
 
     public static string RequireAccountPassword(string value) =>
-        Regex.IsMatch(value, "^[!-~]{8,16}$")
+        Regex.IsMatch(value, "^[!-~]{4,16}$")
             ? value
             : throw new ArgumentException(
-                "Account passwords must contain 8 to 16 non-space ASCII characters.");
+                "Account passwords must contain 4 to 16 non-space ASCII characters.");
 
     public static string RequireAccountName(string value) =>
         Regex.IsMatch(value, "^[A-Za-z0-9]{3,32}$")

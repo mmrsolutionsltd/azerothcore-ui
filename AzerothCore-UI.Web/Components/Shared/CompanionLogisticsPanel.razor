@@ -122,7 +122,7 @@
                     Save routes
                 </button>
                 <button class="btn btn-sm btn-primary" type="button"
-                        disabled="@(Disabled || working || !routes.Any(route => route.Enabled))"
+                        disabled="@(Disabled || working)"
                         @onclick="RunAsync">
                     Process now at mailbox
                 </button>
@@ -207,8 +207,11 @@
                 Reserves apply to each material item. Only complete tradable stacks above
                 the reserve are mailed, so routing frees an actual bag slot. Explicit material
                 routes take priority; the catch-all then mails otherwise unrouted items that
-                PlayerBots considers vendor or auction surplus. Grey items and incompatible
-                white gear remain available for vendor cleanup. Normal postage and
+                PlayerBots considers vendor or auction surplus. With no saved routes, the
+                bridge automatically chooses the best-skilled same-account tailor,
+                leatherworker, smith/jewelcrafter, alchemist/inscriptionist, or enchanter.
+                Grey items, inferior or unusable white gear, and unusable green gear with no
+                enchanter route remain available for vendor cleanup. Normal postage and
                 cross-account delivery delay apply.
             </div>
         }

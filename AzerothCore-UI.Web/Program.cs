@@ -137,6 +137,7 @@ void ConfigureApiClient(HttpClient client)
     var apiBaseUrl = builder.Configuration["ApiBaseUrl"]
         ?? throw new InvalidOperationException("ApiBaseUrl is not configured.");
     client.BaseAddress = new Uri(apiBaseUrl);
+    client.Timeout = TimeSpan.FromMinutes(10);
     if (!string.IsNullOrWhiteSpace(apiKey))
         client.DefaultRequestHeaders.Add("X-AzerothCore-Admin-Key", apiKey);
 }

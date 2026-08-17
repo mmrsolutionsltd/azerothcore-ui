@@ -89,6 +89,26 @@ public sealed class AccountsApiClient(HttpClient httpClient)
     public async Task<SecurityDashboard?> GetSecurityDashboardAsync() =>
         await httpClient.GetFromJsonAsync<SecurityDashboard>("api/security-dashboard");
 
+    public Task<OperationsDashboard?> GetOperationsDashboardAsync(
+        CancellationToken cancellationToken = default) =>
+        httpClient.GetFromJsonAsync<OperationsDashboard>(
+            "api/operations-dashboard", cancellationToken);
+
+    public async Task<OperationsAlertSettings?> UpdateOperationsAlertSettingsAsync(
+        OperationsAlertSettings settings)
+    {
+        using var response = await httpClient.PutAsJsonAsync(
+            "api/operations-dashboard/alerts", settings);
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<AdministrationResult>();
+            throw new HttpRequestException(
+                error?.Message ?? "Could not save operations alert settings.",
+                null, response.StatusCode);
+        }
+        return await response.Content.ReadFromJsonAsync<OperationsAlertSettings>();
+    }
+
     public async Task<IReadOnlyList<AdministrationRole>> GetAdministrationRolesAsync() =>
         await httpClient.GetFromJsonAsync<AdministrationRole[]>(
             "api/administration-users/roles") ?? [];

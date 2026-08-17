@@ -24,7 +24,8 @@ public sealed partial class AzerothCoreConfigurationManager(IConfiguration confi
 
     public int GetPlayerLimit() => ReadIntFile(WorldServerPath, "PlayerLimit");
 
-    public GameplayRateSettings GetGameplayRateSettings()
+    public GameplayRateSettings GetGameplayRateSettings(
+        int herbAbundancePercent = 100, int miningAbundancePercent = 100)
     {
         var text = File.ReadAllText(WorldServerPath);
         return new GameplayRateSettings(
@@ -36,7 +37,9 @@ public sealed partial class AzerothCoreConfigurationManager(IConfiguration confi
             ReadDecimal(text, "Rate.Drop.Money"),
             ReadDecimal(text, "Rate.RewardQuestMoney"),
             ReadDecimal(text, "Rate.Honor"),
-            ReadDecimal(text, "Rate.RepairCost"));
+            ReadDecimal(text, "Rate.RepairCost"),
+            herbAbundancePercent,
+            miningAbundancePercent);
     }
 
     public async Task<GameplayRateSettings> UpdateGameplayRateSettingsAsync(
@@ -55,7 +58,8 @@ public sealed partial class AzerothCoreConfigurationManager(IConfiguration confi
             ["Rate.RepairCost"] = Format(request.RepairCost)
         };
         await UpdateFileAsync(WorldServerPath, request.Version, values, cancellationToken);
-        return GetGameplayRateSettings();
+        return GetGameplayRateSettings(
+            request.HerbAbundancePercent, request.MiningAbundancePercent);
     }
 
     public PlayerBotSettings GetPlayerBotSettings()
@@ -232,6 +236,10 @@ public sealed partial class AzerothCoreConfigurationManager(IConfiguration confi
             value.MoneyDrops, value.QuestMoney, value.Honor, value.RepairCost };
         if (rates.Any(rate => rate is < 0 or > 100))
             throw new ArgumentException("Gameplay rates must be between 0 and 100.");
+        GatheringAbundanceService.ValidatePercentage(
+            value.HerbAbundancePercent, "Herb abundance");
+        GatheringAbundanceService.ValidatePercentage(
+            value.MiningAbundancePercent, "Mining abundance");
     }
 
     private async Task UpdateFileAsync(string path, string version, IReadOnlyDictionary<string, string> values,

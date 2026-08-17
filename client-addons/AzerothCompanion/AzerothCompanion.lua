@@ -1,11 +1,12 @@
 local ADDON_PREFIX = "AzerothCore"
 local REFRESH_SECONDS = 5
 local RESPONSE_TIMEOUT_SECONDS = 3
-local EXPECTED_PROTOCOL = 5
+local EXPECTED_PROTOCOL = 7
 local DEFAULT_WIDTH = 360
 local DEFAULT_HEIGHT = 510
 local MIN_WIDTH = 210
-local MIN_HEIGHT = 260
+local MIN_HEIGHT = 110
+local COMPACT_MIN_HEIGHT = 145
 local MAX_WIDTH = 800
 local MAX_HEIGHT = 900
 local CLASS_NAMES = {
@@ -23,6 +24,11 @@ local loggedIn = false
 local linePool = {}
 local buttonPool = {}
 local SendCompanionCommand
+local carboniteInjectedPlayers = {}
+local detailsExpanded = false
+local expandedHeight = DEFAULT_HEIGHT
+local applyingLayout = false
+local SetDetailsExpanded
 
 local function SplitTabs(value)
     local fields = {}
@@ -67,6 +73,138 @@ local function EnsureQuest(target, playerName, questId, title, complete)
     return quest
 end
 
+local function NormaliseObjectiveName(value)
+    local normalised = string.gsub(value or "", "[^%w]", "")
+    return string.lower(normalised)
+end
+
+local function CarbonitePartyQuestDisplayAvailable()
+    if type(Nx) ~= "table" or type(Nx.Que) ~= "table"
+        or type(Nx.Que.PaQ) ~= "table" or type(Nx.Que.ITQ) ~= "table"
+        or type(Nx.Que.PUT) ~= "function" then
+        return false
+    end
+    if not Nx.Que.GOp or not Nx.Que.GOp["QPartyShare"] then
+        return false
+    end
+    local partyButton = Nx.Que.Wat and Nx.Que.Wat.BSP
+    if partyButton and type(partyButton.GeP) == "function" then
+        local succeeded, enabled = pcall(partyButton.GeP, partyButton)
+        if not succeeded or not enabled then return false end
+    end
+    return true
+end
+
+local function CarboniteObjectiveNames(carboniteQuest)
+    local names = {}
+    if type(Nx.Que.UnO) ~= "function" then return names end
+    for index = 1, 20 do
+        local packedObjective = carboniteQuest[index + 3]
+        if not packedObjective then break end
+        local succeeded, objectiveName = pcall(
+            Nx.Que.UnO, Nx.Que, packedObjective)
+        names[index] = succeeded and NormaliseObjectiveName(objectiveName) or ""
+    end
+    return names
+end
+
+local function BuildCarboniteQuestProgress(quest, carboniteQuest)
+    local progress = { Com2 = quest.complete and 1 or nil }
+    local objectives = {}
+    for _, objectiveKey in ipairs(quest.objectiveOrder) do
+        table.insert(objectives, quest.objectives[objectiveKey])
+    end
+
+    local carboniteNames = CarboniteObjectiveNames(carboniteQuest)
+    local slotCount = math.max(table.getn(objectives), table.getn(carboniteNames))
+    for index = 1, slotCount do
+        progress[index] = 0
+        progress[index + 100] = 0
+    end
+
+    local assignedSlots = {}
+    local unassignedObjectives = {}
+    for _, objective in ipairs(objectives) do
+        local objectiveName = NormaliseObjectiveName(objective.name)
+        local matchedSlot
+        if objectiveName ~= "" then
+            for index, carboniteName in ipairs(carboniteNames) do
+                if not assignedSlots[index] and carboniteName ~= ""
+                    and (carboniteName == objectiveName
+                        or string.find(carboniteName, objectiveName, 1, true)
+                        or string.find(objectiveName, carboniteName, 1, true)) then
+                    matchedSlot = index
+                    break
+                end
+            end
+        end
+        if matchedSlot then
+            assignedSlots[matchedSlot] = true
+            progress[matchedSlot] = objective.current or 0
+            progress[matchedSlot + 100] = objective.required or 0
+        else
+            table.insert(unassignedObjectives, objective)
+        end
+    end
+
+    local nextSlot = 1
+    for _, objective in ipairs(unassignedObjectives) do
+        while assignedSlots[nextSlot] do nextSlot = nextSlot + 1 end
+        assignedSlots[nextSlot] = true
+        progress[nextSlot] = objective.current or 0
+        progress[nextSlot + 100] = objective.required or 0
+    end
+    return progress
+end
+
+local function RefreshCarbonitePartyQuests(target)
+    if not CarbonitePartyQuestDisplayAvailable() then return false end
+
+    local activePlayers = {}
+    local bridgedAny = false
+    for _, companionName in ipairs(target.companionOrder) do
+        local companion = target.companions[companionName]
+        local player = target.players[companionName]
+        companion.questsInCarbonite = false
+        if companion.inParty and player then
+            local carbonitePlayer = {}
+            local supportedQuestCount = 0
+            for _, questId in ipairs(player.questOrder) do
+                local quest = player.quests[questId]
+                local carboniteQuest = Nx.Que.ITQ[questId]
+                if carboniteQuest then
+                    carbonitePlayer[questId] = BuildCarboniteQuestProgress(
+                        quest, carboniteQuest)
+                    supportedQuestCount = supportedQuestCount + 1
+                end
+            end
+            if supportedQuestCount == table.getn(player.questOrder) then
+                Nx.Que.PaQ[companionName] = carbonitePlayer
+                carboniteInjectedPlayers[companionName] = true
+                activePlayers[companionName] = true
+                companion.questsInCarbonite = true
+                bridgedAny = true
+            end
+        end
+    end
+
+    for playerName in pairs(carboniteInjectedPlayers) do
+        if not activePlayers[playerName] then
+            Nx.Que.PaQ[playerName] = nil
+            carboniteInjectedPlayers[playerName] = nil
+        end
+    end
+
+    if Nx.Tim and type(Nx.Tim.Sta) == "function" then
+        pcall(function()
+            Nx.Tim:Sta("QPartyUpdate", 0, Nx.Que, Nx.Que.PUT)
+        end)
+    else
+        pcall(Nx.Que.PUT, Nx.Que)
+    end
+    return bridgedAny
+end
+
 local frame = CreateFrame("Frame", "AzerothCompanionFrame", UIParent)
 frame:SetWidth(DEFAULT_WIDTH)
 frame:SetHeight(DEFAULT_HEIGHT)
@@ -88,7 +226,7 @@ frame:SetFrameStrata("MEDIUM")
 
 local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 title:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -17)
-title:SetText("Questing companions")
+title:SetText("Companions")
 
 local status = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 status:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 18, 21)
@@ -99,6 +237,15 @@ status:SetText("Waiting for login")
 
 local closeButton = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
 closeButton:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -5, -5)
+
+local detailsButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate2")
+detailsButton:SetWidth(62)
+detailsButton:SetHeight(20)
+detailsButton:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -34, -9)
+detailsButton:SetText("Details")
+detailsButton:SetScript("OnClick", function()
+    if SetDetailsExpanded then SetDetailsExpanded(not detailsExpanded) end
+end)
 
 local refreshButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate2")
 refreshButton:SetWidth(72)
@@ -149,7 +296,10 @@ end
 local function SaveSize()
     if not AzerothCompanionDB then return end
     AzerothCompanionDB.width = math.floor(frame:GetWidth() + 0.5)
-    AzerothCompanionDB.height = math.floor(frame:GetHeight() + 0.5)
+    if detailsExpanded then
+        expandedHeight = math.floor(frame:GetHeight() + 0.5)
+        AzerothCompanionDB.height = expandedHeight
+    end
 end
 
 frame:SetScript("OnDragStart", function(self)
@@ -214,8 +364,8 @@ local function CompanionObjectiveText(objective)
         objective.current, objective.required)
 end
 
-local function AddCompanionButtons(target, companionName, companion)
-    local actions = {
+local function AddCompanionButtons(target, companionName, companion, compact)
+    local presetActions = {
         { "Quest", function()
             SendCompanionCommand("webadmin companion preset " .. target.leader
                 .. " " .. companionName .. " questing")
@@ -227,7 +377,9 @@ local function AddCompanionButtons(target, companionName, companion)
         { "Healer", function()
             SendCompanionCommand("webadmin companion preset " .. target.leader
                 .. " " .. companionName .. " dungeon-healer")
-        end },
+        end }
+    }
+    local controlActions = {
         { "Follow", function()
             SendCompanionCommand(string.format(
                 "webadmin companion behavior %s %s custom %s follow %s %.1f %d %d %d %d",
@@ -253,6 +405,11 @@ local function AddCompanionButtons(target, companionName, companion)
                 .. " " .. companionName)
         end }
     }
+    local actions = {}
+    if not compact then
+        for _, action in ipairs(presetActions) do table.insert(actions, action) end
+    end
+    for _, action in ipairs(controlActions) do table.insert(actions, action) end
     local gap = 4
     local buttonWidth = 58
     local perRow = math.max(2, math.floor(
@@ -321,19 +478,29 @@ local function Render(target)
         local className = CLASS_NAMES[companion.classId]
             or ("Class " .. tostring(companion.classId))
         lineIndex = AddLine(lineIndex,
-            string.format("%s - Level %d %s", companionName,
-                companion.level, className), 1, 0.82, 0)
+            string.format("%s - Level %d %s | %s", companionName,
+                companion.level, className, companion.role or "auto"),
+            1, 0.82, 0)
 
         local bagColour = companion.freeSlots <= 3 and { 1, 0.25, 0.25 }
             or companion.freeSlots <= 8 and { 1, 0.75, 0.2 }
             or { 0.3, 1, 0.3 }
-        lineIndex = AddLine(lineIndex,
-            string.format("Bags: %d free / %d total | Loot: %s | Party: %s",
+        local bagSummary = detailsExpanded
+            and string.format("Bags: %d free / %d total | Loot: %s | Party: %s",
                 companion.freeSlots, companion.totalSlots,
                 companion.lootEnabled and "on" or "off",
-                companion.inParty and "yes" or "no"),
+                companion.inParty and "yes" or "no")
+            or string.format("Bags %d/%d free | %s",
+                companion.freeSlots, companion.totalSlots,
+                companion.movement == "stay" and "staying" or "following")
+        lineIndex = AddLine(lineIndex, bagSummary,
             bagColour[1], bagColour[2], bagColour[3], 12)
-        if companion.autoSell or companion.autoRepair then
+        if companion.maintenanceStatus and companion.maintenanceStatus ~= "" then
+            lineIndex = AddLine(lineIndex,
+                "Latest: " .. companion.maintenanceStatus,
+                0.65, 0.85, 0.65, 12)
+        end
+        if detailsExpanded and (companion.autoSell or companion.autoRepair) then
             lineIndex = AddLine(lineIndex,
                 "Maintenance: "
                     .. (companion.autoSell and "junk sales on" or "junk sales off")
@@ -341,7 +508,7 @@ local function Render(target)
                     .. (companion.autoRepair and "repairs on" or "repairs off"),
                 0.55, 0.85, 0.55, 12)
         end
-        if companion.role then
+        if detailsExpanded and companion.role then
             lineIndex = AddLine(lineIndex,
                 string.format("Behaviour: %s | %s | %s | %.0fm",
                     companion.role, companion.movement,
@@ -350,11 +517,12 @@ local function Render(target)
                     companion.followDistance or 3),
                 0.7, 0.85, 1, 12)
         end
-        if companion.gather and companion.gather ~= "" then
+        if detailsExpanded and companion.gather and companion.gather ~= "" then
             lineIndex = AddLine(lineIndex,
                 "Gathering: " .. companion.gather, 0.45, 0.75, 1, 12)
         end
-        if companion.logisticsStatus and companion.logisticsStatus ~= "" then
+        if detailsExpanded and companion.logisticsStatus
+            and companion.logisticsStatus ~= "" then
             lineIndex = AddLine(lineIndex,
                 string.format("Bag routes: %s | %d route%s | trigger %d / target %d",
                     companion.logisticsStatus,
@@ -365,84 +533,97 @@ local function Render(target)
                 0.75, 0.75, 1, 12)
         end
 
-        local companionPlayer = target.players[companionName]
-        local shared = 0
-        if leader and companionPlayer then
-            for _, questId in ipairs(leader.questOrder) do
-                local leaderQuest = leader.quests[questId]
-                local companionQuest = companionPlayer.quests[questId]
-                if companionQuest then
-                    shared = shared + 1
-                    if shared == 1 then
-                        lineIndex = AddLine(lineIndex, "Shared quests",
-                            0.7, 0.85, 1, 12)
-                    end
-                    local complete = leaderQuest.complete and companionQuest.complete
-                    lineIndex = AddLine(lineIndex,
-                        (complete and "[Complete] " or "") .. leaderQuest.title,
-                        complete and 0.3 or 1,
-                        complete and 1 or 0.85,
-                        complete and 0.3 or 0.25, 12)
-                    for _, objectiveKey in ipairs(leaderQuest.objectiveOrder) do
-                        local leaderObjective = leaderQuest.objectives[objectiveKey]
-                        local companionObjective = companionQuest.objectives[objectiveKey]
-                        local objectiveComplete = companionObjective
-                            and companionObjective.current >= companionObjective.required
+        if detailsExpanded and not companion.questsInCarbonite then
+            local companionPlayer = target.players[companionName]
+            local shared = 0
+            if leader and companionPlayer then
+                for _, questId in ipairs(leader.questOrder) do
+                    local leaderQuest = leader.quests[questId]
+                    local companionQuest = companionPlayer.quests[questId]
+                    if companionQuest then
+                        shared = shared + 1
+                        if shared == 1 then
+                            lineIndex = AddLine(lineIndex, "Shared quests",
+                                0.7, 0.85, 1, 12)
+                        end
+                        local complete = leaderQuest.complete and companionQuest.complete
                         lineIndex = AddLine(lineIndex,
-                            ObjectiveText(target.leader, companionName,
-                                leaderObjective, companionObjective),
-                            objectiveComplete and 0.45 or 0.85,
-                            objectiveComplete and 1 or 0.85,
-                            objectiveComplete and 0.45 or 0.85, 24)
+                            (complete and "[Complete] " or "") .. leaderQuest.title,
+                            complete and 0.3 or 1,
+                            complete and 1 or 0.85,
+                            complete and 0.3 or 0.25, 12)
+                        for _, objectiveKey in ipairs(leaderQuest.objectiveOrder) do
+                            local leaderObjective = leaderQuest.objectives[objectiveKey]
+                            local companionObjective = companionQuest.objectives[objectiveKey]
+                            local objectiveComplete = companionObjective
+                                and companionObjective.current >= companionObjective.required
+                            lineIndex = AddLine(lineIndex,
+                                ObjectiveText(target.leader, companionName,
+                                    leaderObjective, companionObjective),
+                                objectiveComplete and 0.45 or 0.85,
+                                objectiveComplete and 1 or 0.85,
+                                objectiveComplete and 0.45 or 0.85, 24)
+                        end
                     end
                 end
             end
-        end
 
-        local companionOnly = 0
-        if companionPlayer then
-            for _, questId in ipairs(companionPlayer.questOrder) do
-                local leaderHasQuest = leader and leader.quests[questId]
-                if not leaderHasQuest then
-                    local quest = companionPlayer.quests[questId]
-                    companionOnly = companionOnly + 1
-                    if companionOnly == 1 then
-                        lineIndex = AddLine(lineIndex, "Companion-only quests",
-                            0.85, 0.7, 1, 12)
-                    end
-                    lineIndex = AddLine(lineIndex,
-                        (quest.complete and "[Complete] " or "") .. quest.title,
-                        quest.complete and 0.3 or 1,
-                        quest.complete and 1 or 0.75,
-                        quest.complete and 0.3 or 1, 12)
-                    for _, objectiveKey in ipairs(quest.objectiveOrder) do
-                        local objective = quest.objectives[objectiveKey]
-                        local objectiveComplete =
-                            objective.current >= objective.required
+            local companionOnly = 0
+            if companionPlayer then
+                for _, questId in ipairs(companionPlayer.questOrder) do
+                    local leaderHasQuest = leader and leader.quests[questId]
+                    if not leaderHasQuest then
+                        local quest = companionPlayer.quests[questId]
+                        companionOnly = companionOnly + 1
+                        if companionOnly == 1 then
+                            lineIndex = AddLine(lineIndex, "Companion-only quests",
+                                0.85, 0.7, 1, 12)
+                        end
                         lineIndex = AddLine(lineIndex,
-                            CompanionObjectiveText(objective),
-                            objectiveComplete and 0.45 or 0.85,
-                            objectiveComplete and 1 or 0.85,
-                            objectiveComplete and 0.45 or 0.85, 24)
+                            (quest.complete and "[Complete] " or "") .. quest.title,
+                            quest.complete and 0.3 or 1,
+                            quest.complete and 1 or 0.75,
+                            quest.complete and 0.3 or 1, 12)
+                        for _, objectiveKey in ipairs(quest.objectiveOrder) do
+                            local objective = quest.objectives[objectiveKey]
+                            local objectiveComplete =
+                                objective.current >= objective.required
+                            lineIndex = AddLine(lineIndex,
+                                CompanionObjectiveText(objective),
+                                objectiveComplete and 0.45 or 0.85,
+                                objectiveComplete and 1 or 0.85,
+                                objectiveComplete and 0.45 or 0.85, 24)
+                        end
                     end
                 end
             end
-        end
-        if shared == 0 and companionOnly == 0 then
-            lineIndex = AddLine(lineIndex, "No active quests.",
-                0.6, 0.6, 0.6, 12)
-        elseif shared == 0 then
-            lineIndex = AddLine(lineIndex, "No quests shared with you.",
-                0.6, 0.6, 0.6, 12)
+            if shared == 0 and companionOnly == 0 then
+                lineIndex = AddLine(lineIndex, "No active quests.",
+                    0.6, 0.6, 0.6, 12)
+            elseif shared == 0 then
+                lineIndex = AddLine(lineIndex, "No quests shared with you.",
+                    0.6, 0.6, 0.6, 12)
+            end
         end
         if target.protocolVersion == EXPECTED_PROTOCOL then
-            AddCompanionButtons(target, companionName, companion)
+            AddCompanionButtons(target, companionName, companion,
+                not detailsExpanded)
         end
         lineIndex = AddLine(lineIndex, " ", 1, 1, 1)
     end
     content:SetHeight(math.max(ContentViewportHeight(), -content.nextY + 8))
+    if not detailsExpanded then
+        local compactHeight = Clamp(-content.nextY + 96,
+            COMPACT_MIN_HEIGHT, MAX_HEIGHT)
+        if math.abs(frame:GetHeight() - compactHeight) > 1 then
+            applyingLayout = true
+            frame:SetHeight(compactHeight)
+            applyingLayout = false
+        end
+    end
     if target.protocolVersion == EXPECTED_PROTOCOL then
         status:SetText("Bridge v" .. target.protocolVersion
+            .. (target.carboniteQuestBridge and " + Carbonite" or "")
             .. " - " .. date("%H:%M:%S"))
     elseif target.protocolVersion then
         status:SetText("Version mismatch")
@@ -451,9 +632,38 @@ local function Render(target)
     end
 end
 
-frame:SetScript("OnSizeChanged", function()
+SetDetailsExpanded = function(expanded)
+    if expanded and not detailsExpanded then
+        detailsExpanded = true
+        if AzerothCompanionDB then AzerothCompanionDB.expanded = true end
+        detailsButton:SetText("Compact")
+        resizeButton:Show()
+        applyingLayout = true
+        frame:SetHeight(Clamp(expandedHeight, MIN_HEIGHT, MAX_HEIGHT))
+        applyingLayout = false
+    elseif not expanded and detailsExpanded then
+        expandedHeight = frame:GetHeight()
+        if AzerothCompanionDB then
+            AzerothCompanionDB.height = math.floor(expandedHeight + 0.5)
+            AzerothCompanionDB.expanded = false
+        end
+        detailsExpanded = false
+        detailsButton:SetText("Details")
+        resizeButton:Hide()
+    elseif expanded then
+        detailsButton:SetText("Compact")
+        resizeButton:Show()
+    else
+        detailsButton:SetText("Details")
+        resizeButton:Hide()
+    end
     UpdateContentWidth()
     Render(snapshot)
+end
+
+frame:SetScript("OnSizeChanged", function()
+    UpdateContentWidth()
+    if not applyingLayout then Render(snapshot) end
 end)
 
 local function ParseProtocolLine(target, body)
@@ -492,6 +702,10 @@ local function ParseProtocolLine(target, body)
             companion.autoSell = fields[3] == "1"
             companion.autoRepair = fields[4] == "1"
         end
+    elseif recordType == "WEBADMIN_COMPANION_MAINTENANCE_STATUS"
+        and #fields >= 3 then
+        local companion = target.companions[fields[2]]
+        if companion then companion.maintenanceStatus = fields[3] end
     elseif recordType == "WEBADMIN_COMPANION_BEHAVIOR" and #fields >= 11 then
         local companion = target.companions[fields[2]]
         if companion then
@@ -524,6 +738,7 @@ local function ParseProtocolLine(target, body)
     elseif recordType == "WEBADMIN_COMPANION_SUMMARY" and #fields >= 3 then
         target.leader = fields[2]
         target.reportedCount = tonumber(fields[3]) or 0
+        target.carboniteQuestBridge = RefreshCarbonitePartyQuests(target)
         snapshot = target
         target.completed = true
         Render(snapshot)
@@ -612,10 +827,12 @@ frame:SetScript("OnEvent", function(self, event, ...)
         local loadedAddon = ...
         if loadedAddon ~= "AzerothCompanion" then return end
         AzerothCompanionDB = AzerothCompanionDB or {}
+        expandedHeight = Clamp(AzerothCompanionDB.height or DEFAULT_HEIGHT,
+            MIN_HEIGHT, MAX_HEIGHT)
+        detailsExpanded = AzerothCompanionDB.expanded == true
         self:SetWidth(Clamp(AzerothCompanionDB.width or DEFAULT_WIDTH,
             MIN_WIDTH, MAX_WIDTH))
-        self:SetHeight(Clamp(AzerothCompanionDB.height or DEFAULT_HEIGHT,
-            MIN_HEIGHT, MAX_HEIGHT))
+        self:SetHeight(detailsExpanded and expandedHeight or COMPACT_MIN_HEIGHT)
         if AzerothCompanionDB.point then
             self:ClearAllPoints()
             self:SetPoint(AzerothCompanionDB.point, UIParent,
@@ -626,6 +843,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
         if RegisterAddonMessagePrefix then
             RegisterAddonMessagePrefix(ADDON_PREFIX)
         end
+        SetDetailsExpanded(detailsExpanded)
     elseif event == "PLAYER_LOGIN" then
         loggedIn = true
         elapsedSinceRefresh = REFRESH_SECONDS
@@ -643,7 +861,10 @@ frame:SetScript("OnEvent", function(self, event, ...)
 end)
 
 frame:SetScript("OnUpdate", function(_, elapsed)
-    if not loggedIn or not frame:IsShown() then return end
+    if not loggedIn then return end
+    if not frame:IsShown() and not CarbonitePartyQuestDisplayAvailable() then
+        return
+    end
     elapsedSinceRefresh = elapsedSinceRefresh + elapsed
     if activeRequest and not activeRequest.completed
         and GetTime() - activeRequest.startedAt >= RESPONSE_TIMEOUT_SECONDS then
@@ -675,4 +896,4 @@ SlashCmdList.AZEROTHCOMPANION = function()
     end
 end
 
-Render(nil)
+SetDetailsExpanded(false)

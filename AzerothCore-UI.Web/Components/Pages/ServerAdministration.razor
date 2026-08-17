@@ -161,7 +161,28 @@ else
                     <div class="col-sm-6 col-lg-3"><label class="form-label" for="rate-repair">Repair cost</label><div class="input-group"><input id="rate-repair" class="form-control" type="number" min="0" max="100" step="0.1" @bind="gameplayRates.RepairCost" /><span class="input-group-text">&times;</span></div></div>
                 </div>
                 <hr />
-                <button class="btn btn-primary" disabled="@isWorking" @onclick="SaveGameplayRatesAsync">Save rates</button>
+                <h6>Gathering node abundance</h6>
+                <p class="text-muted small">
+                    <strong>100%</strong> is the original respawn rate. Higher values make genuine profession-locked nodes return sooner without changing treasure chests. A verified database backup is created before either value changes.
+                </p>
+                <div class="row g-3">
+                    <div class="col-sm-6 col-lg-3">
+                        <label class="form-label" for="rate-herb-abundance">Herbs</label>
+                        <div class="input-group">
+                            <input id="rate-herb-abundance" class="form-control" type="number" min="25" max="500" step="5" @bind="gameplayRates.HerbAbundancePercent" />
+                            <span class="input-group-text">%</span>
+                        </div>
+                    </div>
+                    <div class="col-sm-6 col-lg-3">
+                        <label class="form-label" for="rate-mining-abundance">Minerals</label>
+                        <div class="input-group">
+                            <input id="rate-mining-abundance" class="form-control" type="number" min="25" max="500" step="5" @bind="gameplayRates.MiningAbundancePercent" />
+                            <span class="input-group-text">%</span>
+                        </div>
+                    </div>
+                </div>
+                <hr />
+                <button class="btn btn-primary" disabled="@(isWorking || !GatheringRatesValid)" @onclick="SaveGameplayRatesAsync">Save rates</button>
             </div></div>
         }
     }

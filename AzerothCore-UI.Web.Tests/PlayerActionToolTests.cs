@@ -29,12 +29,15 @@ public sealed class PlayerActionToolTests : BunitContext
         }));
         var authorization = AddAuthorization();
         authorization.SetAuthorized("owner");
-        authorization.SetPolicies("world.creatures");
+        authorization.SetPolicies("world.creatures", "players.services");
         authorization.SetClaims(
             new Claim(ClaimTypes.NameIdentifier, "owner"),
             new Claim(
                 AdministrationPermissions.ClaimType,
-                "world.creatures"));
+                "world.creatures"),
+            new Claim(
+                AdministrationPermissions.ClaimType,
+                "players.services"));
         Services.AddScoped<SelectedCharacterStore>();
         Services.AddScoped<RecentPickerSelectionStore>();
         JSInterop.Mode = JSRuntimeMode.Loose;
@@ -54,6 +57,7 @@ public sealed class PlayerActionToolTests : BunitContext
                 "Movement speed",
                 "Guild bank",
                 "Summon a useful NPC",
+                "Revive character",
                 "Creature spawner"
             ],
             component.FindAll("h2")
@@ -95,7 +99,7 @@ public sealed class PlayerActionToolTests : BunitContext
         Assert.NotNull(controls);
         Assert.Equal(2, controls.QuerySelectorAll("input[type='checkbox']").Length);
         Assert.Equal(
-            ["All", "Clear"],
+            ["Online", "Clear"],
             controls.QuerySelectorAll("button")
                 .Select(button => button.TextContent.Trim())
                 .ToArray());
@@ -123,6 +127,21 @@ public sealed class PlayerActionToolTests : BunitContext
             .Add(tool => tool.Available, true));
 
         Assert.False(SendButton(component).HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public void ReviveActionAppliesToEverySelectedCharacter()
+    {
+        var component = Render<ReviveCharacterTool>(parameters => parameters
+            .Add(tool => tool.Targets, [OnlinePlayer, SecondOnlinePlayer])
+            .Add(tool => tool.Available, true));
+
+        component.FindAll("button").Single(button =>
+            button.TextContent.Trim() == "Revive").Click();
+
+        component.WaitForAssertion(() => Assert.Contains(
+            "Revive completed for all 2 selected characters.",
+            component.Find("[role='status']").TextContent));
     }
 
     [Fact]
@@ -494,6 +513,8 @@ public sealed class PlayerActionToolTests : BunitContext
                     new AdministrationResult(true, "Returned."),
                 "/api/server-administration/money/give" =>
                     new AdministrationResult(true, "Money sent."),
+                "/api/server-administration/characters/service" =>
+                    new AdministrationResult(true, "Character revived."),
                 _ => throw new InvalidOperationException(
                     $"Unexpected HTTP request in component test: {request.RequestUri}")
             };

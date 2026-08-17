@@ -38,15 +38,22 @@ builder.Services.AddSingleton<AzerothCore_UI.Api.Security.AdministrationRequestA
 builder.Services.AddSingleton<AzerothCore_UI.Api.Security.AdministrationActivityAudit>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Data.SpellMetadataProvider>();
 builder.Services.AddHttpClient();
+builder.Services.AddHttpClient("Operations", client =>
+    client.Timeout = TimeSpan.FromSeconds(8));
 builder.Services.AddSingleton<AzerothCore_UI.Api.Services.AzerothCoreSoapClient>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Services.AzerothCoreServerManager>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Services.AzerothCoreConfigurationManager>();
+builder.Services.AddSingleton<AzerothCore_UI.Api.Services.GatheringAbundanceService>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Services.AzerothCoreDiagnosticsService>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Services.DatabaseBackupService>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Services.DatabaseBackupScheduler>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Services.SecurityDashboardService>();
+builder.Services.AddSingleton<AzerothCore_UI.Api.Services.OperationsAlertStore>();
+builder.Services.AddSingleton<AzerothCore_UI.Api.Services.OperationsEmailSender>();
+builder.Services.AddSingleton<AzerothCore_UI.Api.Services.OperationsDashboardService>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Services.DungeonGuideService>();
 builder.Services.AddHostedService<AzerothCore_UI.Api.Services.DatabaseBackupWorker>();
+builder.Services.AddHostedService<AzerothCore_UI.Api.Services.OperationsAlertWorker>();
 builder.Services.AddHealthChecks()
     .AddCheck<AzerothCore_UI.Api.Services.ApiReadinessHealthCheck>("api-readiness");
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi

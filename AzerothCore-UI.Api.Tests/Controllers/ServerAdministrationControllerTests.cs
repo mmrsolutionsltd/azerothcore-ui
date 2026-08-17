@@ -179,16 +179,18 @@ public sealed class ServerAdministrationControllerTests
                 new StoredCompanionLogisticsRoute("cloth", 12, 40, true),
                 new StoredCompanionLogisticsRoute("metal", 13, 0, true),
                 new StoredCompanionLogisticsRoute("catchall", 14, 0, true),
+                new StoredCompanionLogisticsRoute("disenchant", 15, 0, true),
                 new StoredCompanionLogisticsRoute("herbs", 99, 20, true)
             ],
             new Dictionary<uint, string>
             {
-                [12] = "Tailor", [13] = "Smith", [14] = "Banker"
+                [12] = "Tailor", [13] = "Smith", [14] = "Banker",
+                [15] = "Enchanter"
             });
 
         Assert.Equal(
             "webadmin companion logistics Leader Helper 4 9 1 "
-            + "cloth Tailor 40 metal Smith 0 catchall Banker 0",
+            + "cloth Tailor 40 disenchant Enchanter 0 metal Smith 0 catchall Banker 0",
             command);
     }
 

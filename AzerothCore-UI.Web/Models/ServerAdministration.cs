@@ -32,6 +32,8 @@ public sealed class GameplayRateSettings
     public decimal QuestMoney { get; set; }
     public decimal Honor { get; set; }
     public decimal RepairCost { get; set; }
+    public int HerbAbundancePercent { get; set; } = 100;
+    public int MiningAbundancePercent { get; set; } = 100;
 }
 public sealed class AuctionHouseBotSettings
 {

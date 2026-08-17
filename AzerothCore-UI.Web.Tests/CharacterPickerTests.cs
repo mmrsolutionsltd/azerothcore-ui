@@ -74,7 +74,7 @@ public sealed class CharacterPickerTests : BunitContext
     }
 
     [Fact]
-    public void SelectAllHonoursTheMaximumAndClearRemovesEverySelection()
+    public void DoubleClickOnlineHonoursTheMaximumAndClearRemovesEverySelection()
     {
         IReadOnlySet<string> selectedValues = new HashSet<string>();
         var picker = Render<CharacterPicker>(parameters => parameters
@@ -87,13 +87,56 @@ public sealed class CharacterPickerTests : BunitContext
             .Add(component => component.SelectedValuesChanged,
                 values => selectedValues = values));
 
-        ButtonWithText(picker, "All").Click();
+        CharacterButton(picker, "Anduin").DoubleClick();
         Assert.Equal(2, selectedValues.Count);
         Assert.Contains("anduin", selectedValues);
         Assert.Contains("thrall", selectedValues);
 
         ButtonWithText(picker, "Clear").Click();
         Assert.Empty(selectedValues);
+    }
+
+    [Fact]
+    public void SelectOnlineReplacesSelectionAndHonoursBotVisibility()
+    {
+        IReadOnlySet<string> selectedValues = new HashSet<string>();
+        var picker = Render<CharacterPicker>(parameters => parameters
+            .Add(component => component.Items, Items)
+            .Add(component => component.Multiple, true)
+            .Add(component => component.ShowOfflineInitially, true)
+            .Add(component => component.RememberSelection, false)
+            .Add(component => component.SelectedValues,
+                new HashSet<string>(["jaina"]))
+            .Add(component => component.SelectedValuesChanged,
+                values => selectedValues = values));
+
+        ButtonWithText(picker, "Online").Click();
+        Assert.Equal(["anduin"], selectedValues);
+
+        picker.Find("input[id$='-bots']").Change(true);
+        ButtonWithText(picker, "Online").Click();
+        Assert.Equal(
+            ["anduin", "thrall"],
+            selectedValues.OrderBy(value => value).ToArray());
+    }
+
+    [Fact]
+    public void RightClickSelectsOnlyThatCharacter()
+    {
+        IReadOnlySet<string> selectedValues = new HashSet<string>();
+        var picker = Render<CharacterPicker>(parameters => parameters
+            .Add(component => component.Items, Items)
+            .Add(component => component.Multiple, true)
+            .Add(component => component.ShowOfflineInitially, true)
+            .Add(component => component.RememberSelection, false)
+            .Add(component => component.SelectedValues,
+                new HashSet<string>(["anduin", "jaina"]))
+            .Add(component => component.SelectedValuesChanged,
+                values => selectedValues = values));
+
+        CharacterButton(picker, "Jaina").ContextMenu();
+
+        Assert.Equal(["jaina"], selectedValues);
     }
 
     [Fact]

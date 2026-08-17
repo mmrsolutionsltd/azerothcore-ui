@@ -67,9 +67,14 @@ website can compare a companion's progress with its leader. Active companions al
 once per second for needed quest-item chests within 40 metres, explicitly move to and
 open them, and expose the current collection stage through the inspect command.
 While the leader and companion are alive and out of combat, companions also check every
-five seconds for interactable nearby vendors and repairers, automatically sell
-poor-quality (grey) items and permanently unusable white equipment, and repair damaged
-equipment. Every ten seconds, an out-of-combat companion also checks for an interactable
+two seconds for interactable nearby vendors and repairers. Each pass can sell up to six
+different item types: poor-quality (grey) items, white equipment that is unusable or no
+longer an upgrade, and permanently unusable green or blue equipment when no enchanter
+route is available. When free bag space is at or below the configured refill target, it
+also sells items that a freshly recalculated PlayerBots decision marks as auction or
+vendor surplus, unless a material or catch-all mail route protects them. Profession
+tools, active quest items, bags, keys and recipes remain protected. The companion also
+repairs damaged equipment. Every ten seconds, an out-of-combat companion also checks for an interactable
 profession trainer. It automatically buys all currently available training for
 professions it already knows, using the normal skill, level, prerequisite, reputation,
 and money rules. It never learns a new profession or class abilities this way.
@@ -84,8 +89,8 @@ auto, tank, healer, or damage; tank and healer are rejected unless the companion
 current specialization supports them. Movement can follow or stay, combat focus can
 prioritize the leader's selected target or let PlayerBots defend the party naturally,
 and loot, quest-object gathering, junk selling, and repair can each be toggled. Junk
-selling includes all grey items plus white armour and weapons the companion can never
-  use because of class, race, or missing equipment proficiency. Profession tools—including
+selling includes all grey items plus white armour and weapons the companion cannot use
+or which are no longer upgrades. Profession tools—including
   mining picks, skinning knives, crafting tools, enchanting rods, and fishing poles—are
   always retained. Higher-level usable gear, trade goods, recipes, consumables, and quest
   requirements are retained.
@@ -111,6 +116,14 @@ The logistics preview command is read-only. It reports the same attachment selec
 used by a manual run, vendor-cleanup candidates, protected and retained stacks, decision
 reasons, destinations, postage, nearby mailbox/vendor availability, and potential free
 bag space. It does not move, mail, sell, or otherwise alter an item.
+Protocol v6 adds automatic profession routing without website setup. When a companion
+starts and has no explicit website policy, the bridge selects the highest-skilled,
+same-faction recipient on the leader's game account: cloth goes to a tailor; leather to
+a leatherworker; ore, bars, and stone to a blacksmith or jewelcrafter; herbs to an
+alchemist or inscriptionist; enchanting materials and permanently unusable green
+equipment to an enchanter. Explicit website routes replace these defaults. Automatic
+routing starts at eight free slots and works toward twelve; it still requires a nearby
+mailbox and obeys the normal item protections and postage rules.
 The Gather toggle controls PlayerBots' gathering strategy as well as the bridge's
 needed quest-object scan. The bridge scans within 40 metres; normal herb, mineral,
 skinning, and loot travel uses `AiPlayerbot.LootDistance`, which should also be set to
@@ -121,7 +134,7 @@ addon-command channel to request this same snapshot in game. A normal player may
 the inspect command only for their own online character; SOAP/console administrators
 retain the ability to inspect a named leader. Starting and dismissing companions remain
 administrator-only operations. Inspect responses begin with
-`WEBADMIN_COMPANION_PROTOCOL\t5`, allowing the addon and website to identify a missing
+`WEBADMIN_COMPANION_PROTOCOL\t6`, allowing the addon and website to identify a missing
 or incompatible bridge without guessing from partial response data.
 
 For companions to collect their own quest items, use these PlayerBots settings:
@@ -149,6 +162,13 @@ it from the `mod-playerbots` repository with `git apply --unidiff-zero <patch-pa
 Adjustable per-companion follow distance uses the tracked
 `../mod-playerbots-patches/per-bot-follow-distance.patch`. Apply it from the
 `mod-playerbots` repository with `git apply <patch-path>` before rebuilding.
+
+Companion vendor cleanup also relies on
+`../mod-playerbots-patches/item-link-parser-position.patch`. It changes the
+PlayerBots item-link parser's scan offset from 8-bit to `size_t`, preventing
+long item-link command strings from wrapping the offset and locking the world
+update thread. Apply it from the `mod-playerbots` repository with
+`git apply <patch-path>` before rebuilding.
 
 After the module is already present in the AzerothCore build, source-only changes require
 building `ALL_BUILD` and then `INSTALL`; CMake regeneration is only needed when the module

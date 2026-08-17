@@ -8,14 +8,24 @@ namespace AzerothCore_UI.Web.Tests;
 public sealed class ClientAddonPackageBuilderTests
 {
     [Fact]
-    public void BundledAddonDisplaysCompanionOnlyQuestProgress()
+    public void BundledAddonIntegratesWithCarboniteAndKeepsQuestFallback()
     {
         var directory = ClientAddonPackageBuilder.ResolveAddonDirectory();
         var info = ClientAddonPackageBuilder.GetPackageInfo(directory);
         var script = File.ReadAllText(
             Path.Combine(directory, "AzerothCompanion.lua"));
 
-        Assert.Equal("0.7.0", info.Version);
+        Assert.Equal("0.9.0", info.Version);
+        Assert.Contains("local EXPECTED_PROTOCOL = 7", script);
+        Assert.Contains("WEBADMIN_COMPANION_MAINTENANCE_STATUS", script);
+        Assert.Contains("SetDetailsExpanded", script);
+        Assert.Contains("RefreshCarbonitePartyQuests", script);
+        Assert.Contains("Nx.Que.PaQ[companionName]", script);
+        Assert.Contains("Nx.Tim:Sta(\"QPartyUpdate\"", script);
+        Assert.Contains("companion.questsInCarbonite", script);
+        Assert.Contains(
+            "not frame:IsShown() and not CarbonitePartyQuestDisplayAvailable()",
+            script);
         Assert.Contains("Companion-only quests", script);
         Assert.Contains("CompanionObjectiveText", script);
         Assert.Contains("companionPlayer.questOrder", script);

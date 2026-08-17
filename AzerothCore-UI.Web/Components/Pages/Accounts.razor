@@ -35,14 +35,14 @@
                         <label class="form-label" for="new-account-password">Password</label>
                         <input id="new-account-password" class="form-control"
                                type="@(showNewAccountPassword ? "text" : "password")"
-                               autocomplete="new-password" minlength="8" maxlength="16" required
+                               autocomplete="new-password" minlength="4" maxlength="16" required
                                disabled="@isCreatingAccount" @bind="newAccountPassword" />
                     </div>
                     <div class="col-lg-3">
                         <label class="form-label" for="confirm-account-password">Confirm password</label>
                         <input id="confirm-account-password" class="form-control"
                                type="@(showNewAccountPassword ? "text" : "password")"
-                               autocomplete="new-password" minlength="8" maxlength="16" required
+                               autocomplete="new-password" minlength="4" maxlength="16" required
                                disabled="@isCreatingAccount" @bind="confirmAccountPassword" />
                     </div>
                     <div class="col-lg-2 d-grid">

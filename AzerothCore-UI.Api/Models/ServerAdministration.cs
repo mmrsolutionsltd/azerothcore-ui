@@ -58,7 +58,9 @@ public sealed record GameplayRateSettings(
     decimal MoneyDrops,
     decimal QuestMoney,
     decimal Honor,
-    decimal RepairCost);
+    decimal RepairCost,
+    int HerbAbundancePercent,
+    int MiningAbundancePercent);
 
 public sealed record UpdateGameplayRateSettingsRequest(
     string Version,
@@ -69,7 +71,9 @@ public sealed record UpdateGameplayRateSettingsRequest(
     decimal MoneyDrops,
     decimal QuestMoney,
     decimal Honor,
-    decimal RepairCost);
+    decimal RepairCost,
+    int HerbAbundancePercent,
+    int MiningAbundancePercent);
 
 public sealed record AuctionHouseBotSettings(string Version, bool EnableSeller, bool EnableBuyer,
     bool UseMarketPrice, int ItemsPerCycle, int DuplicatesCount, bool DivisibleStacks,

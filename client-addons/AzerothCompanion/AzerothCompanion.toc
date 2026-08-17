@@ -1,8 +1,8 @@
 ## Interface: 30300
 ## Title: Azeroth Companion
-## Notes: In-game quest progress and bag status for AzerothCore questing companions.
+## Notes: In-game controls and Carbonite quest progress for AzerothCore questing companions.
 ## Author: AzerothCore-UI
-## Version: 0.7.0
+## Version: 0.9.0
 ## SavedVariables: AzerothCompanionDB
 
 AzerothCompanion.lua

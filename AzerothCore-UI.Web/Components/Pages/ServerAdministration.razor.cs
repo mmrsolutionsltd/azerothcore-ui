@@ -101,7 +101,7 @@ public partial class ServerAdministration
             gameplayRates = await AccountsClient.UpdateGameplayRateSettingsAsync(gameplayRates);
             operationSucceeded = gameplayRates is not null;
             resultMessage = operationSucceeded
-                ? "Gameplay rates saved. Restart the worldserver to apply them."
+                ? "Gameplay and gathering rates saved. Restart the worldserver to apply them."
                 : "Gameplay rate settings were not returned.";
         }
         catch (Exception exception)
@@ -114,6 +114,12 @@ public partial class ServerAdministration
             isWorking = false;
         }
     }
+
+    private bool GatheringRatesValid => gameplayRates is not null
+        && gameplayRates.HerbAbundancePercent is >= 25 and <= 500
+        && gameplayRates.HerbAbundancePercent % 5 == 0
+        && gameplayRates.MiningAbundancePercent is >= 25 and <= 500
+        && gameplayRates.MiningAbundancePercent % 5 == 0;
 
     private async Task RunAsync(Func<Task<AdministrationResult?>> operation)
     {

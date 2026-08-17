@@ -58,8 +58,9 @@ using namespace Acore::ChatCommands;
 
 namespace
 {
-static constexpr uint32 CompanionProtocolVersion = 5;
+static constexpr uint32 CompanionProtocolVersion = 7;
 static constexpr float CompanionGatherRadius = 40.0f;
+static constexpr uint8 CompanionVendorSellTypesPerPass = 6;
 
 struct CompanionLogisticsRoute
 {
@@ -83,6 +84,7 @@ struct QuestingCompanionRegistration
     bool LeaderWasDead = false;
     uint32 QuestObjectCheckTimer = 0;
     uint32 SpecialQuestCheckTimer = 0;
+    uint32 BagEquipCheckTimer = 0;
     uint32 TrashSellCheckTimer = 0;
     uint32 ProfessionTrainingCheckTimer = 0;
     uint32 LogisticsCheckTimer = 0;
@@ -101,6 +103,7 @@ struct QuestingCompanionRegistration
     bool AutomaticLogistics = false;
     std::vector<CompanionLogisticsRoute> LogisticsRoutes;
     std::string LogisticsStatus = "Logistics is not configured.";
+    std::string MaintenanceStatus = "No maintenance action yet.";
     ObjectGuid PrioritizedLeaderTarget;
     bool EquipmentSnapshotInitialized = false;
     std::array<uint32, EQUIPMENT_SLOT_END> EquipmentEntries{};
@@ -111,6 +114,11 @@ struct QuestingCompanionRegistration
     std::map<uint32, uint32> InventoryCounts;
     std::vector<CompanionEquipmentChange> InventoryChanges;
 };
+
+static void ConfigureAutomaticCompanionLogistics(
+    QuestingCompanionRegistration& registration, Player* leader);
+static bool HasCompanionLogisticsRouteForItem(
+    Player* companion, Item* item, std::string const& category);
 
 static std::vector<QuestingCompanionRegistration> QuestingCompanions;
 
@@ -125,11 +133,16 @@ static void RegisterQuestingCompanion(ObjectGuid leaderGuid, ObjectGuid companio
 
             registration = QuestingCompanionRegistration{
                 leaderGuid, companionGuid, true };
+            ConfigureAutomaticCompanionLogistics(
+                registration, ObjectAccessor::FindConnectedPlayer(leaderGuid));
             return;
         }
     }
 
     QuestingCompanions.push_back({ leaderGuid, companionGuid, true });
+    ConfigureAutomaticCompanionLogistics(
+        QuestingCompanions.back(),
+        ObjectAccessor::FindConnectedPlayer(leaderGuid));
 }
 
 static void UnregisterQuestingCompanion(ObjectGuid companionGuid)
@@ -262,7 +275,7 @@ static bool IsCompanionProfessionTool(ItemTemplate const* itemTemplate)
             && itemTemplate->SubClass == ITEM_SUBCLASS_WEAPON_FISHING_POLE);
 }
 
-static bool IsPermanentlyUnusableWhiteEquipment(
+static bool IsPermanentlyUnusableEquipment(
     Player* companion, Item* item)
 {
     if (!companion || !item || !item->GetTemplate())
@@ -270,10 +283,8 @@ static bool IsPermanentlyUnusableWhiteEquipment(
 
     ItemTemplate const* itemTemplate = item->GetTemplate();
     if (IsCompanionProfessionTool(itemTemplate)
-        || itemTemplate->Quality != ITEM_QUALITY_NORMAL
         || (itemTemplate->Class != ITEM_CLASS_ARMOR
             && itemTemplate->Class != ITEM_CLASS_WEAPON)
-        || itemTemplate->SellPrice == 0
         || companion->HasQuestForItem(item->GetEntry()))
         return false;
 
@@ -312,40 +323,150 @@ static bool IsPermanentlyUnusableWhiteEquipment(
     }
 
     if (itemTemplate->SubClass == ITEM_SUBCLASS_ARMOR_SHIELD)
-        return !sRandomItemMgr.CanEquipArmor(
-            itemTemplate, companion->getClass(), 80);
+    {
+        switch (companion->getClass())
+        {
+            case CLASS_PALADIN:
+            case CLASS_SHAMAN:
+            case CLASS_WARRIOR:
+                return false;
+            default:
+                return true;
+        }
+    }
     return false;
 }
 
-static std::string BuildCompanionVendorCleanupSellList(Player* companion)
+static ItemUsage GetFreshCompanionItemUsage(
+    Player* companion, Item* item, std::string const& valueName)
 {
-    std::vector<uint32> entries;
-    std::string itemLinks;
-    auto appendItem = [companion, &entries, &itemLinks](Item* item)
+    PlayerbotAI* companionAI = companion
+        ? PlayerbotsMgr::instance().GetPlayerbotAI(companion) : nullptr;
+    if (!companionAI || !item)
+        return ITEM_USAGE_NONE;
+
+    std::string qualifier = std::to_string(item->GetEntry()) + ","
+        + std::to_string(
+            item->GetInt32Value(ITEM_FIELD_RANDOM_PROPERTIES_ID));
+    auto* usageValue = companionAI->GetAiObjectContext()
+        ->GetValue<ItemUsage>(valueName, qualifier);
+    usageValue->Reset();
+    return usageValue->Get();
+}
+
+static bool IsCompanionWhiteEquipmentVendorCandidate(
+    Player* companion, Item* item)
+{
+    if (!companion || !item || !item->GetTemplate())
+        return false;
+
+    ItemTemplate const* itemTemplate = item->GetTemplate();
+    if (itemTemplate->Quality != ITEM_QUALITY_NORMAL
+        || itemTemplate->SellPrice == 0
+        || (itemTemplate->Class != ITEM_CLASS_ARMOR
+            && itemTemplate->Class != ITEM_CLASS_WEAPON)
+        || IsCompanionProfessionTool(itemTemplate)
+        || companion->HasQuestForItem(item->GetEntry()))
+        return false;
+
+    if (IsPermanentlyUnusableEquipment(companion, item))
+        return true;
+
+    ItemUsage upgrade = GetFreshCompanionItemUsage(
+        companion, item, "item upgrade");
+    return upgrade != ITEM_USAGE_EQUIP
+        && upgrade != ITEM_USAGE_REPLACE
+        && upgrade != ITEM_USAGE_BROKEN_EQUIP;
+}
+
+static bool IsCompanionUnusableGreenEquipment(
+    Player* companion, Item* item)
+{
+    ItemTemplate const* itemTemplate = item ? item->GetTemplate() : nullptr;
+    return itemTemplate
+        && itemTemplate->Quality == ITEM_QUALITY_UNCOMMON
+        && IsPermanentlyUnusableEquipment(companion, item);
+}
+
+static bool HasCompanionProtectedLogisticsRoute(
+    Player* companion, Item* item,
+    std::vector<CompanionLogisticsRoute> const& routes)
+{
+    return std::any_of(
+        routes.begin(), routes.end(),
+        [companion, item](CompanionLogisticsRoute const& route)
+        {
+            return route.Category == "catchall"
+                || HasCompanionLogisticsRouteForItem(
+                    companion, item, route.Category);
+        });
+}
+
+static bool IsCompanionVendorCleanupCandidate(
+    Player* companion, Item* item,
+    std::vector<CompanionLogisticsRoute> const& routes,
+    bool underBagPressure)
+{
+    ItemTemplate const* itemTemplate = item ? item->GetTemplate() : nullptr;
+    if (!companion || !itemTemplate || itemTemplate->SellPrice == 0
+        || IsCompanionProfessionTool(itemTemplate)
+        || companion->HasQuestForItem(item->GetEntry()))
+        return false;
+
+    if (itemTemplate->Quality == ITEM_QUALITY_POOR
+        || IsCompanionWhiteEquipmentVendorCandidate(companion, item))
+        return true;
+
+    bool const hasDisenchantRoute = std::any_of(
+        routes.begin(), routes.end(),
+        [companion, item](CompanionLogisticsRoute const& route)
+        {
+            return route.Category == "disenchant"
+                && HasCompanionLogisticsRouteForItem(
+                    companion, item, route.Category);
+        });
+    if (itemTemplate->Quality >= ITEM_QUALITY_UNCOMMON
+        && itemTemplate->Quality <= ITEM_QUALITY_RARE
+        && IsPermanentlyUnusableEquipment(companion, item)
+        && !hasDisenchantRoute)
+        return true;
+
+    if (!underBagPressure
+        || HasCompanionProtectedLogisticsRoute(companion, item, routes)
+        || itemTemplate->Class == ITEM_CLASS_CONTAINER
+        || itemTemplate->Class == ITEM_CLASS_QUIVER
+        || itemTemplate->Class == ITEM_CLASS_KEY
+        || itemTemplate->Class == ITEM_CLASS_QUEST
+        || itemTemplate->Class == ITEM_CLASS_RECIPE)
+        return false;
+
+    ItemUsage usage = GetFreshCompanionItemUsage(
+        companion, item, "item usage");
+    return usage == ITEM_USAGE_VENDOR || usage == ITEM_USAGE_AH;
+}
+
+static bool EquipOneCompanionBag(Player* companion)
+{
+    if (!companion || !companion->IsAlive() || companion->IsInCombat())
+        return false;
+
+    Item* candidate = nullptr;
+    auto considerBag = [&candidate](Item* item)
     {
-        if (!item || !item->GetTemplate())
+        ItemTemplate const* itemTemplate = item ? item->GetTemplate() : nullptr;
+        if (!itemTemplate || itemTemplate->Class != ITEM_CLASS_CONTAINER
+            || itemTemplate->InventoryType != INVTYPE_BAG)
             return;
 
-        ItemTemplate const* itemTemplate = item->GetTemplate();
-        bool const sellableTrash = !IsCompanionProfessionTool(itemTemplate)
-            && !companion->HasQuestForItem(item->GetEntry())
-            && itemTemplate->SellPrice > 0
-            && (itemTemplate->Quality == ITEM_QUALITY_POOR
-                || IsPermanentlyUnusableWhiteEquipment(companion, item));
-        if (!sellableTrash
-            || std::find(entries.begin(), entries.end(), item->GetEntry())
-                != entries.end())
-            return;
-
-        entries.push_back(item->GetEntry());
-        if (!itemLinks.empty())
-            itemLinks += ' ';
-        itemLinks += ChatHelper::FormatItem(item->GetTemplate());
+        if (!candidate
+            || itemTemplate->ContainerSlots
+                > candidate->GetTemplate()->ContainerSlots)
+            candidate = item;
     };
 
     for (uint8 slot = INVENTORY_SLOT_ITEM_START;
          slot < INVENTORY_SLOT_ITEM_END; ++slot)
-        appendItem(companion->GetItemByPos(INVENTORY_SLOT_BAG_0, slot));
+        considerBag(companion->GetItemByPos(INVENTORY_SLOT_BAG_0, slot));
     for (uint8 bagSlot = INVENTORY_SLOT_BAG_START;
          bagSlot < INVENTORY_SLOT_BAG_END; ++bagSlot)
     {
@@ -353,13 +474,93 @@ static std::string BuildCompanionVendorCleanupSellList(Player* companion)
         if (!bag)
             continue;
         for (uint32 slot = 0; slot < bag->GetBagSize(); ++slot)
-            appendItem(bag->GetItemByPos(slot));
+            considerBag(bag->GetItemByPos(slot));
+    }
+
+    if (!candidate)
+        return false;
+
+    uint8 destination = NULL_SLOT;
+    uint32 smallestEmptyBagSize = UINT32_MAX;
+    for (uint8 bagSlot = INVENTORY_SLOT_BAG_START;
+         bagSlot < INVENTORY_SLOT_BAG_END; ++bagSlot)
+    {
+        Bag* equippedBag = companion->GetBagByPos(bagSlot);
+        if (!equippedBag)
+        {
+            destination = bagSlot;
+            break;
+        }
+
+        if (equippedBag->IsEmpty()
+            && equippedBag->GetBagSize() < smallestEmptyBagSize)
+        {
+            destination = bagSlot;
+            smallestEmptyBagSize = equippedBag->GetBagSize();
+        }
+    }
+
+    if (destination == NULL_SLOT)
+        return false;
+
+    Bag* replacedBag = companion->GetBagByPos(destination);
+    if (replacedBag
+        && candidate->GetTemplate()->ContainerSlots
+            <= replacedBag->GetBagSize())
+        return false;
+
+    uint16 sourcePosition =
+        (candidate->GetBagSlot() << 8) | candidate->GetSlot();
+    uint16 destinationPosition =
+        (INVENTORY_SLOT_BAG_0 << 8) | destination;
+    companion->SwapItem(sourcePosition, destinationPosition);
+    return companion->GetBagByPos(destination) == candidate;
+}
+
+static std::string FindCompanionVendorCleanupSellItem(
+    Player* companion,
+    std::vector<CompanionLogisticsRoute> const& routes,
+    bool underBagPressure, uint32& selectedEntry)
+{
+    selectedEntry = 0;
+    std::string itemLinks;
+    auto selectItem = [companion, &routes, underBagPressure,
+                          &itemLinks, &selectedEntry](Item* item)
+    {
+        if (!itemLinks.empty() || !item || !item->GetTemplate())
+            return;
+
+        if (!IsCompanionVendorCleanupCandidate(
+                companion, item, routes, underBagPressure))
+            return;
+
+        // PlayerBots' item-link parser uses an 8-bit scan position. Passing a
+        // combined list longer than 255 characters can wrap that position and
+        // lock the world update thread in an infinite loop. Select only one
+        // item type per action; SellAction still sells every stack of the
+        // selected entry, and the maintenance loop can safely run more actions.
+        itemLinks += ChatHelper::FormatItem(item->GetTemplate());
+        selectedEntry = item->GetEntry();
+    };
+
+    for (uint8 slot = INVENTORY_SLOT_ITEM_START;
+         slot < INVENTORY_SLOT_ITEM_END && itemLinks.empty(); ++slot)
+        selectItem(companion->GetItemByPos(INVENTORY_SLOT_BAG_0, slot));
+    for (uint8 bagSlot = INVENTORY_SLOT_BAG_START;
+         bagSlot < INVENTORY_SLOT_BAG_END && itemLinks.empty(); ++bagSlot)
+    {
+        Bag* bag = companion->GetBagByPos(bagSlot);
+        if (!bag)
+            continue;
+        for (uint32 slot = 0;
+             slot < bag->GetBagSize() && itemLinks.empty(); ++slot)
+            selectItem(bag->GetItemByPos(slot));
     }
     return itemLinks;
 }
 
 static void MaintainCompanionAtVendor(
-    QuestingCompanionRegistration const& registration, Player* leader,
+    QuestingCompanionRegistration& registration, Player* leader,
     Player* companion)
 {
     if (!leader || !companion || !leader->IsAlive() || !companion->IsAlive()
@@ -390,14 +591,36 @@ static void MaintainCompanionAtVendor(
 
     if (registration.AutoSellTrash && canUseVendor)
     {
-        std::string vendorCleanup =
-            BuildCompanionVendorCleanupSellList(companion);
-        if (!vendorCleanup.empty())
+        uint32 soldItems = 0;
+        for (uint8 pass = 0;
+             pass < CompanionVendorSellTypesPerPass; ++pass)
         {
-            companionAI->DoSpecificAction(
+            bool const underBagPressure = companion->GetFreeInventorySpace()
+                <= registration.LogisticsTargetFreeSlots;
+            uint32 selectedEntry = 0;
+            std::string vendorCleanup =
+                FindCompanionVendorCleanupSellItem(
+                    companion, registration.LogisticsRoutes,
+                    underBagPressure, selectedEntry);
+            uint32 const countBefore = selectedEntry
+                ? companion->GetItemCount(selectedEntry) : 0;
+            if (vendorCleanup.empty()
+                || !companionAI->DoSpecificAction(
                 "sell", Event(
                     "webadmin companion auto sell cleanup",
-                    vendorCleanup), true);
+                    vendorCleanup), true))
+                break;
+            uint32 const countAfter = companion->GetItemCount(selectedEntry);
+            soldItems += countBefore > countAfter ? countBefore - countAfter : 0;
+        }
+        if (soldItems)
+        {
+            registration.MaintenanceStatus = "Sold "
+                + std::to_string(soldItems)
+                + (soldItems == 1 ? " item" : " items") + "; "
+                + std::to_string(companion->GetFreeInventorySpace())
+                + " bag slots free.";
+            registration.InventorySnapshotInitialized = false;
         }
     }
     if (registration.AutoRepair && canUseRepairer)
@@ -525,9 +748,10 @@ static QuestingCompanionRegistration* FindCompanionRegistration(
 
 static bool IsCompanionLogisticsCategory(std::string const& category)
 {
-    static std::array<std::string, 10> const categories = {
+    static std::array<std::string, 11> const categories = {
         "cloth", "leather", "metal", "herbs", "enchanting",
-        "jewelcrafting", "meat", "elemental", "parts", "catchall"
+        "jewelcrafting", "disenchant", "meat", "elemental", "parts",
+        "catchall"
     };
     return std::find(categories.begin(), categories.end(), category)
         != categories.end();
@@ -549,6 +773,105 @@ static bool MatchesCompanionLogisticsCategory(
         || (category == "meat" && subclass == ITEM_SUBCLASS_MEAT)
         || (category == "elemental" && subclass == ITEM_SUBCLASS_ELEMENTAL)
         || (category == "parts" && subclass == ITEM_SUBCLASS_PARTS);
+}
+
+static bool HasCompanionLogisticsRouteForItem(
+    Player* companion, Item* item, std::string const& category)
+{
+    if (!item || !item->GetTemplate())
+        return false;
+    if (category == "disenchant")
+        return IsCompanionUnusableGreenEquipment(companion, item);
+    return MatchesCompanionLogisticsCategory(item->GetTemplate(), category);
+}
+
+static void ConfigureAutomaticCompanionLogistics(
+    QuestingCompanionRegistration& registration, Player* leader)
+{
+    if (!leader || !leader->GetSession())
+        return;
+
+    QueryResult result = CharacterDatabase.Query(
+        "SELECT c.guid, c.name, c.race, cs.skill "
+        "FROM characters c "
+        "JOIN character_skills cs ON cs.guid = c.guid "
+        "WHERE c.account = {} "
+        "AND cs.skill IN (164, 165, 171, 197, 333, 755, 773) "
+        "ORDER BY cs.value DESC, c.level DESC, c.name ASC",
+        leader->GetSession()->GetAccountId());
+    if (!result)
+        return;
+
+    std::map<std::string, CompanionLogisticsRoute> selected;
+    auto selectRoute = [&selected](
+        std::string const& category, uint32 keepQuantity,
+        ObjectGuid recipientGuid, std::string const& recipientName)
+    {
+        if (selected.find(category) == selected.end())
+        {
+            selected.emplace(category, CompanionLogisticsRoute{
+                category, recipientGuid, recipientName, keepQuantity });
+        }
+    };
+
+    do
+    {
+        Field* fields = result->Fetch();
+        ObjectGuid recipientGuid =
+            ObjectGuid::Create<HighGuid::Player>(fields[0].Get<uint32>());
+        std::string recipientName = fields[1].Get<std::string>();
+        uint8 race = fields[2].Get<uint8>();
+        uint16 skill = fields[3].Get<uint16>();
+        if (recipientGuid == registration.CompanionGuid
+            || Player::TeamIdForRace(race) != leader->GetTeamId(true))
+            continue;
+
+        switch (skill)
+        {
+            case SKILL_TAILORING:
+                selectRoute("cloth", 20, recipientGuid, recipientName);
+                break;
+            case SKILL_LEATHERWORKING:
+                selectRoute("leather", 0, recipientGuid, recipientName);
+                break;
+            case SKILL_BLACKSMITHING:
+                selectRoute("metal", 0, recipientGuid, recipientName);
+                break;
+            case SKILL_JEWELCRAFTING:
+                selectRoute("metal", 0, recipientGuid, recipientName);
+                selectRoute("jewelcrafting", 0, recipientGuid, recipientName);
+                break;
+            case SKILL_ALCHEMY:
+            case SKILL_INSCRIPTION:
+                selectRoute("herbs", 0, recipientGuid, recipientName);
+                break;
+            case SKILL_ENCHANTING:
+                selectRoute("enchanting", 0, recipientGuid, recipientName);
+                selectRoute("disenchant", 0, recipientGuid, recipientName);
+                break;
+            default:
+                break;
+        }
+    } while (result->NextRow());
+
+    static std::array<std::string, 7> const routeOrder = {
+        "cloth", "leather", "metal", "herbs", "enchanting",
+        "jewelcrafting", "disenchant"
+    };
+    for (std::string const& category : routeOrder)
+    {
+        auto route = selected.find(category);
+        if (route != selected.end())
+            registration.LogisticsRoutes.push_back(route->second);
+    }
+    if (registration.LogisticsRoutes.empty())
+        return;
+
+    registration.LogisticsTriggerFreeSlots = 8;
+    registration.LogisticsTargetFreeSlots = 12;
+    registration.AutomaticLogistics = true;
+    registration.LogisticsStatus =
+        "Automatic profession routes configured; waiting for bag pressure or a manual run.";
 }
 
 static bool HasNearbyCompanionMailbox(Player* companion)
@@ -625,9 +948,10 @@ static bool IsSafeCompanionLogisticsItem(
     if (IsCompanionProfessionTool(itemTemplate))
         return false;
     if (category != "catchall")
-        return MatchesCompanionLogisticsCategory(itemTemplate, category);
+        return HasCompanionLogisticsRouteForItem(companion, item, category);
 
-    if (IsPermanentlyUnusableWhiteEquipment(companion, item)
+    if (IsCompanionWhiteEquipmentVendorCandidate(companion, item)
+        || IsCompanionUnusableGreenEquipment(companion, item)
         || itemTemplate->Quality == ITEM_QUALITY_POOR
         || itemTemplate->Class == ITEM_CLASS_CONSUMABLE
         || itemTemplate->Class == ITEM_CLASS_CONTAINER
@@ -638,11 +962,11 @@ static bool IsSafeCompanionLogisticsItem(
 
     bool hasExplicitRoute = std::any_of(
         routes.begin(), routes.end(),
-        [itemTemplate](CompanionLogisticsRoute const& route)
+        [companion, item](CompanionLogisticsRoute const& route)
         {
             return route.Category != "catchall"
-                && MatchesCompanionLogisticsCategory(
-                    itemTemplate, route.Category);
+                && HasCompanionLogisticsRouteForItem(
+                    companion, item, route.Category);
         });
     if (hasExplicitRoute)
         return false;
@@ -809,6 +1133,7 @@ static void ProcessCompanionLogistics(
     {
         registration.LogisticsStatus = "Mailed " + std::to_string(totalSent)
             + (totalSent == 1 ? " item stack." : " item stacks.");
+        registration.MaintenanceStatus = registration.LogisticsStatus;
         registration.InventorySnapshotInitialized = false;
     }
     else if (!failure.empty())
@@ -1056,7 +1381,7 @@ static uint32 GetCompanionInventoryCapacity(Player* player)
 static void ReportCompanionLogisticsPreview(
     ChatHandler* handler, Player* companion,
     std::vector<CompanionLogisticsRoute> const& routes,
-    bool autoSellTrash)
+    bool autoSellTrash, uint32 targetFreeSlots)
 {
     std::vector<Item*> bagItems;
     AddCompanionBagItems(companion, bagItems);
@@ -1071,12 +1396,12 @@ static void ReportCompanionLogisticsPreview(
 
     bool mailboxNearby = HasNearbyCompanionMailbox(companion);
     bool vendorNearby = HasNearbyCompanionVendor(companion);
+    bool const underBagPressure = companion->GetFreeInventorySpace()
+        <= targetFreeSlots;
     uint32 sellStacks = 0;
     for (Item* item : bagItems)
-        if (autoSellTrash && item && item->GetTemplate()
-            && !companion->HasQuestForItem(item->GetEntry())
-            && (item->GetTemplate()->Quality == ITEM_QUALITY_POOR
-                || IsPermanentlyUnusableWhiteEquipment(companion, item)))
+        if (autoSellTrash && IsCompanionVendorCleanupCandidate(
+                companion, item, routes, underBagPressure))
             ++sellStacks;
 
     uint32 currentFreeSlots = companion->GetFreeInventorySpace();
@@ -1120,18 +1445,21 @@ static void ReportCompanionLogisticsPreview(
             reason = "Profession tool retained for gathering or crafting.";
         }
         else if (autoSellTrash
-                 && itemTemplate->Quality == ITEM_QUALITY_POOR)
+                 && IsCompanionVendorCleanupCandidate(
+                     companion, item, routes, underBagPressure))
         {
             action = "Sell";
             destination = vendorNearby ? "Nearby vendor" : "Vendor when nearby";
-            reason = "Grey-quality vendor item.";
-        }
-        else if (autoSellTrash
-                 && IsPermanentlyUnusableWhiteEquipment(companion, item))
-        {
-            action = "Sell";
-            destination = vendorNearby ? "Nearby vendor" : "Vendor when nearby";
-            reason = "White equipment this class can never use.";
+            if (itemTemplate->Quality == ITEM_QUALITY_POOR)
+                reason = "Grey-quality vendor item.";
+            else if (itemTemplate->Quality == ITEM_QUALITY_NORMAL
+                     && (itemTemplate->Class == ITEM_CLASS_ARMOR
+                         || itemTemplate->Class == ITEM_CLASS_WEAPON))
+                reason = "White equipment is unusable or not an upgrade.";
+            else if (IsPermanentlyUnusableEquipment(companion, item))
+                reason = "Equipment is permanently unusable and has no disenchant route.";
+            else
+                reason = "Bag space is low and PlayerBots considers this vendor or auction surplus.";
         }
         else if (!item->CanBeTraded(true))
         {
@@ -1159,8 +1487,8 @@ static void ReportCompanionLogisticsPreview(
             for (CompanionLogisticsRoute const& route : routes)
             {
                 if ((route.Category != "catchall"
-                        && MatchesCompanionLogisticsCategory(
-                            itemTemplate, route.Category))
+                        && HasCompanionLogisticsRouteForItem(
+                            companion, item, route.Category))
                     || (route.Category == "catchall"
                         && IsSafeCompanionLogisticsItem(
                             companion, item, route.Category,
@@ -1176,8 +1504,8 @@ static void ReportCompanionLogisticsPreview(
                     : "Kept by the " + matchingRoute->Category
                         + " reserve or mail attachment limit.";
             else if (!autoSellTrash
-                     && (itemTemplate->Quality == ITEM_QUALITY_POOR
-                         || IsPermanentlyUnusableWhiteEquipment(companion, item)))
+                     && IsCompanionVendorCleanupCandidate(
+                         companion, item, routes, underBagPressure))
                 reason = "Vendor cleanup is disabled, so this item is kept.";
         }
 
@@ -1264,6 +1592,10 @@ static void ReportCompanionInventory(
             registration->GatherEnabled ? 1 : 0,
             registration->AutoSellTrash ? 1 : 0,
             registration->AutoRepair ? 1 : 0);
+        handler->PSendSysMessage(
+            "WEBADMIN_COMPANION_MAINTENANCE_STATUS\t{}\t{}",
+            player->GetName(),
+            CompanionProtocolText(registration->MaintenanceStatus));
         for (CompanionEquipmentChange const& change :
              registration->EquipmentChanges)
         {
@@ -1762,6 +2094,7 @@ private:
             registration->InitialSyncPending = true;
             registration->LeaderWasDead = false;
             registration->QuestObjectCheckTimer = 0;
+            registration->BagEquipCheckTimer = 0;
             registration->ProfessionTrainingCheckTimer = 0;
             registration->LogisticsCheckTimer = 0;
         }
@@ -2094,7 +2427,7 @@ private:
                     }))
             {
                 handler->SendErrorMessage(
-                    "Each route must be: <cloth|leather|metal|herbs|enchanting|jewelcrafting|meat|elemental|parts|catchall> <recipient> <keep 0-1000>. Catch-all keep must be 0.");
+                    "Each route must be: <cloth|leather|metal|herbs|enchanting|jewelcrafting|disenchant|meat|elemental|parts|catchall> <recipient> <keep 0-1000>. Catch-all keep must be 0.");
                 return false;
             }
             if (category == "catchall" && keepQuantity != 0)
@@ -2263,8 +2596,11 @@ private:
                 return false;
             }
         }
+        if (routes.empty())
+            routes = registration->LogisticsRoutes;
         ReportCompanionLogisticsPreview(
-            handler, companion, routes, registration->AutoSellTrash);
+            handler, companion, routes, registration->AutoSellTrash,
+            registration->LogisticsTargetFreeSlots);
         return true;
     }
 
@@ -3129,6 +3465,16 @@ public:
             TrackCompanionInventory(registration, companion);
             UpdateCompanionCombatFocus(registration, player, companion);
 
+            if (registration.BagEquipCheckTimer > diff)
+            {
+                registration.BagEquipCheckTimer -= diff;
+            }
+            else
+            {
+                registration.BagEquipCheckTimer = 5000;
+                EquipOneCompanionBag(companion);
+            }
+
             if (registration.SpecialQuestCheckTimer > diff)
             {
                 registration.SpecialQuestCheckTimer -= diff;
@@ -3155,7 +3501,7 @@ public:
             }
             else
             {
-                registration.TrashSellCheckTimer = 5000;
+                registration.TrashSellCheckTimer = 2000;
                 MaintainCompanionAtVendor(registration, player, companion);
             }
 

@@ -1,0 +1,6 @@
+diff --git a/src/Bot/Cmd/ChatHelper.cpp b/src/Bot/Cmd/ChatHelper.cpp
+--- a/src/Bot/Cmd/ChatHelper.cpp
++++ b/src/Bot/Cmd/ChatHelper.cpp
+@@ -287 +287 @@ ItemIds ChatHelper::parseItems(std::string const text)
+-    uint8 pos = 0;
++    size_t pos = 0;

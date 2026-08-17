@@ -294,7 +294,7 @@
             {
                 <div class="col-12 col-xxl-6">
                     <CompanionManagementPanel @key="companion.Name"
-                        LeaderName="leaderName" Companion="companion"
+                        LeaderName="@leaderName" Companion="companion"
                         ProtocolVersion="status.ProtocolVersion" Disabled="working"
                         DismissRequested="DismissAsync"
                         BehaviorRequested="SetBehaviorAsync"
@@ -333,7 +333,10 @@
     private Task? refreshLoop;
 
     private IReadOnlyList<CharacterPickerItem> LeaderItems => players
-        .Where(player => player.Online && !player.IsPlayerBot)
+        .Where(player => player.Online && !player.IsPlayerBot
+            && (status?.ActiveCompanions.All(companion =>
+                !companion.Name.Equals(player.Name,
+                    StringComparison.OrdinalIgnoreCase)) ?? true))
         .Select(player => new CharacterPickerItem(
             player.Name, player.Name, $"Account {player.Username}", true))
         .ToArray();
