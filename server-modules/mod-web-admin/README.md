@@ -129,13 +129,26 @@ needed quest-object scan. The bridge scans within 40 metres; normal herb, minera
 skinning, and loot travel uses `AiPlayerbot.LootDistance`, which should also be set to
 `40.0` in `playerbots.conf` for matching behaviour.
 
+Real-player warlocks that know both Summon Imp and Summon Voidwalker may have both
+demons active. The demon summoned normally remains the controllable pet-bar pet; the
+other is created as an automatically managed guardian. It follows the warlock,
+assists the normal pet's target, uses level-appropriate Firebolt or Torment, and
+despawns when the normal pet is dismissed, the warlock dies, or the player logs out.
+A slain additional guardian returns after 30 seconds once the warlock is out of
+combat. Real players and active website questing companions receive the feature;
+unrelated random PlayerBots are excluded to avoid changing the balance and load of
+the random-bot population. This is entirely server-side and requires no database,
+DBC, MPQ, or client-addon change.
+
 The bundled `AzerothCompanion` 3.3.5a client addon uses AzerothCore's authenticated
 addon-command channel to request this same snapshot in game. A normal player may run
 the inspect command only for their own online character; SOAP/console administrators
 retain the ability to inspect a named leader. Starting and dismissing companions remain
 administrator-only operations. Inspect responses begin with
-`WEBADMIN_COMPANION_PROTOCOL\t6`, allowing the addon and website to identify a missing
+`WEBADMIN_COMPANION_PROTOCOL\t7`, allowing the addon and website to identify a missing
 or incompatible bridge without guessing from partial response data.
+Protocol v7 also reports the latest automatic sale or logistics-mail action for the
+compact in-game companion bar.
 
 For companions to collect their own quest items, use these PlayerBots settings:
 
@@ -170,6 +183,6 @@ long item-link command strings from wrapping the offset and locking the world
 update thread. Apply it from the `mod-playerbots` repository with
 `git apply <patch-path>` before rebuilding.
 
-After the module is already present in the AzerothCore build, source-only changes require
-building `ALL_BUILD` and then `INSTALL`; CMake regeneration is only needed when the module
-or build structure changes.
+After the module is already present in the AzerothCore build, source-only changes only
+require rebuilding the `worldserver` target and installing that binary; CMake
+regeneration is only needed when the module or build structure changes.

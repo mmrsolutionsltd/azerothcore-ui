@@ -28,6 +28,7 @@
 #include "MotionMaster.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
+#include "Pet.h"
 #include "Player.h"
 #include "PlayerScript.h"
 #include "PlayerbotAI.h"
@@ -61,6 +62,217 @@ namespace
 static constexpr uint32 CompanionProtocolVersion = 7;
 static constexpr float CompanionGatherRadius = 40.0f;
 static constexpr uint8 CompanionVendorSellTypesPerPass = 6;
+static constexpr uint32 SummonImpSpell = 688;
+static constexpr uint32 SummonVoidwalkerSpell = 697;
+static constexpr uint32 ImpEntry = 416;
+static constexpr uint32 VoidwalkerEntry = 1860;
+static constexpr uint32 DualDemonSummonProperties = 61;
+
+struct WarlockDualDemonState
+{
+    ObjectGuid GuardianGuid;
+    uint32 GuardianEntry = 0;
+    uint32 UpdateTimer = 0;
+    uint32 AbilityTimer = 0;
+    uint32 RespawnTimer = 0;
+};
+
+static std::map<ObjectGuid, WarlockDualDemonState> WarlockDualDemons;
+
+static uint32 ImpFireboltForLevel(uint8 level)
+{
+    if (level >= 69) return 47964;
+    if (level >= 56) return 27267;
+    if (level >= 48) return 11763;
+    if (level >= 40) return 11762;
+    if (level >= 32) return 7802;
+    if (level >= 24) return 7801;
+    if (level >= 16) return 7800;
+    if (level >= 8) return 7799;
+    return 3110;
+}
+
+static uint32 VoidwalkerTormentForLevel(uint8 level)
+{
+    if (level >= 70) return 47984;
+    if (level >= 60) return 27270;
+    if (level >= 50) return 11775;
+    if (level >= 40) return 11774;
+    if (level >= 30) return 7811;
+    if (level >= 20) return 7810;
+    if (level >= 10) return 7809;
+    return 3716;
+}
+
+static void DespawnWarlockDualDemon(
+    Player* player, WarlockDualDemonState& state)
+{
+    if (player && !state.GuardianGuid.IsEmpty())
+    {
+        if (Creature* guardian =
+                ObjectAccessor::GetCreature(*player, state.GuardianGuid))
+            guardian->DespawnOrUnsummon();
+    }
+    state.GuardianGuid.Clear();
+    state.GuardianEntry = 0;
+    state.AbilityTimer = 0;
+}
+
+static Creature* SummonWarlockDualDemon(Player* player, uint32 entry)
+{
+    SummonPropertiesEntry const* properties =
+        sSummonPropertiesStore.LookupEntry(DualDemonSummonProperties);
+    if (!player || !properties)
+        return nullptr;
+
+    float x;
+    float y;
+    float z;
+    player->GetClosePoint(x, y, z, player->GetObjectSize(), 2.0f);
+    Position position;
+    position.Relocate(x, y, z, player->GetOrientation());
+    TempSummon* guardian = player->GetMap()->SummonCreature(
+        entry, position, properties, 0, player);
+    if (!guardian)
+        return nullptr;
+
+    guardian->SetReactState(REACT_DEFENSIVE);
+    guardian->GetMotionMaster()->MoveFollow(
+        player, PET_FOLLOW_DIST, PET_FOLLOW_ANGLE, MOTION_SLOT_ACTIVE);
+    return guardian;
+}
+
+static Unit* SelectWarlockDualDemonTarget(
+    Player* player, Pet* primary, Creature* guardian)
+{
+    Unit* target = primary ? primary->GetVictim() : nullptr;
+    if ((!target || !target->IsAlive()) && player)
+        target = player->GetVictim();
+    if ((!target || !target->IsAlive()) && player
+        && !player->getAttackers().empty())
+        target = *player->getAttackers().begin();
+    return target && guardian->IsValidAttackTarget(target) ? target : nullptr;
+}
+
+static void UpdateWarlockDualDemon(Player* player, uint32 diff)
+{
+    if (!player)
+        return;
+
+    WarlockDualDemonState& state = WarlockDualDemons[player->GetGUID()];
+    state.RespawnTimer = state.RespawnTimer > diff
+        ? state.RespawnTimer - diff : 0;
+    state.AbilityTimer = state.AbilityTimer > diff
+        ? state.AbilityTimer - diff : 0;
+    if (state.UpdateTimer > diff)
+    {
+        state.UpdateTimer -= diff;
+        return;
+    }
+    state.UpdateTimer = 500;
+
+    Pet* primary = player->GetPet();
+    bool const eligible = player->getClass() == CLASS_WARLOCK
+        && player->HasSpell(SummonImpSpell)
+        && player->HasSpell(SummonVoidwalkerSpell)
+        && player->IsAlive() && primary && primary->IsAlive();
+    uint32 expectedEntry = 0;
+    if (eligible && primary->GetEntry() == ImpEntry)
+        expectedEntry = VoidwalkerEntry;
+    else if (eligible && primary->GetEntry() == VoidwalkerEntry)
+        expectedEntry = ImpEntry;
+
+    if (!expectedEntry)
+    {
+        DespawnWarlockDualDemon(player, state);
+        return;
+    }
+
+    Creature* guardian = state.GuardianGuid.IsEmpty() ? nullptr
+        : ObjectAccessor::GetCreature(*player, state.GuardianGuid);
+    if (state.GuardianEntry != expectedEntry)
+    {
+        DespawnWarlockDualDemon(player, state);
+        state.RespawnTimer = 0;
+        guardian = nullptr;
+    }
+    else if (guardian && !guardian->IsAlive())
+    {
+        DespawnWarlockDualDemon(player, state);
+        state.RespawnTimer = 30000;
+        guardian = nullptr;
+    }
+    else if (!guardian && !state.GuardianGuid.IsEmpty())
+    {
+        state.GuardianGuid.Clear();
+        state.GuardianEntry = 0;
+    }
+
+    if (!guardian)
+    {
+        if (player->IsInCombat() || state.RespawnTimer)
+            return;
+        guardian = SummonWarlockDualDemon(player, expectedEntry);
+        if (!guardian)
+            return;
+        state.GuardianGuid = guardian->GetGUID();
+        state.GuardianEntry = expectedEntry;
+        state.AbilityTimer = 0;
+    }
+
+    if (guardian->GetDistance(player) > 60.0f)
+    {
+        float x;
+        float y;
+        float z;
+        player->GetClosePoint(x, y, z, guardian->GetObjectSize(), 2.0f);
+        guardian->NearTeleportTo(x, y, z, player->GetOrientation());
+    }
+
+    Unit* target = SelectWarlockDualDemonTarget(player, primary, guardian);
+    if (!target)
+    {
+        if (guardian->GetVictim())
+        {
+            guardian->AttackStop();
+            guardian->CombatStop(true);
+        }
+        if (guardian->GetMotionMaster()->GetCurrentMovementGeneratorType()
+            != FOLLOW_MOTION_TYPE)
+        {
+            guardian->GetMotionMaster()->MoveFollow(
+                player, PET_FOLLOW_DIST, PET_FOLLOW_ANGLE,
+                MOTION_SLOT_ACTIVE);
+        }
+        return;
+    }
+
+    if (expectedEntry == ImpEntry)
+    {
+        if (guardian->GetVictim() != target)
+            guardian->Attack(target, false);
+        if (guardian->GetMotionMaster()->GetCurrentMovementGeneratorType()
+            != CHASE_MOTION_TYPE)
+            guardian->GetMotionMaster()->MoveChase(target, 20.0f);
+        if (!state.AbilityTimer && guardian->IsWithinDistInMap(target, 30.0f))
+        {
+            guardian->CastSpell(
+                target, ImpFireboltForLevel(player->GetLevel()), false);
+            state.AbilityTimer = 2500;
+        }
+    }
+    else
+    {
+        if (guardian->GetVictim() != target && guardian->IsAIEnabled)
+            guardian->AI()->AttackStart(target);
+        if (!state.AbilityTimer && guardian->IsWithinDistInMap(target, 5.0f))
+        {
+            guardian->CastSpell(
+                target, VoidwalkerTormentForLevel(player->GetLevel()), false);
+            state.AbilityTimer = 5000;
+        }
+    }
+}
 
 struct CompanionLogisticsRoute
 {
@@ -3433,6 +3645,8 @@ public:
         if (!player || !player->GetSession() || player->GetSession()->IsBot())
             return;
 
+        UpdateWarlockDualDemon(player, diff);
+
         for (QuestingCompanionRegistration& registration : QuestingCompanions)
         {
             if (registration.LeaderGuid != player->GetGUID())
@@ -3442,6 +3656,8 @@ public:
                 ObjectAccessor::FindConnectedPlayer(registration.CompanionGuid);
             if (!IsActiveQuestingCompanion(player, companion))
                 continue;
+
+            UpdateWarlockDualDemon(companion, diff);
 
             if (!player->IsAlive())
             {
@@ -3550,6 +3766,12 @@ public:
             return;
 
         ObjectGuid playerGuid = player->GetGUID();
+        auto dualDemon = WarlockDualDemons.find(playerGuid);
+        if (dualDemon != WarlockDualDemons.end())
+        {
+            DespawnWarlockDualDemon(player, dualDemon->second);
+            WarlockDualDemons.erase(dualDemon);
+        }
         QuestingCompanions.erase(
             std::remove_if(
                 QuestingCompanions.begin(), QuestingCompanions.end(),
