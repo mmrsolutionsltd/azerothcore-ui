@@ -3021,14 +3021,12 @@ public sealed class ServerAdministrationController(
             throw new InvalidOperationException("The companion character was not found.");
         if (starting && companionRow.Online)
             throw new InvalidOperationException("The companion is already online.");
-        if (leaderRow.AccountId == companionRow.AccountId)
-            throw new InvalidOperationException(
-                "The leader and companion must be on different game accounts.");
         if (IsAllianceRace(leaderRow.CharacterRace)
             != IsAllianceRace(companionRow.CharacterRace))
             throw new InvalidOperationException(
                 "The leader and companion must belong to the same faction.");
-        if (starting && (leaderRow.GuildId == 0 || leaderRow.GuildId != companionRow.GuildId))
+        if (starting && leaderRow.AccountId != companionRow.AccountId
+            && (leaderRow.GuildId == 0 || leaderRow.GuildId != companionRow.GuildId))
         {
             await using var maintenance = connectionFactory.CreateMaintenanceConnection();
             var linked = await maintenance.ExecuteScalarAsync<long>(new CommandDefinition("""

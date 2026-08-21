@@ -59,6 +59,9 @@ public sealed class QuestingCompanionsTests : BunitContext
             var leaderPicker = component.FindAll(".character-picker").First();
             Assert.Contains("Vynlan", leaderPicker.TextContent);
             Assert.DoesNotContain("Kiesh", leaderPicker.TextContent);
+
+            var companionPicker = component.FindAll(".character-picker").Last();
+            Assert.Contains("Sameaccount", companionPicker.TextContent);
         });
     }
 
@@ -109,7 +112,12 @@ public sealed class QuestingCompanionsTests : BunitContext
                 new("questing", "damage", "follow", "assist", 3,
                     true, true, true, true),
                 new(4, 8, false, 0, "Ready"))],
-            [], [], 6);
+            [new QuestingCompanionCandidate
+            {
+                Name = "Sameaccount", Username = "MARK2", AccountId = 2,
+                Level = 7, CharacterClass = 9, Race = 10, Online = false,
+                SameFaction = true, SameAccount = true
+            }], [], 6);
 
         private static HttpResponseMessage Json<T>(T value) =>
             new(HttpStatusCode.OK) { Content = JsonContent.Create(value) };

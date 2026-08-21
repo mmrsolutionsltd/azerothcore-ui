@@ -23,6 +23,20 @@ public sealed class ServerAdministrationControllerTests
     }
 
     [Fact]
+    public void SameAccountQuestingCompanionsAreTrustedAutomatically()
+    {
+        var candidate = new QuestingCompanionCandidate
+        {
+            SameAccount = true,
+            SameGuild = false,
+            AccountsLinked = false
+        };
+
+        Assert.True(candidate.ControlAllowed);
+        Assert.Equal("Same game account", candidate.ControlReason);
+    }
+
+    [Fact]
     public void CompanionInspectionParsesLootBagsAndComparableQuestProgress()
     {
         const string output = """

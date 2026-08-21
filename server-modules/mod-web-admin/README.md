@@ -48,8 +48,9 @@ level range; each spawned creature's stats are recalculated. The four-argument f
 remains available for the website's single utility-NPC summons.
 
 Questing companions are normal characters controlled as PlayerBots. The leader must be
-online, the companion offline, and they must be same-faction characters on different game
-accounts. Starting a companion assigns the leader as its master and PlayerBots handles
+online, the companion offline, and they must be distinct same-faction characters.
+Characters may share a game account when PlayerBots' `AiPlayerbot.AllowAccountBots` setting
+is enabled. Starting a companion assigns the leader as its master and PlayerBots handles
 party creation, following, combat, and quest synchronisation. The module mirrors the
 leader's eligible accepted quests to active companions, including quests already in the
 leader's log when a companion finishes logging in. When the leader talks to a nearby quest

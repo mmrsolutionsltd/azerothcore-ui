@@ -2192,10 +2192,10 @@ private:
             return false;
         }
         uint32 companionAccount = sCharacterCache->GetCharacterAccountIdByGuid(companionGuid);
-        if (!companionAccount || companionAccount == leader->GetSession()->GetAccountId())
+        if (!companionAccount)
         {
             handler->SendErrorMessage(
-                "The leader and companion must use different game accounts.");
+                "The companion account could not be found.");
             return false;
         }
         QueryResult result = CharacterDatabase.Query(

@@ -57,7 +57,6 @@
                                 <div>
                                     @candidate.Name —
                                     @(candidate.Online ? "already online"
-                                        : candidate.SameAccount ? "same game account as leader"
                                         : !candidate.SameFaction ? "opposite faction"
                                         : candidate.ControlReason)
                                     @if (canManageAccountLinks && !candidate.Online
@@ -310,7 +309,9 @@
 }
 
 <div class="alert alert-info mt-3 mb-0">
-    Each companion must be on a different WoW account from the leader. Eligible quests
+    Any offline, same-faction character in your assigned WoW accounts can be a companion.
+    Characters on the leader's account are trusted automatically; characters on another
+    account must share the leader's guild or use a trusted account link. Eligible quests
     accepted by the leader are mirrored to active companions. Companions periodically
     check nearby quest givers and independently accept eligible quests for their own
     class or professions; the leader need not have the quest or speak to its giver.
@@ -344,7 +345,7 @@
     private IReadOnlyList<QuestingCompanionCandidate> AvailableCandidates =>
         status?.Candidates
             .Where(candidate => !candidate.Online && candidate.SameFaction
-                && !candidate.SameAccount && candidate.ControlAllowed)
+                && candidate.ControlAllowed)
             .ToArray() ?? [];
 
     private IReadOnlyList<QuestingCompanionCandidate> UnavailableCandidates =>
