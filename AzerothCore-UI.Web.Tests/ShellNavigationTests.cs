@@ -13,16 +13,16 @@ public sealed class ShellNavigationTests : BunitContext
     {
         var authorization = AddAuthorization();
         authorization.SetAuthorized("owner");
-        authorization.SetPolicies("players.actions", "players.characters",
+        authorization.SetPolicies("players.characters",
             "adventures.quests", "players.services");
         Services.GetRequiredService<NavigationManager>()
             .NavigateTo("http://localhost/crafting-upgrades");
 
         var tabs = Render<RealmCommandTabs>();
 
-        Assert.Equal(4, tabs.FindAll(".command-tab").Count);
+        Assert.Equal(3, tabs.FindAll(".command-tab").Count);
         Assert.Contains("Gearing Room", tabs.Find(".command-tab.active").TextContent);
-        Assert.Equal("player-actions",
+        Assert.Equal("crafting-upgrades",
             tabs.FindAll(".command-tab")[0].GetAttribute("href"));
     }
 
