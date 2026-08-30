@@ -58,6 +58,19 @@ Then reset `claude-request.md` and `agent-response.md` to their "no open request
 - A response marked `blocked` must state the exact missing input; do not silently guess.
 - A response marked `complete` must include verification and rollback information.
 - After deployment, Claude should request a health check rather than assuming success.
+- During an active handoff session, the responding agent should check `claude-request.md` about every two minutes. Outside an active session, the owner must prompt the agent again; no agent is permanently monitoring in the background.
+
+## Token and compute efficiency
+
+Claude should help conserve shared AI compute by:
+
+- Reading only the relevant numbered handover file before a task, not the entire repository.
+- Sending one compact request with sanitized evidence instead of a long conversation transcript.
+- Asking for targeted commands and bounded output (`rg` matches, `tail`, focused tests) rather than full logs.
+- Reusing known host paths, service names, and deployment scripts from the handover.
+- Avoiding repeated builds, repeated health checks, and broad repository scans when a focused check is sufficient.
+- Summarising results and linking to files instead of pasting large source files.
+- Deferring optional enhancements until the requested change is verified.
 - Database changes require an explicit backup statement; service restarts require an impact statement.
 - Archive a closed exchange to `.agent/read/` before starting the next one; do not let `claude-request.md`/`agent-response.md` accumulate unrelated history.
 
