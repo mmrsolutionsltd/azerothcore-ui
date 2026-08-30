@@ -1,58 +1,124 @@
-.companion-tabs {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    overflow-y: hidden;
-}
-
-.companion-tabs .nav-link {
-    white-space: nowrap;
-}
-
-.companion-management.embedded {
+.companion-management {
     min-width: 0;
     color: #cec5b7;
     border-top: 1px solid #3d3427;
     background: rgba(7, 9, 12, .76);
 }
 
-.embedded-companion-summary {
+.companion-summary {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: .2rem;
-    padding: .25rem .3rem;
+    padding: .3rem .4rem;
+    border-bottom: 1px solid rgba(87, 70, 46, .4);
 }
 
-.embedded-companion-summary .badge { font-size: .48rem; }
-
-.embedded-companion-summary .btn {
+.companion-dismiss {
     margin-left: auto;
-    padding: .08rem .3rem;
-    font-size: .5rem;
+    padding: .1rem .35rem;
+    color: #e9a3a0;
+    font-size: .48rem;
+    border: 1px solid #6e332f;
+    border-radius: 2px;
+    background: #241412;
 }
+.companion-dismiss:hover:not(:disabled) { color: #ffd3d0; border-color: #ac4b45; }
+.companion-dismiss:disabled { opacity: .5; }
 
-.embedded-companion-body {
+.companion-body {
     min-width: 0;
-    padding: 0 .3rem .35rem;
+    padding: .35rem .4rem .4rem;
     overflow: auto;
 }
 
-.embedded .companion-tabs {
+.companion-tabs {
+    flex-wrap: nowrap;
     gap: .1rem;
     margin-bottom: .35rem !important;
+    overflow-x: auto;
+    overflow-y: hidden;
     border-bottom-color: #5a4528;
 }
-
-.embedded .companion-tabs .nav-link {
+.companion-tabs .nav-link {
     padding: .16rem .3rem;
     color: #bda66f;
     font-size: .5rem;
+    white-space: nowrap;
     border-color: #453a2b;
     background: #17181a;
 }
-
-.embedded .companion-tabs .nav-link.active {
+.companion-tabs .nav-link.active {
     color: #211506;
     border-color: #d2a24d;
     background: #d3a04b;
 }
+
+.companion-note {
+    padding: .3rem .4rem;
+    color: #a89a7c;
+    font-size: .5rem;
+    border: 1px solid #4a3d28;
+    border-radius: 3px;
+    background: rgba(10, 12, 15, .55);
+}
+
+/* Shared reskin for the four tab panels (Behaviour/Inventory/Maintenance/
+   Logistics), which otherwise render plain, oversized Bootstrap defaults -
+   this is the actual source of the old "bulky" companion controls. */
+.companion-management ::deep .badge {
+    padding: .12rem .3rem;
+    font-size: .46rem;
+    font-weight: 700;
+    letter-spacing: .02em;
+}
+
+.companion-management ::deep .btn {
+    padding: .12rem .35rem;
+    font-size: .48rem;
+    border-radius: 2px;
+}
+.companion-management ::deep .btn-sm { padding: .1rem .3rem; font-size: .46rem; }
+.companion-management ::deep .btn i.bi { font-size: .46rem; }
+
+.companion-management ::deep .form-select,
+.companion-management ::deep .form-control {
+    padding: .12rem .3rem;
+    font-size: .5rem;
+    color: #e2d8c8;
+    border-color: #4a3d28;
+    background-color: #17191d;
+}
+.companion-management ::deep .form-label { margin-bottom: .15rem !important; font-size: .48rem; color: #b7aa94; }
+.companion-management ::deep .form-check-input { accent-color: #bf8735; }
+.companion-management ::deep .form-check-label { font-size: .48rem; }
+.companion-management ::deep .form-range { min-width: 0; }
+
+.companion-management ::deep .alert {
+    padding: .25rem .4rem;
+    margin: 0;
+    font-size: .48rem;
+    border-radius: 3px;
+}
+.companion-management ::deep .alert-warning { color: #e8c983; background: #2a2013; border: 1px solid #5a4528; }
+.companion-management ::deep .alert-danger { color: #ef9490; background: #2a1513; border: 1px solid #6e332f; }
+.companion-management ::deep .alert-success { color: #8fdba0; background: #132a19; border: 1px solid #2f5a3d; }
+
+.companion-management ::deep .table {
+    font-size: .5rem;
+    --bs-table-color: #d2c8b9;
+    --bs-table-bg: #111317;
+    --bs-table-border-color: #4d402d;
+    --bs-table-striped-color: #d2c8b9;
+    --bs-table-striped-bg: rgba(194, 137, 48, .06);
+    --bs-table-hover-color: #f2d99b;
+    --bs-table-hover-bg: rgba(194, 137, 48, .11);
+}
+.companion-management ::deep .table th,
+.companion-management ::deep .table td { padding: .2rem .3rem; vertical-align: middle; }
+
+.companion-management ::deep .progress { background-color: #24262b; }
+
+.companion-management ::deep details > summary { font-size: .5rem; cursor: pointer; }
+.companion-management ::deep small,
+.companion-management ::deep .small { font-size: .46rem; }

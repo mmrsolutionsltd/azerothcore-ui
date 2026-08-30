@@ -1,14 +1,5 @@
-<div class="@(Embedded ? "companion-management embedded" : "card h-100 companion-management")">
-    <div class="@(Embedded ? "embedded-companion-summary" : "card-header d-flex flex-wrap gap-2 align-items-center")">
-        @if (!Embedded)
-        {
-            <div class="flex-grow-1">
-                <strong>@Companion.Name</strong>
-                <span class="small text-muted ms-1">
-                    Level @Companion.Level · @ClassName(Companion.CharacterClass)
-                </span>
-            </div>
-        }
+<div class="companion-management">
+    <div class="companion-summary">
         <span class="badge @(Companion.InLeaderParty ? "text-bg-success" : "text-bg-warning")">
             @(Companion.InLeaderParty ? "In party" : "Not in party")
         </span>
@@ -18,14 +9,14 @@
                 @Companion.FreeBagSlots/@Companion.TotalBagSlots free
             </span>
         }
-        <button class="btn btn-sm btn-outline-danger" type="button"
+        <button class="companion-dismiss" type="button"
                 disabled="@Disabled" @onclick="DismissAsync">
             Dismiss
         </button>
     </div>
 
-    <div class="@(Embedded ? "embedded-companion-body" : "card-body pt-2")">
-        <ul class="nav nav-tabs companion-tabs mb-3" role="tablist">
+    <div class="companion-body">
+        <ul class="nav nav-tabs companion-tabs mb-2" role="tablist">
             <li class="nav-item" role="presentation">
                 <button class="nav-link @(activeTab == "behaviour" ? "active" : null)"
                         type="button" @onclick="ShowBehaviour">
@@ -61,7 +52,7 @@
             }
             else
             {
-                <div class="alert alert-warning py-2 small mb-0">
+                <div class="companion-note">
                     Behaviour controls require bridge protocol 3.
                 </div>
             }
@@ -76,7 +67,7 @@
             }
             else
             {
-                <div class="alert alert-warning py-2 small mb-0">
+                <div class="companion-note">
                     Equipment and bag contents require bridge protocol 2.
                 </div>
             }
@@ -93,7 +84,7 @@
             }
             else
             {
-                <div class="alert alert-warning py-2 small mt-3 mb-0">
+                <div class="companion-note mt-2">
                     Bag logistics requires bridge protocol 6.
                 </div>
             }
@@ -105,7 +96,6 @@
     [Parameter, EditorRequired] public string LeaderName { get; set; } = "";
     [Parameter, EditorRequired] public ActiveQuestingCompanion Companion { get; set; } = default!;
     [Parameter] public int ProtocolVersion { get; set; }
-    [Parameter] public bool Embedded { get; set; }
     [Parameter] public bool Disabled { get; set; }
     [Parameter] public EventCallback<string> DismissRequested { get; set; }
     [Parameter] public EventCallback<QuestingCompanionBehaviorRequest> BehaviorRequested { get; set; }
@@ -123,11 +113,4 @@
     private void ShowMaintenance() => activeTab = "maintenance";
 
     private Task DismissAsync() => DismissRequested.InvokeAsync(Companion.Name);
-
-    private static string ClassName(int value) => value switch
-    {
-        1 => "Warrior", 2 => "Paladin", 3 => "Hunter", 4 => "Rogue",
-        5 => "Priest", 6 => "Death Knight", 7 => "Shaman", 8 => "Mage",
-        9 => "Warlock", 11 => "Druid", _ => $"Class {value}"
-    };
 }
