@@ -42,97 +42,31 @@
                 {
                     if (hero.Online)
                     {
-                        var party = PartyFor(hero.Name);
-                        <article @key="hero.Name"
-                                 class="online-hero-card selected class-@hero.CharacterClass @(hero.IsLeader ? "leader" : null) @(hero.IsCompanion ? "companion" : null) @(IsActive(hero.Name) ? "active" : null) @(IsDead(hero) ? "dead" : null)"
-                                 @oncontextmenu="() => SelectOnlyAsync(hero.Name)"
-                                 @oncontextmenu:preventDefault="true">
-                            <button type="button" class="hero-card-main" title="Remove @hero.Name from the shared targets"
-                                    @onclick="args => HandleHeroClickAsync(hero.Name, args)">
-                                <span class="class-medallion">@ClassGlyph(hero.CharacterClass)</span>
-                                <span class="hero-identity">
-                                    <strong>@hero.Name</strong>
-                                    <small>Level @hero.Level @CharacterDisplayNames.Class((byte)hero.CharacterClass)</small>
-                                </span>
-                                <span class="hero-flags">
-                                    <b class="selected-flag">✓ SELECTED</b>
-                                    @if (IsActive(hero.Name)) { <b class="active-flag">ACTIVE</b> }
-                                    @if (hero.IsLeader) { <b title="Online party leader">♛ LEADER</b> }
-                                    else if (hero.IsCompanion) { <b class="bot">COMPANION</b> }
-                                    else if (hero.IsPlayerBot) { <b class="bot">PLAYERBOT</b> }
-                                    else if (party is not null) { <b>PARTY</b> }
-                                    <i title="Online"></i>
-                                </span>
-                                <span class="health-track @(hero.MaximumHealth is null ? "snapshot" : null) @(IsLowHealth(hero) ? "low-health" : null)"
-                                      role="progressbar" aria-label="@($"{hero.Name} health")"
-                                      aria-valuenow="@HealthWidth(hero)" aria-valuemin="0" aria-valuemax="100">
-                                    <span style="@HealthStyle(hero)"></span>
-                                    <em>@HealthText(hero)</em>
-                                </span>
-                            </button>
-                            <div class="hero-card-actions">
-                                <span>@hero.Username</span>
-                                <button type="button" class="focus-hero"
-                                        disabled="@IsActive(hero.Name)"
-                                        title="Use @hero.Name on single-hero pages without changing the selected group"
-                                        @onclick="() => ActivateAsync(hero.Name)">
-                                    @(IsActive(hero.Name) ? "Active" : "Focus")
-                                </button>
-                                <AuthorizeView Policy="players.characters">
-                                    <Authorized>
-                                        <button type="button" class="upgrades-toggle"
-                                                disabled="@upgradesLoading.Contains(hero.Name)"
-                                                title="Show Artisan Gearing Room upgrades for @hero.Name"
-                                                @onclick="() => ToggleUpgradesAsync(hero)">
-                                            @(upgradesLoading.Contains(hero.Name)
-                                                ? "Loading…"
-                                                : (openUpgradesFor == hero.Name ? "Close" : "Upgrades"))
-                                        </button>
-                                    </Authorized>
-                                </AuthorizeView>
-                                <AuthorizeView Policy="players.services">
-                                    <Authorized>
-                                        <button type="button" class="revive-button"
-                                                disabled="@(!IsDead(hero) || reviving.Contains(hero.Name))"
-                                                title="@(IsDead(hero) ? $"Revive {hero.Name}" : $"{hero.Name} is alive")"
-                                                @onclick="() => ReviveAsync(hero.Name)">
-                                            @(reviving.Contains(hero.Name) ? "Reviving…" : "Revive")
-                                        </button>
-                                    </Authorized>
-                                </AuthorizeView>
-                                <button type="button" class="remove-hero" title="Remove @hero.Name from this hero row"
-                                        @onclick="() => RemoveAsync(hero.Name)">×</button>
-                            </div>
-                            @if (ActiveCompanionFor(hero.Name) is { } companion)
-                            {
-                                <CompanionHeaderControls @key="companion.Name"
-                                    LeaderName="@companionLeaderName"
-                                    Companion="@companion"
-                                    ProtocolVersion="@(companionStatus?.ProtocolVersion ?? 0)"
-                                    RefreshRequested="RefreshCompanionControlsAsync" />
-                            }
-                        </article>
+                        <HeroCard @key="hero.Name" Hero="hero"
+                                  IsActive="IsActive(hero.Name)"
+                                  HasParty="PartyFor(hero.Name) is not null"
+                                  UpgradesLoading="upgradesLoading.Contains(hero.Name)"
+                                  UpgradesOpen="openUpgradesFor == hero.Name"
+                                  Reviving="reviving.Contains(hero.Name)"
+                                  Companion="ActiveCompanionFor(hero.Name)"
+                                  CompanionLeaderName="@companionLeaderName"
+                                  ProtocolVersion="@(companionStatus?.ProtocolVersion ?? 0)"
+                                  OnHeroClick="args => HandleHeroClickAsync(hero.Name, args)"
+                                  OnSelectOnly="() => SelectOnlyAsync(hero.Name)"
+                                  OnActivate="() => ActivateAsync(hero.Name)"
+                                  OnToggleUpgrades="() => ToggleUpgradesAsync(hero)"
+                                  OnRevive="() => ReviveAsync(hero.Name)"
+                                  OnRemove="() => RemoveAsync(hero.Name)"
+                                  OnCompanionRefresh="RefreshCompanionControlsAsync" />
                     }
                     else
                     {
-                        <div @key="hero.Name" class="offline-selected selected class-@hero.CharacterClass @(IsActive(hero.Name) ? "active" : null)"
-                             @oncontextmenu="() => SelectOnlyAsync(hero.Name)"
-                             @oncontextmenu:preventDefault="true">
-                            <button type="button" title="Remove @hero.Name from the shared targets"
-                                    @onclick="args => HandleHeroClickAsync(hero.Name, args)">
-                                <span>@ClassGlyph(hero.CharacterClass)</span>
-                                <strong>@hero.Name</strong>
-                                <small>Offline · @hero.Username</small>
-                            </button>
-                            <button type="button" class="focus-hero"
-                                    disabled="@IsActive(hero.Name)"
-                                    title="Use @hero.Name on single-hero pages"
-                                    @onclick="() => ActivateAsync(hero.Name)">
-                                @(IsActive(hero.Name) ? "Active" : "Focus")
-                            </button>
-                            <button type="button" class="remove-hero" title="Remove @hero.Name"
-                                    @onclick="() => RemoveAsync(hero.Name)">×</button>
-                        </div>
+                        <OfflineHeroChip @key="hero.Name" Hero="hero"
+                                         IsActive="IsActive(hero.Name)"
+                                         OnHeroClick="args => HandleHeroClickAsync(hero.Name, args)"
+                                         OnSelectOnly="() => SelectOnlyAsync(hero.Name)"
+                                         OnActivate="() => ActivateAsync(hero.Name)"
+                                         OnRemove="() => RemoveAsync(hero.Name)" />
                     }
                 }
             </div>
@@ -142,56 +76,17 @@
                     openName, StringComparison.OrdinalIgnoreCase)) is var openIndex
                 && openIndex >= 0)
             {
-                var openHero = SelectedHeroes[openIndex];
-                <div class="hero-upgrade-backdrop" @onclick="CloseUpgrades"></div>
-                <div class="hero-upgrade-panel"
-                     style="--anchor:calc((@openIndex + .5) * (100% / @SelectedHeroes.Count))">
-                    <div class="hero-upgrade-caret"></div>
-                    <div class="hero-upgrade-header">
-                        <strong>@openHero.Name</strong>
-                        <span>Artisan Gearing Room</span>
-                        <button type="button" class="hero-upgrade-refresh" title="Refresh"
-                                @onclick="() => RefreshUpgradesAsync(openHero)">⟳</button>
-                        <button type="button" class="hero-upgrade-close" title="Close"
-                                @onclick="CloseUpgrades">×</button>
-                    </div>
-                    @if (upgradesLoading.Contains(openName))
-                    {
-                        <p class="hero-upgrade-status"><em>Consulting the forge…</em></p>
-                    }
-                    else if (upgradesError.TryGetValue(openName, out var upgradeError))
-                    {
-                        <div class="alert alert-danger py-2 m-2">@upgradeError</div>
-                    }
-                    else if (upgradePlanCache.TryGetValue(openName, out var openPlan)
-                        && openPlan is not null)
-                    {
-                        <div class="hero-upgrade-summary">
-                            <div><strong>@openPlan.OwnedUpgradeCount</strong><span>Owned</span></div>
-                            <div><strong>@openPlan.CraftNowCount</strong><span>Craft now</span></div>
-                            <div><strong>@openPlan.LearnNextCount</strong><span>Learn next</span></div>
-                            <div><strong>@openPlan.ProgressionCount</strong><span>Progression</span></div>
-                        </div>
-                        <div class="hero-upgrade-slots">
-                            @foreach (var slot in openPlan.Slots)
-                            {
-                                <GearSlotButton SlotId="slot.Slot" Slot="slot"
-                                                Selected="openUpgradeSlotId == slot.Slot"
-                                                OnSelected="() => SelectUpgradeSlot(slot.Slot)" />
-                            }
-                        </div>
-                        @if (openPlan.Slots.FirstOrDefault(
-                            slot => slot.Slot == openUpgradeSlotId) is { } openSlot)
-                        {
-                            <UpgradeDrawer Slot="openSlot" Filter="@upgradeFilter"
-                                           FilterChanged="filter => upgradeFilter = filter" />
-                        }
-                    }
-                    else
-                    {
-                        <p class="hero-upgrade-status">No crafting data available.</p>
-                    }
-                </div>
+                <HeroUpgradePanel Hero="SelectedHeroes[openIndex]" AnchorIndex="openIndex"
+                                  TotalCount="SelectedHeroes.Count"
+                                  Loading="upgradesLoading.Contains(openName)"
+                                  Error="@upgradesError.GetValueOrDefault(openName)"
+                                  Plan="upgradePlanCache.GetValueOrDefault(openName)"
+                                  SelectedSlotId="openUpgradeSlotId"
+                                  Filter="@upgradeFilter"
+                                  OnRefresh="() => RefreshUpgradesAsync(SelectedHeroes[openIndex])"
+                                  OnClose="CloseUpgrades"
+                                  OnSelectSlot="SelectUpgradeSlot"
+                                  OnFilterChanged="filter => upgradeFilter = filter" />
             }
         }
 
@@ -199,19 +94,10 @@
             <span class="choice-label">@(SelectedHeroes.Count == 0 ? "SELECT HEROES" : "ADD ANOTHER")</span>
             @foreach (var hero in AvailableChoices)
             {
-                <button @key="hero.Name" type="button"
-                        class="hero-choice class-@hero.CharacterClass @(hero.Online ? "online" : "offline") @(hero.IsLeader ? "leader" : null)"
-                        disabled="@(selectedNames.Count >= AzerothCore_UI.Web.Services.SelectedCharacterStore.MaximumCharacters)"
-                        title="@MemberTitle(hero)"
-                        @onclick="args => HandleHeroClickAsync(hero.Name, args)"
-                        @oncontextmenu="() => SelectOnlyAsync(hero.Name)"
-                        @oncontextmenu:preventDefault="true">
-                    <i></i>
-                    @if (hero.IsLeader) { <span>♛</span> }
-                    <strong>@hero.Name</strong>
-                    <small>Lv @hero.Level</small>
-                    @if (hero.IsPlayerBot) { <small class="bot-label">BOT</small> }
-                </button>
+                <HeroChoiceButton @key="hero.Name" Hero="hero"
+                                  Disabled="@(selectedNames.Count >= AzerothCore_UI.Web.Services.SelectedCharacterStore.MaximumCharacters)"
+                                  OnHeroClick="args => HandleHeroClickAsync(hero.Name, args)"
+                                  OnSelectOnly="() => SelectOnlyAsync(hero.Name)" />
             }
             @if (AvailableChoices.Count == 0)
             {
@@ -477,39 +363,6 @@
 
     private bool IsActive(string name) => name.Equals(activeName,
         StringComparison.OrdinalIgnoreCase);
-    private static bool IsDead(RealmRosterCharacter hero) =>
-        hero.Online && hero.CurrentHealth == 0;
-    private static bool IsLowHealth(RealmRosterCharacter hero) =>
-        hero.MaximumHealth is > 0
-        && hero.CurrentHealth * 100m / hero.MaximumHealth.Value < 30m;
-    private static decimal HealthWidth(RealmRosterCharacter hero) =>
-        hero.MaximumHealth is > 0
-            ? Math.Clamp(hero.CurrentHealth * 100m / hero.MaximumHealth.Value, 0, 100)
-            : hero.CurrentHealth > 0 ? 100 : 0;
-    private static string HealthStyle(RealmRosterCharacter hero)
-    {
-        var width = HealthWidth(hero).ToString("0.##",
-            System.Globalization.CultureInfo.InvariantCulture);
-        var colour = IsLowHealth(hero) || IsDead(hero) ? "#c43b3f" : "#43b856";
-        return $"width:{width}%;background-color:{colour}";
-    }
-    private static string HealthText(RealmRosterCharacter hero) =>
-        hero.MaximumHealth is > 0
-            ? $"{Math.Round(Math.Clamp(hero.CurrentHealth * 100m /
-                hero.MaximumHealth.Value, 0, 100))}%"
-            : hero.CurrentHealth == 0 ? "DEAD" : $"{hero.CurrentHealth:N0} HP";
-    private static string ClassGlyph(int characterClass) => characterClass switch
-    {
-        1 => "⚔", 2 => "✦", 3 => "➶", 4 => "†", 5 => "☼", 6 => "☠",
-        7 => "ϟ", 8 => "✧", 9 => "◉", 11 => "☾", _ => "◆"
-    };
-    private static string MemberTitle(RealmRosterCharacter member) =>
-        $"{member.Name} · Level {member.Level} {CharacterDisplayNames.Class((byte)member.CharacterClass)} · {member.Username}" +
-        (member.IsLeader
-            ? member.Online ? " · Online party leader" : " · Remembered party leader"
-            : member.IsCompanion ? " · Companion"
-            : member.IsPlayerBot ? " · PlayerBot"
-            : member.Online ? " · Online" : " · Offline");
 
     private ActiveQuestingCompanion? ActiveCompanionFor(string name) =>
         companionStatus?.ActiveCompanions.FirstOrDefault(companion =>

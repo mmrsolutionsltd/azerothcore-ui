@@ -1,0 +1,63 @@
+@using AzerothCore_UI.Web.Models
+
+<div class="hero-upgrade-backdrop" @onclick="OnClose"></div>
+<div class="hero-upgrade-panel"
+     style="--anchor:calc((@AnchorIndex + .5) * (100% / @TotalCount))">
+    <div class="hero-upgrade-caret"></div>
+    <div class="hero-upgrade-header">
+        <strong>@Hero.Name</strong>
+        <span>Artisan Gearing Room</span>
+        <button type="button" class="hero-upgrade-refresh" title="Refresh"
+                @onclick="OnRefresh">⟳</button>
+        <button type="button" class="hero-upgrade-close" title="Close"
+                @onclick="OnClose">×</button>
+    </div>
+    @if (Loading)
+    {
+        <p class="hero-upgrade-status"><em>Consulting the forge…</em></p>
+    }
+    else if (Error is not null)
+    {
+        <div class="alert alert-danger py-2 m-2">@Error</div>
+    }
+    else if (Plan is not null)
+    {
+        <div class="hero-upgrade-summary">
+            <div><strong>@Plan.OwnedUpgradeCount</strong><span>Owned</span></div>
+            <div><strong>@Plan.CraftNowCount</strong><span>Craft now</span></div>
+            <div><strong>@Plan.LearnNextCount</strong><span>Learn next</span></div>
+            <div><strong>@Plan.ProgressionCount</strong><span>Progression</span></div>
+        </div>
+        <div class="hero-upgrade-slots">
+            @foreach (var slot in Plan.Slots)
+            {
+                <GearSlotButton SlotId="slot.Slot" Slot="slot"
+                                Selected="SelectedSlotId == slot.Slot"
+                                OnSelected="() => OnSelectSlot.InvokeAsync(slot.Slot)" />
+            }
+        </div>
+        @if (Plan.Slots.FirstOrDefault(slot => slot.Slot == SelectedSlotId) is { } openSlot)
+        {
+            <UpgradeDrawer Slot="openSlot" Filter="@Filter" FilterChanged="OnFilterChanged" />
+        }
+    }
+    else
+    {
+        <p class="hero-upgrade-status">No crafting data available.</p>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public RealmRosterCharacter Hero { get; set; } = default!;
+    [Parameter] public int AnchorIndex { get; set; }
+    [Parameter] public int TotalCount { get; set; } = 1;
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public string? Error { get; set; }
+    [Parameter] public CraftingUpgradePlan? Plan { get; set; }
+    [Parameter] public int? SelectedSlotId { get; set; }
+    [Parameter] public string Filter { get; set; } = "All";
+    [Parameter] public EventCallback OnRefresh { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback<int> OnSelectSlot { get; set; }
+    [Parameter] public EventCallback<string> OnFilterChanged { get; set; }
+}

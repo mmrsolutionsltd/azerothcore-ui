@@ -1,0 +1,30 @@
+@using AzerothCore_UI.Web.Models
+
+<button type="button"
+        class="hero-choice class-@Hero.CharacterClass @(Hero.Online ? "online" : "offline") @(Hero.IsLeader ? "leader" : null)"
+        disabled="@Disabled"
+        title="@MemberTitle(Hero)"
+        @onclick="OnHeroClick"
+        @oncontextmenu="OnSelectOnly"
+        @oncontextmenu:preventDefault="true">
+    <i></i>
+    @if (Hero.IsLeader) { <span>♛</span> }
+    <strong>@Hero.Name</strong>
+    <small>Lv @Hero.Level</small>
+    @if (Hero.IsPlayerBot) { <small class="bot-label">BOT</small> }
+</button>
+
+@code {
+    [Parameter, EditorRequired] public RealmRosterCharacter Hero { get; set; } = default!;
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public EventCallback<MouseEventArgs> OnHeroClick { get; set; }
+    [Parameter] public EventCallback OnSelectOnly { get; set; }
+
+    private static string MemberTitle(RealmRosterCharacter member) =>
+        $"{member.Name} · Level {member.Level} {CharacterDisplayNames.Class((byte)member.CharacterClass)} · {member.Username}" +
+        (member.IsLeader
+            ? member.Online ? " · Online party leader" : " · Remembered party leader"
+            : member.IsCompanion ? " · Companion"
+            : member.IsPlayerBot ? " · PlayerBot"
+            : member.Online ? " · Online" : " · Offline");
+}

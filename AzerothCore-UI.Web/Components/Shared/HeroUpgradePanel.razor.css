@@ -1,0 +1,22 @@
+.hero-upgrade-backdrop{position:fixed;inset:0;z-index:6;background:transparent}
+.hero-upgrade-panel{position:absolute;top:100%;left:0;right:0;z-index:8;margin-top:.7rem;max-height:70vh;overflow-y:auto;color:#d8ccba;border:1px solid #9b7133;border-bottom:2px solid #d0a24e;border-radius:8px;background:radial-gradient(circle at 18% 0,rgba(205,146,54,.17),transparent 24rem),linear-gradient(145deg,#171a1f,#090b0e 78%);box-shadow:inset 3px 0 #aa7935,inset 0 0 28px rgba(0,0,0,.55),0 12px 30px rgba(0,0,0,.55)}
+.hero-upgrade-panel ::deep .upgrade-drawer{margin:.6rem}
+.hero-upgrade-caret{position:absolute;top:-7px;left:var(--anchor,50%);width:14px;height:14px;transform:translateX(-50%) rotate(45deg);border-left:1px solid #9b7133;border-top:1px solid #9b7133;background:#171a1f}
+.hero-upgrade-header{display:flex;align-items:center;gap:.4rem;padding:.55rem .7rem;border-bottom:1px solid #4a3a24;background:linear-gradient(90deg,rgba(139,92,31,.22),rgba(20,21,24,.45))}
+.hero-upgrade-header strong{color:#f3d795;font-family:Georgia,"Times New Roman",serif;font-size:.85rem}
+.hero-upgrade-header span{color:#a89e8e;font-size:.62rem}
+.hero-upgrade-header .hero-upgrade-refresh,.hero-upgrade-header .hero-upgrade-close{margin-left:auto;padding:.1rem .4rem;color:#c8a55f;font-size:.72rem;border:1px solid #59472d;border-radius:3px;background:#1c1914}
+.hero-upgrade-header .hero-upgrade-close{margin-left:.3rem}
+.hero-upgrade-header .hero-upgrade-refresh:hover,.hero-upgrade-header .hero-upgrade-close:hover{color:#ffe2a1;border-color:#b18442}
+.hero-upgrade-status{padding:1rem;margin:0;color:#958b7c;text-align:center}
+.hero-upgrade-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin:.6rem;border:1px solid #55442b;border-radius:6px;overflow:hidden;background:#111317}
+.hero-upgrade-summary div{display:flex;flex-direction:column;align-items:center;gap:.15rem;padding:.5rem .3rem;border-right:1px solid #3e3425}
+.hero-upgrade-summary div:last-child{border-right:0}
+.hero-upgrade-summary strong{font-size:1rem;color:#e0bc62}
+.hero-upgrade-summary span{color:#aaa294;font-size:.6rem;text-transform:uppercase;letter-spacing:.05em}
+.hero-upgrade-slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:.4rem;padding:0 .6rem .6rem}
+
+@media(max-width:800px){
+    .hero-upgrade-panel{position:fixed;inset:auto 0 0 0;left:0;right:0;top:auto;margin-top:0;max-height:80vh;border-radius:.7rem .7rem 0 0}
+    .hero-upgrade-caret{display:none}
+}

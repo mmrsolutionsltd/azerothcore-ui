@@ -1,0 +1,28 @@
+@using AzerothCore_UI.Web.Models
+
+<div class="offline-selected selected class-@Hero.CharacterClass @(IsActive ? "active" : null)"
+     @oncontextmenu="OnSelectOnly" @oncontextmenu:preventDefault="true">
+    <button type="button" title="Remove @Hero.Name from the shared targets"
+            @onclick="OnHeroClick">
+        <span>@CharacterDisplayNames.ClassGlyph(Hero.CharacterClass)</span>
+        <strong>@Hero.Name</strong>
+        <small>Offline · @Hero.Username</small>
+    </button>
+    <button type="button" class="focus-hero"
+            disabled="@IsActive"
+            title="Use @Hero.Name on single-hero pages"
+            @onclick="OnActivate">
+        @(IsActive ? "Active" : "Focus")
+    </button>
+    <button type="button" class="remove-hero" title="Remove @Hero.Name"
+            @onclick="OnRemove">×</button>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public RealmRosterCharacter Hero { get; set; } = default!;
+    [Parameter] public bool IsActive { get; set; }
+    [Parameter] public EventCallback<MouseEventArgs> OnHeroClick { get; set; }
+    [Parameter] public EventCallback OnSelectOnly { get; set; }
+    [Parameter] public EventCallback OnActivate { get; set; }
+    [Parameter] public EventCallback OnRemove { get; set; }
+}

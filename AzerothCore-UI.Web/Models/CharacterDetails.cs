@@ -59,4 +59,10 @@ public static class CharacterDisplayNames
         5 => "Priest", 6 => "Death Knight", 7 => "Shaman", 8 => "Mage",
         9 => "Warlock", 11 => "Druid", _ => $"Unknown ({characterClass})"
     };
+
+    public static string ClassGlyph(int characterClass) => characterClass switch
+    {
+        1 => "⚔", 2 => "✦", 3 => "➶", 4 => "†", 5 => "☼", 6 => "☠",
+        7 => "ϟ", 8 => "✧", 9 => "◉", 11 => "☾", _ => "◆"
+    };
 }
