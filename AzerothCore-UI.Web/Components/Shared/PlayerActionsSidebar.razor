@@ -1,0 +1,77 @@
+@using AzerothCore_UI.Web.Models
+@implements IDisposable
+@inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
+@inject AzerothCore_UI.Web.Services.SelectedCharacterStore SelectedCharacterStore
+
+<div class="player-actions-rail-host">
+    <input id="player-actions-rail-toggle" type="checkbox" class="player-actions-rail-toggle" @bind="railOpen" />
+    <label for="player-actions-rail-toggle" class="player-actions-rail-button" title="Toggle player action tools">
+        <span aria-hidden="true">⚒</span>
+    </label>
+    <label for="player-actions-rail-toggle" class="player-actions-rail-backdrop" aria-label="Close player action tools"></label>
+
+    <aside class="player-actions-rail" aria-label="Player action tools">
+        <div class="player-actions-rail-panel">
+            @if (isLoading)
+            {
+                <p class="player-actions-rail-status"><em>Loading available characters...</em></p>
+            }
+            else if (errorMessage is not null)
+            {
+                <div class="alert alert-warning m-2">@errorMessage</div>
+            }
+            else
+            {
+                <PlayerActionTools Targets="@SelectedTargets" SingleColumn="true" />
+            }
+        </div>
+    </aside>
+</div>
+
+@code {
+    private IReadOnlyList<AdministrationPlayer> players = [];
+    private readonly HashSet<string> selectedNames =
+        new(StringComparer.OrdinalIgnoreCase);
+    private bool isLoading = true;
+    private string? errorMessage;
+    private bool railOpen = true;
+
+    private IReadOnlyList<PlayerActionTarget> SelectedTargets => players
+        .Where(player => selectedNames.Contains(player.Name))
+        .OrderBy(player => player.PickerOrder)
+        .ThenBy(player => player.Name)
+        .Select(PlayerActionTarget.From)
+        .ToArray();
+
+    protected override async Task OnInitializedAsync()
+    {
+        SelectedCharacterStore.SelectedCharactersChanged +=
+            OnSelectedCharactersChanged;
+        try
+        {
+            selectedNames.UnionWith(
+                await SelectedCharacterStore.GetSelectedAsync());
+            players = await AccountsClient.GetAdministrationPlayersAsync();
+        }
+        catch (Exception exception)
+        {
+            errorMessage = $"Characters could not be loaded: {exception.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void OnSelectedCharactersChanged(IReadOnlyList<string> names) =>
+        _ = InvokeAsync(() =>
+        {
+            selectedNames.Clear();
+            selectedNames.UnionWith(names);
+            StateHasChanged();
+        });
+
+    public void Dispose() =>
+        SelectedCharacterStore.SelectedCharactersChanged -=
+            OnSelectedCharactersChanged;
+}

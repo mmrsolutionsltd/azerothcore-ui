@@ -18,7 +18,7 @@ else
         </div>
     }
 
-    <div class="player-action-tools-grid">
+    <div class="player-action-tools-grid @(SingleColumn ? "single-column" : null)">
         <section class="player-action-tool"><GiveItemTool Targets="Targets" Available="Available" /></section>
         <section class="player-action-tool"><GiveMoneyTool Targets="Targets" Available="Available" /></section>
         <section class="player-action-tool"><TeleportTool Targets="Targets" Available="Available" /></section>
@@ -44,6 +44,7 @@ else
 
 @code {
     [Parameter, EditorRequired] public IReadOnlyList<PlayerActionTarget> Targets { get; set; } = [];
+    [Parameter] public bool SingleColumn { get; set; }
 
     private bool isLoading = true;
     private bool Available =>
