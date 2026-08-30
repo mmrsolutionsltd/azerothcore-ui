@@ -1,8 +1,9 @@
 @page "/player-actions"
-@rendermode InteractiveServer
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "players.actions")]
 @using AzerothCore_UI.Web.Models
 @inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
+@inject AzerothCore_UI.Web.Services.SelectedCharacterStore SelectedCharacterStore
+@implements IDisposable
 
 <PageTitle>Player actions</PageTitle>
 
@@ -16,12 +17,5 @@ else if (errorMessage is not null)
 }
 else
 {
-    <section class="mb-3" aria-labelledby="action-targets-heading">
-        <CharacterPicker Title="Action targets" TitleId="action-targets-heading"
-                         Items="@PickerItems" Multiple="true" AllowBots="true"
-                         SelectedValues="@selectedNames"
-                         SelectedValuesChanged="SetSelectedPlayers" />
-    </section>
-
     <PlayerActionTools Targets="@SelectedTargets" />
 }

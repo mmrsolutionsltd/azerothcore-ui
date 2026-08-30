@@ -1,19 +1,24 @@
 @page "/characters"
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "players.characters")]
-@rendermode InteractiveServer
 @using AzerothCore_UI.Web.Models
 @inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
 
 <PageTitle>Characters</PageTitle>
 
-<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+<div class="character-hall">
+<div class="hall-hero">
+    <div><span>REALM ROSTER</span><h2>Hall of Heroes</h2><p>Every real character, their progress, professions and place in the world.</p></div>
+    <div class="hall-seal">⚔<small>@characters.Count HEROES</small></div>
+</div>
+
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3 hall-intro">
     <div>
         <p class="text-muted mb-0">A quick overview of real player characters and their current progress.</p>
     </div>
     <button class="btn btn-outline-primary" @onclick="LoadAsync" disabled="@isLoading">Refresh</button>
 </div>
 
-<div class="row g-2 mb-4">
+<div class="row g-2 mb-4 filter-forge">
     <div class="col-md-6">
         <label class="form-label" for="character-search">Search</label>
         <input id="character-search" class="form-control" placeholder="Character or account name"
@@ -57,17 +62,18 @@ else
     <div class="row g-3">
         @foreach (var character in FilteredCharacters)
         {
-            <div class="col-xl-4 col-md-6">
-                <div class="card h-100 shadow-sm">
+            <div class="col-xxl-3 col-xl-4 col-md-6">
+                <div class="card character-card class-@character.Class h-100">
                     <div class="card-body">
                         <div class="d-flex justify-content-between align-items-start">
                             <div>
-                                <h2 class="h5 mb-1">
+                                <div class="class-medallion">@ClassGlyph(character.Class)</div>
+                                <h2 class="h5 mb-1 hero-card-name">
                                     <a href="/characters/@character.Guid">@character.Name</a>
                                 </h2>
                                 <div class="text-muted small">@character.Username</div>
                             </div>
-                            <span class="badge @(character.Online ? "text-bg-success" : "text-bg-secondary")">
+                            <span class="presence-badge @(character.Online ? "online" : "offline")">
                                 @(character.Online ? "Online" : "Offline")
                             </span>
                         </div>
@@ -111,11 +117,13 @@ else
     </div>
 }
 
-<hr class="my-4" />
+<div class="hero-tools">
 <h2 class="h5">Character tools</h2>
 <div class="d-flex flex-wrap gap-2">
     <a class="btn btn-outline-primary" href="/player-actions">Player actions</a>
     <a class="btn btn-outline-primary" href="/character-services">Character services</a>
     <a class="btn btn-outline-primary" href="/trainers">Trainer finder</a>
     <a class="btn btn-outline-primary" href="/collectibles">Collectibles</a>
+</div>
+</div>
 </div>

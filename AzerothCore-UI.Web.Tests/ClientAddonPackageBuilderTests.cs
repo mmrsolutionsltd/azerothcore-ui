@@ -15,8 +15,9 @@ public sealed class ClientAddonPackageBuilderTests
         var script = File.ReadAllText(
             Path.Combine(directory, "AzerothCompanion.lua"));
 
-        Assert.Equal("0.9.0", info.Version);
-        Assert.Contains("local EXPECTED_PROTOCOL = 7", script);
+        Assert.Equal("0.11.0", info.Version);
+        Assert.Contains("local EXPECTED_PROTOCOL = 10", script);
+        Assert.Contains("webadmin companion inspect-addon", script);
         Assert.Contains("WEBADMIN_COMPANION_MAINTENANCE_STATUS", script);
         Assert.Contains("SetDetailsExpanded", script);
         Assert.Contains("RefreshCarbonitePartyQuests", script);
@@ -29,6 +30,15 @@ public sealed class ClientAddonPackageBuilderTests
         Assert.Contains("Companion-only quests", script);
         Assert.Contains("CompanionObjectiveText", script);
         Assert.Contains("companionPlayer.questOrder", script);
+        Assert.Contains("lastActivityAt = GetTime()", script);
+        Assert.Contains(
+            "if activeRequest and not activeRequest.completed then",
+            script);
+        Assert.Contains(
+            "GetTime() - activeRequest.lastActivityAt",
+            script);
+        Assert.Contains("Caster Auto-Attack", File.ReadAllText(
+            Path.Combine(directory, "CasterAuto.lua")));
     }
 
     [Fact]
@@ -43,12 +53,16 @@ public sealed class ClientAddonPackageBuilderTests
             var package = ClientAddonPackageBuilder.Build(directory);
 
             Assert.Equal("0.1.0", info.Version);
-            Assert.Equal(3, info.FileCount);
+            File.WriteAllText(Path.Combine(directory, "CasterAuto.lua"),
+                "print('caster auto')");
+
+            Assert.Equal(4, info.FileCount);
             using var archive = new ZipArchive(new MemoryStream(package));
             Assert.Equal(
                 [
                     "AzerothCompanion/AzerothCompanion.lua",
                     "AzerothCompanion/AzerothCompanion.toc",
+                    "AzerothCompanion/CasterAuto.lua",
                     "AzerothCompanion/README.md"
                 ],
                 archive.Entries.Select(entry => entry.FullName)
@@ -93,6 +107,10 @@ public sealed class ClientAddonPackageBuilderTests
             Encoding.UTF8);
         File.WriteAllText(
             Path.Combine(directory, "AzerothCompanion.lua"),
+            "print('test')",
+            Encoding.UTF8);
+        File.WriteAllText(
+            Path.Combine(directory, "CasterAuto.lua"),
             "print('test')",
             Encoding.UTF8);
         File.WriteAllText(

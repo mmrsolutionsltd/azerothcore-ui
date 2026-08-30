@@ -1,5 +1,4 @@
 @page "/my-security"
-@rendermode InteractiveServer
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "PasswordChange")]
 @inject AccountsApiClient Api
 @inject AuthenticationStateProvider AuthenticationStateProvider

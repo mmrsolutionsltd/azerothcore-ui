@@ -35,6 +35,25 @@ public sealed class RecentPickerSelectionStoreTests
             restored.Select(item => item.ItemId).ToArray());
     }
 
+    [Fact]
+    public async Task ReplacesStoredSelectionsWhenAUsefulExampleIsRemoved()
+    {
+        var javascript = new LocalStorageJavascriptRuntime();
+        var store = new RecentPickerSelectionStore(
+            javascript, new TestAuthenticationStateProvider("owner"));
+
+        await store.SetAsync(
+            RecentPickerKeys.CompanionCommandExamples,
+            ["follow", "stay", "items"]);
+        await store.SetAsync(
+            RecentPickerKeys.CompanionCommandExamples,
+            ["follow", "items"]);
+
+        var restored = await store.GetAsync<string>(
+            RecentPickerKeys.CompanionCommandExamples);
+        Assert.Equal(["follow", "items"], restored);
+    }
+
     private sealed class LocalStorageJavascriptRuntime : IJSRuntime
     {
         private readonly Dictionary<string, string> values = [];

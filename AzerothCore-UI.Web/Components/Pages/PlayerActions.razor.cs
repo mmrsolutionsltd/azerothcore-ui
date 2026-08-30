@@ -10,8 +10,6 @@ public partial class PlayerActions
     private bool isLoading = true;
     private string? errorMessage;
 
-    private IReadOnlyList<CharacterPickerItem> PickerItems =>
-        CharacterPickerItem.FromAdministrationPlayers(players);
     private IReadOnlyList<PlayerActionTarget> SelectedTargets => players
         .Where(player => selectedNames.Contains(player.Name))
         .OrderBy(player => player.PickerOrder)
@@ -21,8 +19,12 @@ public partial class PlayerActions
 
     protected override async Task OnInitializedAsync()
     {
+        SelectedCharacterStore.SelectedCharactersChanged +=
+            OnSelectedCharactersChanged;
         try
         {
+            selectedNames.UnionWith(
+                await SelectedCharacterStore.GetSelectedAsync());
             players = await AccountsClient.GetAdministrationPlayersAsync();
         }
         catch (Exception exception)
@@ -35,9 +37,15 @@ public partial class PlayerActions
         }
     }
 
-    private void SetSelectedPlayers(IReadOnlySet<string> values)
-    {
-        selectedNames.Clear();
-        selectedNames.UnionWith(values);
-    }
+    private void OnSelectedCharactersChanged(IReadOnlyList<string> names) =>
+        _ = InvokeAsync(() =>
+        {
+            selectedNames.Clear();
+            selectedNames.UnionWith(names);
+            StateHasChanged();
+        });
+
+    public void Dispose() =>
+        SelectedCharacterStore.SelectedCharactersChanged -=
+            OnSelectedCharactersChanged;
 }

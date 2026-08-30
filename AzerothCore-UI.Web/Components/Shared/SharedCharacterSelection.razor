@@ -1,0 +1,74 @@
+@using AzerothCore_UI.Web.Models
+@implements IDisposable
+@inject AzerothCore_UI.Web.Services.SelectedCharacterStore SelectedCharacterStore
+
+@code {
+    [Parameter, EditorRequired]
+    public IReadOnlyList<CharacterPickerItem> Items { get; set; } = [];
+
+    [Parameter]
+    public bool Multiple { get; set; }
+
+    [Parameter]
+    public EventCallback<string?> SelectedValueChanged { get; set; }
+
+    [Parameter]
+    public EventCallback<IReadOnlySet<string>> SelectedValuesChanged { get; set; }
+
+    private string? lastSignature;
+
+    protected override void OnInitialized()
+    {
+        SelectedCharacterStore.SelectionChanged += OnSelectionChanged;
+        SelectedCharacterStore.SelectedCharactersChanged +=
+            OnSelectedCharactersChanged;
+    }
+
+    protected override Task OnParametersSetAsync() => SynchronizeAsync();
+
+    private async Task SynchronizeAsync()
+    {
+        if (Items.Count == 0) return;
+
+        var activeName = await SelectedCharacterStore.GetAsync();
+        var selectedNames = await SelectedCharacterStore.GetSelectedAsync();
+        if (Multiple)
+        {
+            var values = Items
+                .Where(item => selectedNames.Contains(
+                    item.Name, StringComparer.OrdinalIgnoreCase))
+                .Select(item => item.Value)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var signature = $"M:{string.Join('|', values.Order())}";
+            if (signature == lastSignature) return;
+            lastSignature = signature;
+            await SelectedValuesChanged.InvokeAsync(values);
+            return;
+        }
+
+        var selectedItem = Items.FirstOrDefault(item => item.Name.Equals(
+                activeName, StringComparison.OrdinalIgnoreCase))
+            ?? selectedNames.Select(name => Items.FirstOrDefault(item =>
+                    item.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                .FirstOrDefault(item => item is not null);
+        var value = selectedItem?.Value;
+        var singleSignature = $"S:{value}";
+        if (singleSignature == lastSignature) return;
+        lastSignature = singleSignature;
+        await SelectedValueChanged.InvokeAsync(value);
+    }
+
+    private void OnSelectionChanged(string _) => QueueSynchronization();
+
+    private void OnSelectedCharactersChanged(IReadOnlyList<string> _) =>
+        QueueSynchronization();
+
+    private void QueueSynchronization() => _ = InvokeAsync(SynchronizeAsync);
+
+    public void Dispose()
+    {
+        SelectedCharacterStore.SelectionChanged -= OnSelectionChanged;
+        SelectedCharacterStore.SelectedCharactersChanged -=
+            OnSelectedCharactersChanged;
+    }
+}

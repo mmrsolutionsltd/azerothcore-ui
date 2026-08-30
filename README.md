@@ -4,6 +4,10 @@ A local, password-protected Blazor administration website for an AzerothCore Pla
 
 The solution targets .NET 10 and contains:
 
+## Handover documentation
+
+Operational history, architecture, Linux host details, deployment/build procedures, recovery guidance, and a safe credentials checklist are in [docs/handover/00-START-HERE.md](docs/handover/00-START-HERE.md). Secrets are deliberately excluded; supply them at runtime.
+
 - `AzerothCore-UI.Web` — the Blazor interactive-server user interface.
 - `AzerothCore-UI.Api` — the local API, MySQL queries, configuration editing, process control, and SOAP integration.
 - `AzerothCore-UI.Api.Tests` — unit tests for configuration and SOAP behaviour.
@@ -25,6 +29,14 @@ The solution targets .NET 10 and contains:
 - Inspect professions, skill levels, learned recipes, and available training.
 - Find missing profession recipes from trainers, vendors, quests, creature or game-object drops, and unclassified item sources.
 - Review class training, profession training, costs, requirements, and reputation.
+- Open the WoW-inspired **Artisan Gearing Room** directly from the home page. Its
+  paper-doll view ranks useful equipment for every slot from scoped characters'
+  bags, banks, and mail, recipes known by another character, recipes ready to
+  learn, and longer profession skill paths. Compare visible stats with green/red
+  deltas, see the crafter and source account, check account-wide material totals,
+  and follow an ordered profession-tier, recipe-source, material, and crafting
+  roadmap. The planner is deliberately read-only: it helps decide what to make
+  without granting items or removing the profession grind.
 
 ### Server administration
 
@@ -36,6 +48,13 @@ The solution targets .NET 10 and contains:
 ### Player actions
 
 - Use the same compact, searchable character picker across administration tools.
+- Use the sticky, always-visible **Choose Your Heroes** roster on every compatible
+  page. Keep up to five selected characters in a responsive hero-card row; online
+  heroes expand into class-coloured cards with level, account, party/companion state,
+  saved health, an active-hero highlight, and a permission-controlled revive action.
+  Offline heroes remain compact. Online party leaders are unmistakably marked with a
+  gold crown and leader badge, and choosing the active card carries that character
+  into single-character screens such as the Artisan Gearing Room.
 - Show online real-player characters by default, with optional offline-character and PlayerBot filters where supported.
 - Select one or more characters as shared action targets on batch-capable screens.
 - Search the world item catalogue and give an item directly to the selected online characters.
@@ -72,6 +91,16 @@ The solution targets .NET 10 and contains:
   reason, recipient, postage, nearby-service warnings, and potential freed space.
   Compact per-companion **Behaviour**, **Inventory**, and **Maintenance** tabs keep the
   page manageable; each inventory row shows its effective routing or cleanup rule.
+- Remember multiple simultaneous household companion parties independently, including
+  their leader and companion line-up, across pages and browser sessions. Each party has
+  a configurable 1–120 minute offline grace period (five minutes by default), after
+  which it is forgotten if its leader stays offline.
+- Send normal PlayerBots whisper commands to one active companion from a dedicated,
+  audited page. Choose the leader and companion, reuse recent commands, or start from
+  examples for item trading, shapeshifting, talents, movement, and inventory reports.
+- Diagnose active companions from a five-second live dashboard showing activity,
+  target, destination, leader distance, bag space, blockers, and recent automation
+  results, with quick regroup, AI reset, and permission-controlled revive actions.
 - Use the bundled 3.3.5a `AzerothCompanion` addon for the same shared quest progress,
   bag capacity, loot state, and gathering status directly inside the game client.
 - Download its versioned ZIP from the authenticated **Adventures > Client addons**

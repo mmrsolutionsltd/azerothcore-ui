@@ -43,6 +43,14 @@ public sealed class RecentPickerSelectionStore(
                     selectedIdentity, StringComparison.OrdinalIgnoreCase)))
             .Take(MaximumSelections)
             .ToArray();
+        return await SetAsync(pickerKey, updated);
+    }
+
+    public async ValueTask<IReadOnlyList<T>> SetAsync<T>(
+        string pickerKey,
+        IEnumerable<T> selections)
+    {
+        var updated = selections.Take(MaximumSelections).ToArray();
         try
         {
             await javascript.InvokeVoidAsync(
@@ -72,4 +80,6 @@ public static class RecentPickerKeys
     public const string Locations = "locations";
     public const string Npcs = "npcs";
     public const string Creatures = "creatures";
+    public const string CompanionCommands = "companion-commands";
+    public const string CompanionCommandExamples = "companion-command-examples";
 }

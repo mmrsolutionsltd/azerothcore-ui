@@ -1,5 +1,4 @@
 @page "/dungeon-library"
-@rendermode InteractiveServer
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "adventures.dungeons")]
 @inject AccountsApiClient Api
 @inject AzerothCore_UI.Web.Services.DungeonWishlistStore WishlistStore
@@ -95,13 +94,10 @@
         <div class="card mb-3">
             <div class="card-header">Characters for loot recommendations</div>
             <div class="card-body">
-                <CharacterPicker Items="CharacterItems" Multiple="true"
-                                 AllowBots="false" ShowOfflineInitially="true"
-                                 MaximumSelections="5"
-                                 SelectedValues="selectedCharacterGuids"
-                                 SelectedValuesChanged="SelectCharactersAsync" />
+                <SharedCharacterSelection Items="CharacterItems" Multiple="true"
+                                          SelectedValuesChanged="SelectCharactersAsync" />
                 <div class="small text-muted mt-2">
-                    Select up to five characters. Their class and level determine which
+                    The heroes selected in the shared header determine which
                     drops are marked as relevant.
                 </div>
             </div>

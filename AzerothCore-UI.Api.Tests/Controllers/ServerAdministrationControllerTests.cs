@@ -8,6 +8,28 @@ namespace AzerothCore_UI.Api.Tests.Controllers;
 public sealed class ServerAdministrationControllerTests
 {
     [Fact]
+    public void CompanionCommandTargetsOneValidatedPairAndPreservesItemText()
+    {
+        var command = ServerAdministrationController.BuildCompanionCommand(
+            "Kiesh", "Elfruid", "  give Kiesh Grizzled Bear Heart 3  ");
+
+        Assert.Equal(
+            "webadmin companion command Kiesh Elfruid give Kiesh Grizzled Bear Heart 3",
+            command);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("follow\nstay")]
+    public void CompanionCommandRejectsEmptyOrMultipleControlLines(string command)
+    {
+        Assert.Throws<ArgumentException>(() =>
+            ServerAdministrationController.BuildCompanionCommand(
+                "Kiesh", "Elfruid", command));
+    }
+
+    [Fact]
     public void QuestingCompanionLevelOrderingUsesSignedArithmetic()
     {
         var query = ServerAdministrationController.QuestingCompanionCandidateSql;
@@ -47,9 +69,11 @@ public sealed class ServerAdministrationControllerTests
             WEBADMIN_COMPANION_GATHER	Helper	Moving to Test Herb (8m).
             WEBADMIN_COMPANION_ITEM	Helper	equipment	255	15	42947	1	7	1	60	65	1	Dignified Headmaster's Charge
             WEBADMIN_COMPANION_ITEM	Helper	bag	255	23	2001	4	1	8	0	0	0	Test Claw
+            WEBADMIN_COMPANION_ITEM	Helper	bag	19	2	3001	2	3	24	0	0	0	98765	18	1	1	-	Gold-flecked Gloves
             WEBADMIN_COMPANION_MAINTENANCE	Helper	1	1
             WEBADMIN_COMPANION_BEHAVIOR	Helper	dungeon-healer	healer	follow	defend	8.0	1	0	1	1
             WEBADMIN_COMPANION_LOGISTICS	Helper	4	8	1	2	Mailed 2 material stacks.
+            WEBADMIN_COMPANION_DIAGNOSTIC	Helper	Following	None	Leader Leader	None	3.5	1	1	0	1	1785776500	Follow behaviour configured.	1785776400	A quest object was not usable.
             WEBADMIN_COMPANION_EQUIPMENT_CHANGE	Helper	1785776400	Main hand: Withered Staff -> Dignified Headmaster's Charge
             WEBADMIN_COMPANION_INVENTORY_CHANGE	Helper	1785776401	Added Test Claw x2
             WEBADMIN_COMPANION_QUEST	Helper	101	0	A Test Quest
@@ -68,6 +92,13 @@ public sealed class ServerAdministrationControllerTests
         Assert.True(companion.LootEnabled);
         Assert.Equal(14, companion.FreeBagSlots);
         Assert.Equal(36, companion.TotalBagSlots);
+        var tradeItem = Assert.Single(companion.Inventory, item =>
+            item.ItemId == 3001);
+        Assert.Equal(98765UL, tradeItem.ItemGuid);
+        Assert.Equal(18, tradeItem.RequiredLevel);
+        Assert.True(tradeItem.Tradeable);
+        Assert.True(tradeItem.TemporaryBopTradeable);
+        Assert.Empty(tradeItem.TradeRestriction);
         Assert.Equal("Moving to Test Herb (8m).", companion.QuestObjectStatus);
         Assert.True(companion.AutoSellTrash);
         Assert.True(companion.AutoRepair);
@@ -83,11 +114,20 @@ public sealed class ServerAdministrationControllerTests
         Assert.Equal(8, companion.Logistics.TargetFreeSlots);
         Assert.Equal(2, companion.Logistics.RouteCount);
         Assert.Equal("Mailed 2 material stacks.", companion.Logistics.Status);
+        Assert.Equal("Following", companion.Diagnostics.Activity);
+        Assert.Equal("Leader Leader", companion.Diagnostics.Destination);
+        Assert.Equal(3.5, companion.Diagnostics.DistanceFromLeader);
+        Assert.True(companion.Diagnostics.Alive);
+        Assert.True(companion.Diagnostics.Moving);
+        Assert.Equal(1785776500, companion.Diagnostics.LastSuccessAtUnix);
+        Assert.Equal("Follow behaviour configured.", companion.Diagnostics.LastSuccess);
+        Assert.Equal("A quest object was not usable.", companion.Diagnostics.LastFailure);
         var equipment = Assert.Single(companion.Equipment);
         Assert.Equal((uint)42947, equipment.ItemId);
         Assert.True(equipment.Protected);
         Assert.Equal(60, equipment.Durability);
-        var inventory = Assert.Single(companion.Inventory);
+        var inventory = Assert.Single(companion.Inventory, item =>
+            item.ItemId == 2001);
         Assert.Equal((uint)2001, inventory.ItemId);
         Assert.Equal(4, inventory.Count);
         var equipmentChange = Assert.Single(companion.RecentEquipmentChanges);

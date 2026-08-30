@@ -17,6 +17,7 @@ public sealed class ServerAdministrationController(
     GatheringAbundanceService gatheringAbundanceService,
     AzerothCoreConnectionFactory connectionFactory,
     CompanionLogisticsStore companionLogisticsStore,
+    CompanionPartySessionStore companionPartySessionStore,
     SpellMetadataProvider spellMetadataProvider,
     DungeonGuideService dungeonGuideService,
     DatabaseBackupService databaseBackupService,
@@ -1470,6 +1471,20 @@ public sealed class ServerAdministrationController(
         var output = await soapClient.ExecuteAsync(
             $"webadmin companion inspect {leader}", cancellationToken);
         var inspection = ParseQuestingCompanionInspection(output, leader);
+        foreach (var activeCompanion in inspection.ActiveCompanions)
+        {
+            try
+            {
+                await companionPartySessionStore.AddCompanionAsync(
+                    leader, activeCompanion.Name, identity, cancellationToken);
+            }
+            catch (Exception exception)
+            {
+                logger.LogWarning(exception,
+                    "Could not remember active companion {Companion} for {Leader}.",
+                    activeCompanion.Name, leader);
+            }
+        }
         return Ok(new QuestingCompanionStatus(
             leader, inspection.ActiveCompanions, candidates,
             inspection.LeaderQuests, inspection.ProtocolVersion));
@@ -1485,6 +1500,8 @@ public sealed class ServerAdministrationController(
         await ValidateCompanionPairAsync(leader, companion, true, cancellationToken);
         var output = await soapClient.ExecuteAsync(
             $"webadmin companion start {leader} {companion}", cancellationToken);
+        await companionPartySessionStore.AddCompanionAsync(
+            leader, companion, HttpContext.AdministrationIdentity(), cancellationToken);
         try
         {
             await ActivateStoredCompanionLogisticsAsync(
@@ -1511,6 +1528,8 @@ public sealed class ServerAdministrationController(
         await ValidateCompanionPairAsync(leader, companion, false, cancellationToken);
         var output = await soapClient.ExecuteAsync(
             $"webadmin companion dismiss {leader} {companion}", cancellationToken);
+        await companionPartySessionStore.RemoveCompanionAsync(
+            leader, companion, cancellationToken);
         Audit("DismissQuestingCompanion", companion, $"Leader={leader}");
         return Ok(new AdministrationResult(
             true, $"{companion} is logging out.", output));
@@ -1607,6 +1626,79 @@ public sealed class ServerAdministrationController(
         Audit("RegroupQuestingCompanion", companion, $"Leader={leader}");
         return Ok(new AdministrationResult(
             true, $"{companion} was reset to follow and regroup.", output));
+    }
+
+    [HttpPost("questing-companions/command")]
+    public async Task<ActionResult<AdministrationResult>> CommandQuestingCompanion(
+        QuestingCompanionCommandRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        var leader = AzerothCoreSoapClient.RequirePlayerName(request.LeaderName);
+        var companion = AzerothCoreSoapClient.RequirePlayerName(request.CompanionName);
+        var command = RequireCompanionCommand(request.Command);
+        await ValidateCompanionPairAsync(
+            leader, companion, false, cancellationToken);
+        var output = await soapClient.ExecuteAsync(
+            BuildCompanionCommand(leader, companion, command),
+            cancellationToken);
+        Audit("CommandQuestingCompanion", companion,
+            $"Leader={leader};Command={command}");
+        return Ok(new AdministrationResult(
+            true, $"Command sent to {companion}.", output));
+    }
+
+    [HttpPost("questing-companions/trade")]
+    public async Task<ActionResult<AdministrationResult>>
+        TradeQuestingCompanionItem(
+            QuestingCompanionTradeRequest request,
+            CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        var leader = AzerothCoreSoapClient.RequirePlayerName(request.LeaderName);
+        var companion = AzerothCoreSoapClient.RequirePlayerName(request.CompanionName);
+        var recipient = AzerothCoreSoapClient.RequirePlayerName(request.RecipientName);
+        if (request.Bag is < 0 or > byte.MaxValue
+            || request.Slot is < 0 or > byte.MaxValue
+            || request.ItemGuid is 0 or > uint.MaxValue
+            || request.ItemId == 0 || request.Quantity is < 1 or > 1000)
+        {
+            return BadRequest(new AdministrationResult(
+                false, "Select a current companion bag item and a valid quantity."));
+        }
+
+        await ValidateCompanionPairAsync(
+            leader, companion, false, cancellationToken);
+        var output = await soapClient.ExecuteAsync(
+            $"webadmin companion trade {leader} {companion} {recipient} "
+            + $"{request.Bag} {request.Slot} {request.ItemGuid} "
+            + $"{request.ItemId} {request.Quantity}",
+            cancellationToken);
+        Audit("TradeQuestingCompanionItem", companion,
+            $"Leader={leader};Recipient={recipient};Item={request.ItemId};"
+            + $"Quantity={request.Quantity}");
+        return Ok(new AdministrationResult(
+            true, $"{companion} placed the selected item into the trade window with {recipient}.",
+            output));
+    }
+
+    internal static string BuildCompanionCommand(
+        string leader, string companion, string command) =>
+        $"webadmin companion command "
+        + $"{AzerothCoreSoapClient.RequirePlayerName(leader)} "
+        + $"{AzerothCoreSoapClient.RequirePlayerName(companion)} "
+        + RequireCompanionCommand(command);
+
+    internal static string RequireCompanionCommand(string value)
+    {
+        var command = value?.Trim() ?? "";
+        if (command.Length is < 1 or > 255
+            || command.Any(char.IsControl))
+        {
+            throw new ArgumentException(
+                "Enter one PlayerBots command containing no more than 255 printable characters.");
+        }
+        return command;
     }
 
     [HttpPost("questing-companions/equipment-protection")]
@@ -2561,6 +2653,9 @@ public sealed class ServerAdministrationController(
         var logisticsByCharacter = new Dictionary<
             string, QuestingCompanionLogisticsStatus>(
                 StringComparer.OrdinalIgnoreCase);
+        var diagnosticsByCharacter = new Dictionary<
+            string, QuestingCompanionDiagnostics>(
+                StringComparer.OrdinalIgnoreCase);
         var protocolVersion = 0;
         string? error = null;
 
@@ -2614,6 +2709,27 @@ public sealed class ServerAdministrationController(
                 continue;
             }
 
+            if (fields.Length >= 15
+                && fields[0] == "WEBADMIN_COMPANION_DIAGNOSTIC"
+                && double.TryParse(
+                    fields[6], System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out var distanceFromLeader)
+                && int.TryParse(fields[7], out var alive)
+                && int.TryParse(fields[8], out var leaderAlive)
+                && int.TryParse(fields[9], out var inCombat)
+                && int.TryParse(fields[10], out var moving)
+                && long.TryParse(fields[11], out var lastSuccessAt)
+                && long.TryParse(fields[13], out var lastFailureAt))
+            {
+                diagnosticsByCharacter[fields[1]] = new(
+                    fields[2], fields[3], fields[4], fields[5],
+                    distanceFromLeader, alive != 0, leaderAlive != 0,
+                    inCombat != 0, moving != 0, lastSuccessAt, fields[12],
+                    lastFailureAt, fields[14]);
+                continue;
+            }
+
             if (fields.Length >= 13
                 && fields[0] == "WEBADMIN_COMPANION_ITEM"
                 && int.TryParse(fields[3], out var bag)
@@ -2631,9 +2747,26 @@ public sealed class ServerAdministrationController(
                     items = [];
                     itemsByCharacter.Add(fields[1], items);
                 }
-                items.Add(new QuestingCompanionItem(
+                var parsedItem = new QuestingCompanionItem(
                     fields[2], bag, slot, itemId, count, quality, itemLevel,
-                    durability, maximumDurability, protectedItem != 0, fields[12]));
+                    durability, maximumDurability, protectedItem != 0,
+                    fields.Length >= 18 ? fields[17] : fields[12]);
+                if (fields.Length >= 18
+                    && ulong.TryParse(fields[12], out var itemGuid)
+                    && int.TryParse(fields[13], out var requiredLevel)
+                    && int.TryParse(fields[14], out var tradeable)
+                    && int.TryParse(fields[15], out var temporaryBopTradeable))
+                {
+                    parsedItem = parsedItem with
+                    {
+                        ItemGuid = itemGuid,
+                        RequiredLevel = requiredLevel,
+                        Tradeable = tradeable != 0,
+                        TemporaryBopTradeable = temporaryBopTradeable != 0,
+                        TradeRestriction = fields[16] == "-" ? "" : fields[16]
+                    };
+                }
+                items.Add(parsedItem);
                 continue;
             }
 
@@ -2766,7 +2899,11 @@ public sealed class ServerAdministrationController(
                 logisticsByCharacter.GetValueOrDefault(
                     companion.Name, new QuestingCompanionLogisticsStatus(
                         4, 8, false, 0,
-                         "Install bridge protocol 6 to use companion logistics.")));
+                         "Install bridge protocol 6 to use companion logistics.")))
+            {
+                Diagnostics = diagnosticsByCharacter.GetValueOrDefault(
+                    companion.Name, QuestingCompanionDiagnostics.Unknown)
+            };
         }).ToArray();
         return new QuestingCompanionInspection(
             companions, BuildQuests(leaderName), protocolVersion, error);

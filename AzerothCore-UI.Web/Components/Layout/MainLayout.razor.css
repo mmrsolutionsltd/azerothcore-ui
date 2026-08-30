@@ -1,29 +1,54 @@
 .page {
     position: relative;
-    display: flex;
-    flex-direction: column;
+    min-height:100vh;
 }
 
 main {
     flex: 1;
+    min-width:0;
+    background:
+        radial-gradient(circle at 45% 0,rgba(159,104,35,.16),transparent 34rem),
+        repeating-linear-gradient(135deg,rgba(255,215,140,.012) 0 2px,transparent 2px 8px),
+        linear-gradient(180deg,#101319,#080a0d 65%,#110d08);
 }
 
-.sidebar {
-    background-image: linear-gradient(180deg, rgb(5, 39, 103) 0%, #3a0647 70%);
+.content {
+    min-height:calc(100vh - 7rem);
+    color:#d8cdbb;
+    border:0;
+    background:
+        radial-gradient(ellipse at 50% -8rem,rgba(190,128,39,.13),transparent 38rem),
+        linear-gradient(105deg,rgba(22,18,12,.62),rgba(7,9,12,.92) 28%,rgba(8,10,13,.96) 72%,rgba(25,18,10,.55));
+    box-shadow:inset 0 1px rgba(213,164,80,.08),inset 18px 0 35px rgba(0,0,0,.18);
+}
+
+.command-deck {
+    position:sticky;
+    top:0;
+    z-index:50;
+    background:#0b0d11;
+    box-shadow:0 6px 24px rgba(0,0,0,.48);
 }
 
 .top-row {
-    background-color: #f7f7f7;
-    border-bottom: 1px solid #d6d5d5;
+    color: #eadcbf;
+    background: radial-gradient(circle at 55% -100%,rgba(206,143,47,.24),transparent 48%),linear-gradient(90deg,#0e1116,#211b13,#0e1116);
+    border-bottom: 1px solid #76552b;
     justify-content: space-between;
-    height: 3.5rem;
+    min-height: 4rem;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 1rem;
+    box-shadow:0 4px 18px rgba(0,0,0,.3),inset 0 -1px rgba(255,215,139,.08);
 }
 
     .top-row .page-heading {
         min-width: 0;
+        flex:0 0 auto;
+        color:#f1d28c;
+        font-family:Georgia,"Times New Roman",serif;
+        text-shadow:0 2px 3px #000,0 0 12px rgba(235,174,70,.2);
+        padding-top:.52rem;
     }
 
     .top-row ::deep a, .top-row ::deep .btn-link {
@@ -42,29 +67,15 @@ main {
     }
 
 @media (max-width: 640.98px) {
+    .top-row { align-items:stretch; flex-wrap:wrap; padding-top:.35rem; padding-bottom:.35rem; }
+    .top-row .page-heading { flex:1; }
+    .top-row ::deep .hero-roster { flex-basis:100%; }
     .top-row ::deep a, .top-row ::deep .btn-link {
         margin-left: 0;
     }
 }
 
 @media (min-width: 641px) {
-    .page {
-        flex-direction: row;
-    }
-
-    .sidebar {
-        width: 250px;
-        height: 100vh;
-        position: sticky;
-        top: 0;
-    }
-
-    .top-row {
-        position: sticky;
-        top: 0;
-        z-index: 1;
-    }
-
     .top-row.auth ::deep a:first-child {
         flex: 1;
         text-align: right;

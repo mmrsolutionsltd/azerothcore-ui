@@ -1,0 +1,80 @@
+@using AzerothCore_UI.Web.Models
+@inject AzerothCore_UI.Web.Clients.AccountsApiClient Api
+
+<div class="companion-header-controls">
+    @if (!string.IsNullOrWhiteSpace(message))
+    {
+        <div class="control-result @(succeeded ? "success" : "failure")">@message</div>
+    }
+    <CompanionManagementPanel LeaderName="@LeaderName" Companion="@Companion"
+        ProtocolVersion="@ProtocolVersion" Disabled="working" Embedded="true"
+        DismissRequested="DismissAsync"
+        BehaviorRequested="SetBehaviorAsync"
+        PresetRequested="SetPresetAsync"
+        RegroupRequested="RegroupAsync"
+        ResetRequested="ResetAsync"
+        ProtectionRequested="SetProtectionAsync"
+        RefreshRequested="RefreshAsync" />
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string LeaderName { get; set; } = "";
+    [Parameter, EditorRequired]
+    public ActiveQuestingCompanion Companion { get; set; } = default!;
+    [Parameter] public int ProtocolVersion { get; set; }
+    [Parameter] public EventCallback RefreshRequested { get; set; }
+
+    private bool working, succeeded;
+    private string? message;
+
+    private Task DismissAsync(string companion) => ExecuteAsync(
+        () => Api.DismissQuestingCompanionAsync(new(LeaderName, companion)),
+        $"{companion} is logging out.");
+
+    private Task ResetAsync(string companion) => ExecuteAsync(
+        () => Api.ResetQuestingCompanionAsync(new(LeaderName, companion)),
+        $"{companion}'s AI behaviour was reset.");
+
+    private Task RegroupAsync(string companion) => ExecuteAsync(
+        () => Api.RegroupQuestingCompanionAsync(new(LeaderName, companion)),
+        $"{companion} was regrouped.");
+
+    private Task SetBehaviorAsync(QuestingCompanionBehaviorRequest request) => ExecuteAsync(
+        () => Api.SetQuestingCompanionBehaviorAsync(
+            request with { LeaderName = LeaderName }),
+        "Companion behaviour was updated.");
+
+    private Task SetPresetAsync(QuestingCompanionPresetRequest request) => ExecuteAsync(
+        () => Api.SetQuestingCompanionPresetAsync(
+            request with { LeaderName = LeaderName }),
+        "Companion preset was applied.");
+
+    private Task SetProtectionAsync(
+        QuestingCompanionEquipmentProtectionRequest request) => ExecuteAsync(
+        () => Api.SetQuestingCompanionEquipmentProtectionAsync(
+            request with { LeaderName = LeaderName }),
+        "Equipment protection was updated.");
+
+    private Task RefreshAsync() => RefreshRequested.InvokeAsync();
+
+    private async Task ExecuteAsync(
+        Func<Task<AdministrationResult?>> action, string fallback)
+    {
+        if (working) return;
+        working = true;
+        message = null;
+        try
+        {
+            var result = await action();
+            succeeded = result?.Success != false;
+            message = result?.Message ?? fallback;
+            await RefreshRequested.InvokeAsync();
+        }
+        catch (Exception exception)
+        {
+            succeeded = false;
+            message = exception.Message;
+        }
+        finally { working = false; }
+    }
+}

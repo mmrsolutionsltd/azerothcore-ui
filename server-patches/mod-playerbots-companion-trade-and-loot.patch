@@ -1,0 +1,157 @@
+diff --git a/modules/mod-playerbots/src/Ai/Base/Actions/TradeAction.cpp b/modules/mod-playerbots/src/Ai/Base/Actions/TradeAction.cpp
+index 22a60df7d..e3c581b3a 100644
+--- a/modules/mod-playerbots/src/Ai/Base/Actions/TradeAction.cpp
++++ b/modules/mod-playerbots/src/Ai/Base/Actions/TradeAction.cpp
+@@ -69,7 +69,10 @@ bool TradeAction::Execute(Event event)
+         if (!bot->GetTrader() || item->IsInTrade())
+             continue;
+ 
+-        int8 slot = item->CanBeTraded() ? -1 : TRADE_SLOT_NONTRADED;
++        // The core's trade handler permits temporarily tradeable bind-on-pickup
++        // instance loot in a normal trade slot. Use the same check here instead
++        // of incorrectly placing it in the enchant-only slot.
++        int8 slot = item->CanBeTraded(false, true) ? -1 : TRADE_SLOT_NONTRADED;
+         if (TradeItem(item, slot) && slot != TRADE_SLOT_NONTRADED && ++traded >= uint32(count))
+             break;
+     }
+diff --git a/modules/mod-playerbots/src/Ai/Base/Actions/LootAction.cpp b/modules/mod-playerbots/src/Ai/Base/Actions/LootAction.cpp
+index 5e4af6f44..f9458fcbc 100644
+--- a/modules/mod-playerbots/src/Ai/Base/Actions/LootAction.cpp
++++ b/modules/mod-playerbots/src/Ai/Base/Actions/LootAction.cpp
+@@ -18,5 +18,56 @@
+ #include "GuildMgr.h"
+ #include "BroadcastHelper.h"
+ 
++#include <ctime>
++#include <map>
++
++namespace
++{
++bool IsControlledDungeonCompanion(PlayerbotAI* botAI)
++{
++    Player* bot = botAI ? botAI->GetBot() : nullptr;
++    return bot && botAI->HasActivePlayerMaster() && bot->GetMap()
++        && bot->GetMap()->IsDungeon();
++}
++
++void NotifyPartyOfUsefulSkippedLoot(
++    PlayerbotAI* botAI, ObjectGuid sourceGuid, ItemTemplate const* proto)
++{
++    Player* bot = botAI ? botAI->GetBot() : nullptr;
++    Group* group = bot ? bot->GetGroup() : nullptr;
++    if (!bot || !group || !proto
++        || (proto->Class != ITEM_CLASS_WEAPON
++            && proto->Class != ITEM_CLASS_ARMOR))
++        return;
++
++    Player* usefulFor = nullptr;
++    for (GroupReference* reference = group->GetFirstMember(); reference;
++         reference = reference->next())
++    {
++        Player* member = reference->GetSource();
++        if (member && member != bot
++            && member->BotCanUseItem(proto) == EQUIP_ERR_OK)
++        {
++            usefulFor = member;
++            break;
++        }
++    }
++    if (!usefulFor)
++        return;
++
++    static std::map<std::string, time_t> notifications;
++    time_t now = time(nullptr);
++    std::string key = bot->GetGUID().ToString() + ":"
++        + sourceGuid.ToString() + ":" + std::to_string(proto->ItemId);
++    auto existing = notifications.find(key);
++    if (existing != notifications.end() && now - existing->second < 300)
++        return;
++    notifications[key] = now;
++
++    botAI->SayToParty("I left " + ChatHelper::FormatItem(proto) + "; "
++        + usefulFor->GetName() + " can use it.");
++}
++}
++
+ bool LootAction::Execute(Event /*event*/)
+ {
+@@ -397,7 +448,13 @@ bool StoreLootAction::Execute(Event event)
+         if (lootslot_type != LOOT_SLOT_TYPE_ALLOW_LOOT && lootslot_type != LOOT_SLOT_TYPE_OWNER)
+             continue;
+ 
+-        if (loot_type != LOOT_SKINNING && !IsLootAllowed(itemid, botAI))
++        if ((loot_type != LOOT_SKINNING
++                || IsControlledDungeonCompanion(botAI))
++            && !IsLootAllowed(itemid, botAI))
++        {
++            if (IsControlledDungeonCompanion(botAI))
++                NotifyPartyOfUsefulSkippedLoot(botAI, guid, sObjectMgr->GetItemTemplate(itemid));
+             continue;
++        }
+ 
+         ItemTemplate const* proto = sObjectMgr->GetItemTemplate(itemid);
+@@ -476,7 +531,12 @@ bool StoreLootAction::IsLootAllowed(uint32 itemid, PlayerbotAI* botAI)
+     if (!proto)
+         return false;
+ 
++    bool const controlledDungeonCompanion =
++        IsControlledDungeonCompanion(botAI);
++    if (controlledDungeonCompanion && proto->Quality >= ITEM_QUALITY_RARE)
++        return false;
++
+     std::set<uint32>& lootItems = AI_VALUE(std::set<uint32>&, "always loot list");
+-    if (lootItems.find(itemid) != lootItems.end())
++    if (!controlledDungeonCompanion && lootItems.find(itemid) != lootItems.end())
+         return true;
+ 
+@@ -515,5 +575,24 @@ bool StoreLootAction::IsLootAllowed(uint32 itemid, PlayerbotAI* botAI)
+     //     proto->Class == ITEM_CLASS_QUEST)
+     //{
+ 
++    if (controlledDungeonCompanion)
++    {
++        ItemUsage usage = AI_VALUE2(
++            ItemUsage, "item usage", std::to_string(itemid));
++        switch (usage)
++        {
++            case ITEM_USAGE_EQUIP:
++            case ITEM_USAGE_REPLACE:
++            case ITEM_USAGE_QUEST:
++            case ITEM_USAGE_SKILL:
++            case ITEM_USAGE_USE:
++            case ITEM_USAGE_KEEP:
++            case ITEM_USAGE_AMMO:
++                return true;
++            default:
++                return false;
++        }
++    }
++
+     bool canLoot = lootStrategy->CanLoot(proto, context);
+     // if (canLoot && proto->Bonding == BIND_WHEN_PICKED_UP && botAI->HasActivePlayerMaster())
+diff --git a/modules/mod-playerbots/src/Ai/Base/Actions/LootRollAction.cpp b/modules/mod-playerbots/src/Ai/Base/Actions/LootRollAction.cpp
+index 62caf9508..700c99b6e 100644
+--- a/modules/mod-playerbots/src/Ai/Base/Actions/LootRollAction.cpp
++++ b/modules/mod-playerbots/src/Ai/Base/Actions/LootRollAction.cpp
+@@ -43,10 +43,21 @@ bool LootRollAction::Execute(Event event)
+         std::string itemUsageParam;
+         if (randomProperty != 0)
+             itemUsageParam = std::to_string(itemId) + "," + std::to_string(randomProperty);
+         else
+             itemUsageParam = std::to_string(itemId);
+ 
+         ItemUsage usage = AI_VALUE2(ItemUsage, "item usage", itemUsageParam);
+ 
++        // Controlled companions in an instance follow the same conservative
++        // rules for group rolls as direct corpse looting: only personally
++        // useful items below rare quality are taken.
++        if (botAI->HasActivePlayerMaster() && bot->GetMap()
++            && bot->GetMap()->IsDungeon()
++            && !StoreLootAction::IsLootAllowed(itemId, botAI))
++        {
++            group->CountRollVote(bot->GetGUID(), guid, PASS);
++            return true;
++        }
++
+         // Armor Tokens are classed as MISC JUNK (Class 15, Subclass 0), luckily no other items I found have class bits and epic quality.
+         if (proto->Class == ITEM_CLASS_MISC && proto->SubClass == ITEM_SUBCLASS_JUNK && proto->Quality == ITEM_QUALITY_EPIC)

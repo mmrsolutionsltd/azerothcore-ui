@@ -413,7 +413,9 @@ public sealed class AdministrationAccountStore(
         await connection.ExecuteAsync(
             "DELETE FROM admin_user_game_account WHERE admin_user_id=@userId",
             new { userId }, transaction);
-        if (scope == "Assigned" && accountIds.Count > 0)
+        // Assigned accounts enforce access. For an All-scope user the same
+        // links are harmless preferences used to put their own heroes first.
+        if ((scope is "Assigned" or "All") && accountIds.Count > 0)
             await connection.ExecuteAsync("""
                 INSERT INTO admin_user_game_account (admin_user_id, game_account_id)
                 VALUES (@userId, @accountId)

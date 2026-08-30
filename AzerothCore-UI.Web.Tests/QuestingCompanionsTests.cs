@@ -7,6 +7,7 @@ using AzerothCore_UI.Web.Models;
 using AzerothCore_UI.Web.Security;
 using AzerothCore_UI.Web.Services;
 using Bunit;
+using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -34,15 +35,12 @@ public sealed class QuestingCompanionsTests : BunitContext
     }
 
     [Fact]
-    public void ActiveCompanionUsesTheSelectedLeaderForLogisticsAndIsNotALeaderChoice()
+    public void ActiveCompanionControlsLiveInTheSelectedHeaderCardAndUseItsLeader()
     {
-        var component = Render<QuestingCompanions>();
-        component.WaitForElement(".character-picker-item");
-        component.FindAll(".character-picker-item")
-            .Single(item => item.TextContent.Contains("Vynlan"))
-            .Click();
-
-        component.WaitForElement(".companion-tabs");
+        handler.ReturnRememberedSession = true;
+        SelectHeroes("Vynlan", "Kiesh");
+        var component = Render<AzerothCore_UI.Web.Components.Shared.RealmRosterHeader>();
+        component.WaitForElement(".companion-header-controls");
         component.FindAll(".companion-tabs .nav-link")
             .Single(tab => tab.TextContent.Contains("Maintenance"))
             .Click();
@@ -56,23 +54,93 @@ public sealed class QuestingCompanionsTests : BunitContext
                 handler.LogisticsPaths,
                 path => path.Contains("/LeaderName/", StringComparison.Ordinal));
 
-            var leaderPicker = component.FindAll(".character-picker").First();
-            Assert.Contains("Vynlan", leaderPicker.TextContent);
-            Assert.DoesNotContain("Kiesh", leaderPicker.TextContent);
+            Assert.Single(component.FindAll(".companion-header-controls"));
+            Assert.Empty(component.FindAll(".character-picker"));
+        });
+    }
 
-            var companionPicker = component.FindAll(".character-picker").Last();
-            Assert.Contains("Sameaccount", companionPicker.TextContent);
+    [Fact]
+    public void HeaderSelectionDrivesTheLeaderAndMultipleOfflineCompanions()
+    {
+        SelectHeroes("Vynlan", "Highalpha", "Lowzeta");
+        var component = Render<QuestingCompanions>();
+
+        component.WaitForAssertion(() =>
+        {
+            Assert.Contains("Vynlan", component.Find(".header-party-member.leader").TextContent);
+            Assert.Contains("Highalpha", component.Find(".header-companion-lineup").TextContent);
+            Assert.Contains("Lowzeta", component.Find(".header-companion-lineup").TextContent);
+            Assert.Equal(2, component.FindAll(".header-party-member.ready").Count);
+            Assert.False(component.Find(".companion-action").HasAttribute("disabled"));
+        });
+    }
+
+    [Fact]
+    public void ClickingOfflineHeroesInTheSharedHeaderSelectsCompanionsOnThePage()
+    {
+        Services.GetRequiredService<NavigationManager>()
+            .NavigateTo("http://localhost/questing-companions");
+        var page = Render<QuestingCompanions>();
+        var header = Render<AzerothCore_UI.Web.Components.Shared.RealmRosterHeader>();
+
+        header.WaitForElement(".hero-choice");
+        HeaderChoice(header, "Vynlan").Click();
+        HeaderChoice(header, "Highalpha").Click();
+        HeaderChoice(header, "Lowzeta").Click();
+
+        page.WaitForAssertion(() =>
+        {
+            Assert.Contains("Vynlan", page.Find(".header-party-member.leader").TextContent);
+            Assert.Equal(2, page.FindAll(".header-party-member.ready").Count);
+            Assert.Contains("Highalpha", page.Find(".header-companion-lineup").TextContent);
+            Assert.Contains("Lowzeta", page.Find(".header-companion-lineup").TextContent);
+            Assert.False(page.Find(".companion-action").HasAttribute("disabled"));
+        });
+    }
+
+    private static AngleSharp.Dom.IElement HeaderChoice(
+        IRenderedComponent<AzerothCore_UI.Web.Components.Shared.RealmRosterHeader> header,
+        string name) => header.FindAll(".hero-choice").Single(choice =>
+            choice.TextContent.Contains(name, StringComparison.Ordinal));
+
+    private void SelectHeroes(params string[] names) =>
+        Services.GetRequiredService<SelectedCharacterStore>()
+            .SetSelectedAsync(names, names.FirstOrDefault()).AsTask()
+            .GetAwaiter().GetResult();
+
+    [Fact]
+    public void RestoresTheRememberedOnlinePartyForTheSignedInUser()
+    {
+        handler.ReturnRememberedSession = true;
+
+        var component = Render<QuestingCompanions>();
+
+        component.WaitForAssertion(() =>
+        {
+            Assert.Contains("Vynlan", component.Find(".remembered-party.selected").TextContent);
+            Assert.Contains("Kiesh", component.Markup);
+            Assert.Contains(
+                "api/server-administration/questing-companions/Vynlan",
+                handler.RequestedPaths);
         });
     }
 
     private sealed class CompanionHandler : HttpMessageHandler
     {
         public List<string> LogisticsPaths { get; } = [];
+        public List<string> RequestedPaths { get; } = [];
+        public bool ReturnRememberedSession { get; set; }
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
             var path = request.RequestUri!.AbsolutePath.TrimStart('/');
+            RequestedPaths.Add(path);
+            if (request.Method == HttpMethod.Get && path == "api/realm-roster")
+                return Task.FromResult(Json(ReturnRememberedSession
+                    ? RememberedRoster()
+                    : SelectableRoster()));
+
             if (request.Method == HttpMethod.Get
                 && path == "api/server-administration/players")
                 return Task.FromResult(Json(new[]
@@ -113,11 +181,54 @@ public sealed class QuestingCompanionsTests : BunitContext
                     true, true, true, true),
                 new(4, 8, false, 0, "Ready"))],
             [new QuestingCompanionCandidate
-            {
-                Name = "Sameaccount", Username = "MARK2", AccountId = 2,
-                Level = 7, CharacterClass = 9, Race = 10, Online = false,
-                SameFaction = true, SameAccount = true
-            }], [], 6);
+                {
+                    Name = "Sameaccount", Username = "MARK2", AccountId = 2,
+                    Level = 7, CharacterClass = 9, Race = 10, Online = false,
+                    SameFaction = true, SameAccount = true
+                },
+                new QuestingCompanionCandidate
+                {
+                    Name = "Highalpha", Username = "ALPHA", AccountId = 3,
+                    Level = 10, CharacterClass = 8, Race = 10, Online = false,
+                    SameFaction = true, SameGuild = true
+                },
+                new QuestingCompanionCandidate
+                {
+                    Name = "Lowzeta", Username = "ZETA", AccountId = 4,
+                    Level = 5, CharacterClass = 3, Race = 10, Online = false,
+                    SameFaction = true, SameGuild = true
+                },
+                new QuestingCompanionCandidate
+                {
+                    Name = "Lowalpha", Username = "ALPHA", AccountId = 3,
+                    Level = 5, CharacterClass = 5, Race = 10, Online = false,
+                    SameFaction = true, SameGuild = true
+                }], [], 6);
+
+        private static RealmRosterSnapshot RememberedRoster()
+        {
+            var companion = new RealmRosterCharacter(
+                2, "Kiesh", "MARK", 7, 2, 10, true, false, true);
+            var session = new CompanionPartySession(
+                1, "Vynlan", 2, "MARK2", true, 1, "owner",
+                DateTime.UtcNow.AddMinutes(-2), DateTime.UtcNow, 5, [companion]);
+            return new RealmRosterSnapshot(
+                DateTime.UtcNow,
+                [new("remembered:Vynlan", null, "Vynlan", true, true, 5,
+                    DateTime.UtcNow,
+                    [new(1, "Vynlan", "MARK2", 7, 9, 10, true, true, false),
+                     companion])],
+                [], [session]);
+        }
+
+        private static RealmRosterSnapshot SelectableRoster() => new(
+            DateTime.UtcNow, [], [], [],
+            [
+                new(1, "Vynlan", "MARK2", 7, 9, 10, true, false, false),
+                new(3, "Highalpha", "ALPHA", 10, 8, 10, false, false, false),
+                new(4, "Lowzeta", "ZETA", 5, 3, 10, false, false, false),
+                new(5, "Lowalpha", "ALPHA", 5, 5, 10, false, false, false)
+            ]);
 
         private static HttpResponseMessage Json<T>(T value) =>
             new(HttpStatusCode.OK) { Content = JsonContent.Create(value) };

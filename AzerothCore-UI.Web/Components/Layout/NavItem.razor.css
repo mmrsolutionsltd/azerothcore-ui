@@ -4,7 +4,7 @@
 }
 
 .nav-link {
-    color: #d7d7d7;
+    color: #c8beae;
     background: none;
     border: none;
     border-radius: 6px;
@@ -16,13 +16,16 @@
 }
 
 .nav-link.active {
-    background-color: rgba(255,255,255,0.37);
-    color: white;
+    color:#251705;
+    background:linear-gradient(90deg,#d5a24d,#f0cf84 55%,#b47a2b);
+    border:1px solid #ffe1a0;
+    box-shadow:0 0 13px rgba(220,156,56,.26),inset 0 1px rgba(255,225,160,.42);
 }
 
 .nav-link:hover {
-    background-color: rgba(255,255,255,0.1);
-    color: white;
+    color:#f1d69b;
+    background:rgba(177,126,49,.13);
+    box-shadow:inset 3px 0 #aa7831;
 }
 
 .bi {
@@ -34,7 +37,10 @@
     margin-right: 0.75rem;
     top: -1px;
     background-size: cover;
+    filter:sepia(1) saturate(2.1) hue-rotate(354deg) brightness(.92);
 }
+
+.nav-link.active .bi { filter:sepia(1) saturate(3) brightness(.42); }
 
 .bi-house-door-fill-nav-menu {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='white' viewBox='0 0 16 16'%3E%3Cpath d='M6.5 14.5v-3.505c0-.245.25-.495.5-.495h2c.25 0 .5.25.5.5v3.5a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 .5-.5v-7a.5.5 0 0 0-.146-.354L13 5.793V2.5a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5v1.293L8.354 1.146a.5.5 0 0 0-.708 0l-6 6A.5.5 0 0 0 1.5 7.5v7a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 .5-.5Z'/%3E%3C/svg%3E");

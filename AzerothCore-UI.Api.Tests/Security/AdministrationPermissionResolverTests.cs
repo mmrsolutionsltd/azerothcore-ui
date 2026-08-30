@@ -8,8 +8,10 @@ public sealed class AdministrationPermissionResolverTests
     [Theory]
     [InlineData("/api/accounts", "players.accounts")]
     [InlineData("/api/characters/42", "players.characters")]
+    [InlineData("/api/crafting-upgrades/42", "players.characters")]
     [InlineData("/api/quest-helper/add", "adventures.quests")]
     [InlineData("/api/server-administration/questing-companions/start", "adventures.quests")]
+    [InlineData("/api/server-administration/questing-companions/command", "adventures.quests")]
     [InlineData("/api/server-administration/dungeon-library/guide", "adventures.dungeons")]
     [InlineData("/api/server-administration/items/give", "players.actions")]
     [InlineData("/api/server-administration/accounts/create", "players.actions")]
@@ -44,6 +46,13 @@ public sealed class AdministrationPermissionResolverTests
     {
         Assert.Null(AdministrationPermissionResolver.RequiredPermission(
             "GET", "/api/server-administration/players"));
+    }
+
+    [Fact]
+    public void AllowsAuthenticatedPagesToLoadTheirScopedSharedRoster()
+    {
+        Assert.Null(AdministrationPermissionResolver.RequiredPermission(
+            "GET", "/api/realm-roster"));
     }
 
     [Theory]

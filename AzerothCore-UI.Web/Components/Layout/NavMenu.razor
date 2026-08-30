@@ -1,21 +1,25 @@
 @inject NavigationManager Navigation
+@implements IDisposable
 
-<div class="top-row ps-3 navbar navbar-dark">
-    <div class="container-fluid">
-        <div class="brand-block">
-            <a class="navbar-brand" href="">AzerothCore Admin</a>
-            <AuthorizeView Policy="PasswordChange">
-                <Authorized Context="signedIn">
-                    <div class="signed-in-user">@signedIn.User.Identity?.Name</div>
-                </Authorized>
-            </AuthorizeView>
-        </div>
-    </div>
-</div>
+<div class="game-menu-host">
+    <input id="game-menu-toggle" type="checkbox" class="game-menu-toggle" @bind="menuOpen" />
+    <label for="game-menu-toggle" class="game-menu-button" title="Open the game menu">
+        <span aria-hidden="true">☰</span><strong>Menu</strong>
+    </label>
+    <label for="game-menu-toggle" class="game-menu-backdrop" aria-label="Close game menu"></label>
 
-<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
-
-<div class="nav-scrollable">
+    <aside class="nav-scrollable" aria-label="Game menu">
+        <header class="drawer-heading">
+            <div class="brand-block">
+                <a class="navbar-brand" href="">AzerothCore Admin</a>
+                <AuthorizeView Policy="PasswordChange">
+                    <Authorized Context="signedIn">
+                        <div class="signed-in-user">@signedIn.User.Identity?.Name</div>
+                    </Authorized>
+                </AuthorizeView>
+            </div>
+            <label for="game-menu-toggle" class="drawer-close" title="Close game menu">×</label>
+        </header>
     <nav class="nav flex-column" aria-label="Main navigation">
         <div class="quick-links" aria-label="Quick links">
             <NavItem Href="characters" Policy="players.characters" Icon="bi-person-fill-nav-menu">Characters</NavItem>
@@ -24,17 +28,20 @@
         </div>
 
         <NavGroup Title="Players" GroupKey="players"
-                  OpenByDefault="@IsGroupActive("accounts", "character-services", "starter-presets", "collectibles")">
+                  OpenByDefault="@IsGroupActive("accounts", "character-services", "starter-presets", "collectibles", "crafting-upgrades")">
             <NavItem Href="accounts" Policy="players.accounts" Icon="bi-list-nested-nav-menu">Accounts</NavItem>
+            <NavItem Href="crafting-upgrades" Policy="players.characters" Icon="bi-plus-square-fill-nav-menu">Gearing room</NavItem>
             <NavItem Href="character-services" Policy="players.services" Icon="bi-person-fill-nav-menu">Character services</NavItem>
             <NavItem Href="starter-presets" Policy="players.services" Icon="bi-plus-square-fill-nav-menu">Starter presets</NavItem>
             <NavItem Href="collectibles" Policy="players.collectibles" Icon="bi-plus-square-fill-nav-menu">Collectibles</NavItem>
         </NavGroup>
 
         <NavGroup Title="Adventures" GroupKey="adventures"
-                  OpenByDefault="@IsGroupActive("quest-helper", "questing-companions", "client-addons", "dungeon-library", "dungeon-assistant", "trainers", "weapon-training", "training")">
+                  OpenByDefault="@IsGroupActive("quest-helper", "questing-companions", "companion-commands", "companion-diagnostics", "client-addons", "dungeon-library", "dungeon-assistant", "trainers", "weapon-training", "training")">
             <NavItem Href="quest-helper" Policy="adventures.quests" Icon="bi-list-nested-nav-menu">Quest helper</NavItem>
             <NavItem Href="questing-companions" Policy="adventures.quests" Icon="bi-person-fill-nav-menu">Questing companions</NavItem>
+            <NavItem Href="companion-commands" Policy="adventures.quests" Icon="bi-list-nested-nav-menu">Companion commands</NavItem>
+            <NavItem Href="companion-diagnostics" Policy="adventures.quests" Icon="bi-list-nested-nav-menu">Companion diagnostics</NavItem>
             <NavItem Href="client-addons" Policy="adventures.quests" Icon="bi-plus-square-fill-nav-menu">Client addons</NavItem>
             <NavItem Href="dungeon-library" Policy="adventures.dungeons" Icon="bi-list-nested-nav-menu">Dungeon library</NavItem>
             <NavItem Href="dungeon-assistant" Policy="adventures.dungeons" Icon="bi-list-nested-nav-menu">Dungeon assistant</NavItem>
@@ -73,9 +80,17 @@
             </Authorized>
         </AuthorizeView>
     </nav>
+    </aside>
 </div>
 
 @code {
+    private bool menuOpen;
+
+    protected override void OnInitialized() => Navigation.LocationChanged += LocationChanged;
+
+    private void LocationChanged(object? sender, LocationChangedEventArgs args) =>
+        _ = InvokeAsync(() => { menuOpen = false; StateHasChanged(); });
+
     private bool IsGroupActive(params string[] paths)
     {
         var relativePath = Navigation.ToBaseRelativePath(Navigation.Uri)
@@ -86,4 +101,6 @@
             relativePath.Equals(path, StringComparison.OrdinalIgnoreCase) ||
             relativePath.StartsWith($"{path}/", StringComparison.OrdinalIgnoreCase));
     }
+
+    public void Dispose() => Navigation.LocationChanged -= LocationChanged;
 }

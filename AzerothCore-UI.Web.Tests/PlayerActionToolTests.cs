@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using AzerothCore_UI.Web.Clients;
+using AzerothCore_UI.Web.Components.Pages;
 using AzerothCore_UI.Web.Components.Shared;
 using AzerothCore_UI.Web.Components.Shared.PlayerActions;
 using AzerothCore_UI.Web.Models;
@@ -63,6 +64,31 @@ public sealed class PlayerActionToolTests : BunitContext
             component.FindAll("h2")
                 .Select(heading => heading.TextContent.Trim())
                 .ToArray()));
+    }
+
+    [Fact]
+    public async Task PlayerActionsUsesTheSharedHeaderTargetsWithoutALocalPicker()
+    {
+        var store = Services.GetRequiredService<SelectedCharacterStore>();
+        await store.SetSelectedAsync(["Jaina", "Uther"], "Jaina");
+
+        var component = Render<PlayerActions>();
+
+        component.WaitForAssertion(() =>
+        {
+            Assert.Empty(component.FindAll(".character-picker"));
+            var tools = component.FindComponent<PlayerActionTools>();
+            Assert.Equal(
+                ["Jaina", "Uther"],
+                tools.Instance.Targets.Select(target => target.Name).ToArray());
+        });
+
+        await component.InvokeAsync(() =>
+            store.SetSelectedAsync(["Anduin"], "Anduin").AsTask());
+        component.WaitForAssertion(() => Assert.Equal(
+            ["Anduin"],
+            component.FindComponent<PlayerActionTools>().Instance.Targets
+                .Select(target => target.Name).ToArray()));
     }
 
     [Fact]

@@ -1,0 +1,14 @@
+.companion-header-controls { min-width: 0; }
+
+.control-result {
+    padding: .2rem .32rem;
+    overflow: hidden;
+    font-size: .5rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    border-top: 1px solid #4c3c27;
+    background: #101216;
+}
+
+.control-result.success { color: #78d990; }
+.control-result.failure { color: #ef7770; }

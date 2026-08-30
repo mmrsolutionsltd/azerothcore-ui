@@ -1,5 +1,8 @@
 html, body {
     font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    min-height: 100%;
+    color: #d8cdbb;
+    background: #080a0d;
 }
 
 a, .btn-link {
@@ -13,11 +16,125 @@ a, .btn-link {
 }
 
 .btn:focus, .btn:active:focus, .btn-link.nav-link:focus, .form-control:focus, .form-check-input:focus {
-  box-shadow: 0 0 0 0.1rem white, 0 0 0 0.25rem #258cfb;
+  box-shadow: 0 0 0 0.1rem #17130d, 0 0 0 0.25rem #bd8d3d;
 }
 
 .content {
     padding-top: 1.1rem;
+}
+
+/* Shared Azeroth surface: Bootstrap defaults are deliberately light, so keep
+   every administration page inside the same dark iron-and-gold frame. */
+.content .card,
+.content .modal-content,
+.content .dropdown-menu,
+.content .list-group-item {
+    color: #d5cab9;
+    border-color: #57462e;
+    background: radial-gradient(circle at 50% -10rem, rgba(187, 128, 40, .12), transparent 24rem),
+                linear-gradient(145deg, #171a1f, #0d0f12);
+    box-shadow: inset 0 0 22px rgba(0, 0, 0, .5), 0 3px 12px rgba(0, 0, 0, .24);
+}
+
+.content .card-header,
+.content .modal-header,
+.content .modal-footer {
+    color: #e8c983;
+    border-color: #57462e;
+    background: linear-gradient(90deg, rgba(139, 92, 31, .22), rgba(20, 21, 24, .45));
+}
+
+/* Shared picker windows use the same iron, parchment and gold language as the
+   Hall of Heroes instead of Bootstrap's white modal treatment. */
+.content .modal.d-block {
+    background: rgba(2, 3, 5, .78) !important;
+    backdrop-filter: blur(3px);
+}
+
+.content .modal-dialog { filter: drop-shadow(0 14px 26px rgba(0, 0, 0, .72)); }
+.content .modal-content {
+    overflow: hidden;
+    border: 1px solid #9b7133;
+    border-bottom: 2px solid #d0a24e;
+    border-radius: 6px;
+    background:
+        radial-gradient(circle at 18% 0, rgba(205, 146, 54, .17), transparent 24rem),
+        repeating-linear-gradient(135deg, rgba(255, 225, 165, .012) 0 2px, transparent 2px 8px),
+        linear-gradient(145deg, #171a1f, #090b0e 78%);
+    box-shadow: inset 3px 0 #aa7935, inset 0 0 28px rgba(0, 0, 0, .55), 0 0 0 1px #24190c;
+}
+.content .modal-header { padding:.7rem 1rem; box-shadow:inset 0 -1px rgba(255,215,135,.06); }
+.content .modal-title {
+    color:#f2d28a;
+    font-family:Georgia,"Times New Roman",serif;
+    text-shadow:0 2px 3px #000,0 0 12px rgba(228,166,65,.24);
+}
+.content .modal-body { scrollbar-color:#7c5b2e #101216; }
+.content .modal-footer { padding:.55rem 1rem; }
+.content .btn-close { filter:invert(83%) sepia(35%) saturate(704%) hue-rotate(354deg) brightness(94%); opacity:.78; }
+.content .btn-close:hover { opacity:1; }
+.content .modal-backdrop.show { opacity:.72; }
+.content .picker-result-row { cursor:pointer; transition:background-color .1s,color .1s,box-shadow .1s; }
+.content .picker-result-row:hover { color:#f5d997; box-shadow:inset 3px 0 #c48d38; }
+.content .picker-result-row:focus-visible { outline:.18rem solid rgba(208,154,63,.72); outline-offset:-.18rem; }
+.content .modal .form-label { color:#bca678; font-size:.72rem; font-weight:700; letter-spacing:.025em; }
+.content .modal .alert-secondary { color:#bcb09e; border-color:#58472f; background:#17191d; }
+
+.content .form-control,
+.content .form-select,
+.content .input-group-text {
+    color: #e2d8c8;
+    border-color: #59492f;
+    background-color: #17191d;
+}
+
+.content .form-control::placeholder { color: #756f67; }
+.content .form-control:disabled,
+.content .form-select:disabled { color: #857d71; background-color: #101216; }
+.content .form-text,
+.content .text-muted { color: #91887b !important; }
+.content .border { border-color: #57462e !important; }
+
+.content .table {
+    --bs-table-color: #d2c8b9;
+    --bs-table-bg: #111317;
+    --bs-table-border-color: #4d402d;
+    --bs-table-striped-color: #d2c8b9;
+    --bs-table-striped-bg: rgba(194, 137, 48, .06);
+    --bs-table-hover-color: #f2d99b;
+    --bs-table-hover-bg: rgba(194, 137, 48, .11);
+}
+
+.content .table-light {
+    --bs-table-color: #e0d4c3;
+    --bs-table-bg: #211d17;
+    --bs-table-border-color: #5a4930;
+}
+
+.content .text-bg-light {
+    color: #e3c983 !important;
+    border: 1px solid #655033;
+    background-color: #221e18 !important;
+}
+
+.content .btn-primary {
+    color: #251705;
+    border-color: #efc86f;
+    background: linear-gradient(#e5c16e, #aa7025);
+}
+
+.content .btn-secondary,
+.content .btn-outline-secondary {
+    color: #cbb47c;
+    border-color: #675235;
+    background-color: #211d17;
+}
+
+.content .btn-secondary:hover,
+.content .btn-outline-secondary:hover {
+    color: #251705;
+    border-color: #e1b85f;
+    background-color: #c99442;
 }
 
 h1:focus {

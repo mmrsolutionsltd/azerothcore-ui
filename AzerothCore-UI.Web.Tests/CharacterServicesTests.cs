@@ -37,12 +37,9 @@ public sealed class CharacterServicesTests : BunitContext
     [Fact]
     public void AccountTransferRequiresOneCharacterAndConfirmsTheDestination()
     {
+        SelectHeroes("Hundead");
         var component = Render<CharacterServices>();
         component.WaitForElement("#transfer-account");
-
-        component.FindAll(".character-picker-item")
-            .Single(item => item.TextContent.Contains("Hundead"))
-            .Click();
         component.Find("#transfer-account").Change("2");
 
         var openConfirmation = component.FindAll("button")
@@ -66,6 +63,11 @@ public sealed class CharacterServicesTests : BunitContext
                 component.Find(".alert-success").TextContent);
         });
     }
+
+    private void SelectHeroes(params string[] names) =>
+        Services.GetRequiredService<SelectedCharacterStore>()
+            .SetSelectedAsync(names, names.FirstOrDefault()).AsTask()
+            .GetAwaiter().GetResult();
 
     private sealed class CharacterServicesHandler : HttpMessageHandler
     {

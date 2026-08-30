@@ -1,6 +1,5 @@
 @page "/training"
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "adventures.training")]
-@rendermode InteractiveServer
 @using AzerothCore_UI.Web.Models
 @inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
 
@@ -49,10 +48,10 @@ else
             {
                 <div class="row g-3 align-items-end">
                     <div class="col-md-5">
-                        <label class="form-label">Character</label>
-                        <CharacterPicker Items="@ProfessionStarterPickerItems" AllowBots="false"
-                                         SelectedValue="@SelectedProfessionGuidValue"
-                                         SelectedValueChanged="SelectProfessionCharacter" />
+                        <label class="form-label">Active hero</label>
+                        <SharedCharacterSelection Items="@ProfessionStarterPickerItems"
+                                                  SelectedValueChanged="SelectProfessionCharacter" />
+                        <div class="form-text">Selected from the shared header.</div>
                     </div>
                     <div class="col-md-4">
                         <label class="form-label" for="new-profession">Profession</label>
@@ -142,10 +141,10 @@ else
             {
                 <div class="row g-3 mb-3">
                     <div class="col-md-6">
-                        <label class="form-label">Character</label>
-                        <CharacterPicker Items="@ProfessionManagementPickerItems" AllowBots="false"
-                                         SelectedValue="@SelectedManagementGuidValue"
-                                         SelectedValueChanged="SelectManagementCharacter" />
+                        <label class="form-label">Active hero</label>
+                        <SharedCharacterSelection Items="@ProfessionManagementPickerItems"
+                                                  SelectedValueChanged="SelectManagementCharacter" />
+                        <div class="form-text">Selected from the shared header.</div>
                     </div>
                 </div>
 

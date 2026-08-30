@@ -1,5 +1,4 @@
 @page "/trainers"
-@rendermode InteractiveServer
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "adventures.training")]
 @using AzerothCore_UI.Web.Models
 @inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
@@ -22,10 +21,9 @@ else
 {
     <div class="card mb-4">
         <div class="card-body">
-            <label class="form-label">Character</label>
-            <CharacterPicker Items="@PickerItems" AllowBots="true"
-                             SelectedValue="@characterName"
-                             SelectedValueChanged="SelectCharacter" />
+            <SharedCharacterSelection Items="@PickerItems"
+                                      SelectedValueChanged="SelectCharacter" />
+            <div class="form-text">Using the active hero selected in the header.</div>
         </div>
     </div>
 

@@ -1,7 +1,7 @@
 local ADDON_PREFIX = "AzerothCore"
 local REFRESH_SECONDS = 5
-local RESPONSE_TIMEOUT_SECONDS = 3
-local EXPECTED_PROTOCOL = 7
+local RESPONSE_TIMEOUT_SECONDS = 15
+local EXPECTED_PROTOCOL = 10
 local DEFAULT_WIDTH = 360
 local DEFAULT_HEIGHT = 510
 local MIN_WIDTH = 210
@@ -762,6 +762,7 @@ local function BeginRequest(command, kind)
         companions = {},
         companionOrder = {},
         startedAt = GetTime(),
+        lastActivityAt = GetTime(),
         completed = false
     }
     SendAddonMessage(ADDON_PREFIX,
@@ -772,8 +773,11 @@ local function BeginRequest(command, kind)
 end
 
 local function RequestSnapshot()
+    if activeRequest and not activeRequest.completed then
+        return false
+    end
     if BeginRequest(
-        "webadmin companion inspect " .. (UnitName("player") or ""),
+        "webadmin companion inspect-addon " .. (UnitName("player") or ""),
         "snapshot") then
         status:SetText("Refreshing...")
     end
@@ -790,6 +794,7 @@ local function HandleAddonMessage(prefix, message)
     local opcode = string.sub(message, 1, 1)
     local requestId = string.sub(message, 2, 5)
     if requestId ~= activeRequest.id then return end
+    activeRequest.lastActivityAt = GetTime()
     if opcode == "m" and activeRequest.kind == "snapshot" then
         ParseProtocolLine(activeRequest, string.sub(message, 6))
     elseif opcode == "f" then
@@ -867,7 +872,7 @@ frame:SetScript("OnUpdate", function(_, elapsed)
     end
     elapsedSinceRefresh = elapsedSinceRefresh + elapsed
     if activeRequest and not activeRequest.completed
-        and GetTime() - activeRequest.startedAt >= RESPONSE_TIMEOUT_SECONDS then
+        and GetTime() - activeRequest.lastActivityAt >= RESPONSE_TIMEOUT_SECONDS then
         activeRequest.completed = true
         if activeRequest.kind == "command" then
             status:SetText("Companion command timed out")

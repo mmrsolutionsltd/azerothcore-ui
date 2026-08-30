@@ -20,6 +20,10 @@ public static class AdministrationPermissionResolver
         if (path.StartsWith("/api/training")) return "adventures.training";
         if (path.StartsWith("/api/accounts")) return "players.accounts";
         if (path.StartsWith("/api/characters")) return "players.characters";
+        if (path.StartsWith("/api/crafting-upgrades")) return "players.characters";
+        // The shared roster is navigation state, not an action. Authentication
+        // and linked-account scoping still apply to every returned character.
+        if (path.StartsWith("/api/realm-roster")) return null;
         if (path.StartsWith("/api/server-administration/settings")) return "server.settings";
         if (path.Contains("/questing-companions")) return "adventures.quests";
         if (path.Equals("/api/server-administration/availability",

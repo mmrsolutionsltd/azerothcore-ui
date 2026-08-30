@@ -1,5 +1,4 @@
 @page "/starter-presets"
-@rendermode InteractiveServer
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "players.services")]
 @using AzerothCore_UI.Web.Models
 @inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
@@ -22,10 +21,10 @@ else
     <div class="row g-4">
         <div class="col-xl-5">
             <div class="card mb-4"><div class="card-body">
-                <h2 class="h5">1. Select characters</h2>
-                <CharacterPicker Items="@PickerItems" Multiple="true" AllowBots="false"
-                                 MaximumSelections="10" SelectedValues="@selectedNames"
-                                 SelectedValuesChanged="SetSelectedCharacters" />
+                <h2 class="h5">1. Selected heroes</h2>
+                <SharedCharacterSelection Items="@PickerItems" Multiple="true"
+                                          SelectedValuesChanged="SetSelectedCharacters" />
+                <p class="small text-muted mb-0">Choose up to five heroes in the shared header.</p>
             </div></div>
 
             <div class="card"><div class="card-body">

@@ -28,6 +28,7 @@
 #include "MotionMaster.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
+#include "Opcodes.h"
 #include "Pet.h"
 #include "Player.h"
 #include "PlayerScript.h"
@@ -42,8 +43,10 @@
 #include "SpellInfo.h"
 #include "SpellMgr.h"
 #include "TemporarySummon.h"
+#include "TradeData.h"
 #include "Trainer.h"
 #include "World.h"
+#include "WorldPacket.h"
 #include "WorldSession.h"
 
 #include <sstream>
@@ -51,6 +54,7 @@
 #include <vector>
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <ctime>
 #include <cstdlib>
 #include <map>
@@ -59,7 +63,7 @@ using namespace Acore::ChatCommands;
 
 namespace
 {
-static constexpr uint32 CompanionProtocolVersion = 7;
+static constexpr uint32 CompanionProtocolVersion = 10;
 static constexpr float CompanionGatherRadius = 40.0f;
 static constexpr uint8 CompanionVendorSellTypesPerPass = 6;
 static constexpr uint32 SummonImpSpell = 688;
@@ -67,6 +71,15 @@ static constexpr uint32 SummonVoidwalkerSpell = 697;
 static constexpr uint32 ImpEntry = 416;
 static constexpr uint32 VoidwalkerEntry = 1860;
 static constexpr uint32 DualDemonSummonProperties = 61;
+
+struct CasterAutoAttackState
+{
+    uint32 SpellId = 0;
+    ObjectGuid TargetGuid;
+    uint32 RetryTimer = 0;
+};
+
+static std::map<ObjectGuid, CasterAutoAttackState> CasterAutoAttacks;
 
 struct WarlockDualDemonState
 {
@@ -78,6 +91,79 @@ struct WarlockDualDemonState
 };
 
 static std::map<ObjectGuid, WarlockDualDemonState> WarlockDualDemons;
+
+static void StopCasterAutoAttack(Player* player, char const* reason = nullptr)
+{
+    if (!player || !CasterAutoAttacks.erase(player->GetGUID()))
+        return;
+
+    if (reason && player->GetSession())
+        ChatHandler(player->GetSession()).PSendSysMessage(
+            "CASTERAUTO STOP {}", reason);
+}
+
+static bool IsAllowedCasterAutoSpell(
+    Player* player, uint32 spellId, SpellInfo const*& spellInfo)
+{
+    spellInfo = sSpellMgr->GetSpellInfo(spellId);
+    return player && player->HasSpell(spellId) && spellInfo
+        && !spellInfo->IsPassive() && !spellInfo->IsPositive()
+        && spellInfo->GetMaxRange(false, player) > 5.0f;
+}
+
+static void UpdateCasterAutoAttack(Player* player, uint32 diff)
+{
+    auto stateEntry = CasterAutoAttacks.find(player->GetGUID());
+    if (stateEntry == CasterAutoAttacks.end())
+        return;
+
+    CasterAutoAttackState& state = stateEntry->second;
+    if (!player->IsAlive())
+    {
+        StopCasterAutoAttack(player, "player-dead");
+        return;
+    }
+
+    Unit* target = player->GetSelectedUnit();
+    if (!target || target->GetGUID() != state.TargetGuid
+        || !target->IsAlive() || !player->IsValidAttackTarget(target))
+    {
+        StopCasterAutoAttack(player, "target-lost");
+        return;
+    }
+
+    SpellInfo const* spellInfo = nullptr;
+    if (!IsAllowedCasterAutoSpell(player, state.SpellId, spellInfo))
+    {
+        StopCasterAutoAttack(player, "spell-unavailable");
+        return;
+    }
+
+    if (state.RetryTimer > diff)
+    {
+        state.RetryTimer -= diff;
+        return;
+    }
+    state.RetryTimer = 250;
+
+    // Match ranged auto-attack behaviour: movement and a manual spell pause the
+    // filler cast without cancelling it. It resumes when the player is ready.
+    if (player->isMoving() || player->IsNonMeleeSpellCast(false)
+        || player->HasSpellCooldown(state.SpellId))
+        return;
+
+    float const maximumRange = spellInfo->GetMaxRange(false, player);
+    float const minimumRange = spellInfo->GetMinRange(false);
+    float const distance = player->GetDistance(target);
+    if (distance > maximumRange || distance < minimumRange)
+    {
+        state.RetryTimer = 750;
+        return;
+    }
+
+    SpellCastResult const result = player->CastSpell(target, spellInfo, false);
+    state.RetryTimer = result == SPELL_CAST_OK ? 250 : 750;
+}
 
 static uint32 ImpFireboltForLevel(uint8 level)
 {
@@ -307,6 +393,7 @@ struct QuestingCompanionRegistration
     std::string CombatFocus = "assist";
     float FollowDistance = 3.0f;
     bool LootEnabled = true;
+    bool LootSuspendedForBagSpace = false;
     bool GatherEnabled = true;
     bool AutoSellTrash = true;
     bool AutoRepair = true;
@@ -316,6 +403,10 @@ struct QuestingCompanionRegistration
     std::vector<CompanionLogisticsRoute> LogisticsRoutes;
     std::string LogisticsStatus = "Logistics is not configured.";
     std::string MaintenanceStatus = "No maintenance action yet.";
+    std::time_t LastSuccessAt = 0;
+    std::string LastSuccess = "No successful automation action recorded yet.";
+    std::time_t LastFailureAt = 0;
+    std::string LastFailure = "No failed automation action recorded yet.";
     ObjectGuid PrioritizedLeaderTarget;
     bool EquipmentSnapshotInitialized = false;
     std::array<uint32, EQUIPMENT_SLOT_END> EquipmentEntries{};
@@ -333,6 +424,28 @@ static bool HasCompanionLogisticsRouteForItem(
     Player* companion, Item* item, std::string const& category);
 
 static std::vector<QuestingCompanionRegistration> QuestingCompanions;
+
+static void RecordCompanionResult(
+    QuestingCompanionRegistration& registration, bool succeeded,
+    std::string const& message)
+{
+    if (message.empty())
+        return;
+    if (succeeded)
+    {
+        if (registration.LastSuccess == message)
+            return;
+        registration.LastSuccessAt = std::time(nullptr);
+        registration.LastSuccess = message;
+    }
+    else
+    {
+        if (registration.LastFailure == message)
+            return;
+        registration.LastFailureAt = std::time(nullptr);
+        registration.LastFailure = message;
+    }
+}
 
 static void RegisterQuestingCompanion(ObjectGuid leaderGuid, ObjectGuid companionGuid)
 {
@@ -421,20 +534,30 @@ static void ConfigureCompanionActivity(
     if (PlayerbotAI* companionAI =
             PlayerbotsMgr::instance().GetPlayerbotAI(companion))
     {
+        companionAI->GetAiObjectContext()
+            ->GetValue<float>("range", "follow")
+            ->Set(registration.FollowDistance);
+
+        // Use PlayerBots' chat shortcuts rather than the low-level movement
+        // actions. A leader death can leave stay, grind, passive or
+        // move-from-group strategies and saved return positions behind. The
+        // low-level "follow" action only attempts one move and cannot clear
+        // that state, so it reports success while the companion remains idle.
+        // The shortcuts restore the persistent movement strategies and clear
+        // stale stay/return positions, matching the recovery previously
+        // achieved only by recreating the party.
         if (registration.Movement == "stay")
         {
             companionAI->DoSpecificAction(
-                "stay", Event("webadmin companion behaviour"), true);
+                "stay chat shortcut",
+                Event("webadmin companion behaviour"), true);
         }
         else
         {
             companionAI->DoSpecificAction(
-                "follow", Event("webadmin companion behaviour"), true);
+                "follow chat shortcut",
+                Event("webadmin companion behaviour"), true);
         }
-
-        companionAI->GetAiObjectContext()
-            ->GetValue<float>("range", "follow")
-            ->Set(registration.FollowDistance);
         companionAI->ChangeStrategy(
             (registration.LootEnabled ? "+loot" : "-loot"),
             BOT_STATE_NON_COMBAT);
@@ -448,7 +571,47 @@ static void ConfigureCompanionActivity(
                 : "+dps assist,-tank assist",
             BOT_STATE_COMBAT);
         registration.PrioritizedLeaderTarget.Clear();
+        RecordCompanionResult(
+            registration, true, "Follow, combat and loot behaviour configured.");
     }
+}
+
+static void UpdateCompanionLootForBagSpace(
+    QuestingCompanionRegistration& registration, Player* companion)
+{
+    PlayerbotAI* companionAI =
+        PlayerbotsMgr::instance().GetPlayerbotAI(companion);
+    if (!companionAI)
+        return;
+
+    bool const bagsAreFull = companion->GetFreeInventorySpace() == 0;
+    if (registration.LootEnabled && bagsAreFull)
+    {
+        if (registration.LootSuspendedForBagSpace)
+            return;
+
+        companionAI->ChangeStrategy("-loot", BOT_STATE_NON_COMBAT);
+        AiObjectContext* context = companionAI->GetAiObjectContext();
+        context->GetValue<LootObjectStack*>("available loot")->Get()->Clear();
+        context->GetValue<LootObject>("loot target")->Set(LootObject());
+        registration.LootSuspendedForBagSpace = true;
+        RecordCompanionResult(
+            registration, false,
+            "Paused looting because the companion has no free bag slots.");
+        return;
+    }
+
+    if (!registration.LootSuspendedForBagSpace)
+        return;
+
+    if (registration.LootEnabled)
+    {
+        companionAI->ChangeStrategy("+loot", BOT_STATE_NON_COMBAT);
+        RecordCompanionResult(
+            registration, true,
+            "Resumed looting after bag cleanup created free space.");
+    }
+    registration.LootSuspendedForBagSpace = false;
 }
 
 static void UpdateCompanionCombatFocus(
@@ -629,19 +792,11 @@ static bool IsCompanionVendorCleanupCandidate(
         || IsCompanionWhiteEquipmentVendorCandidate(companion, item))
         return true;
 
-    bool const hasDisenchantRoute = std::any_of(
-        routes.begin(), routes.end(),
-        [companion, item](CompanionLogisticsRoute const& route)
-        {
-            return route.Category == "disenchant"
-                && HasCompanionLogisticsRouteForItem(
-                    companion, item, route.Category);
-        });
-    if (itemTemplate->Quality >= ITEM_QUALITY_UNCOMMON
-        && itemTemplate->Quality <= ITEM_QUALITY_RARE
-        && IsPermanentlyUnusableEquipment(companion, item)
-        && !hasDisenchantRoute)
-        return true;
+    // Uncommon and better items are never automatic vendor-cleanup candidates.
+    // They may still be routed explicitly (for example to an enchanter), but a
+    // full bag must not make the companion sell them.
+    if (itemTemplate->Quality >= ITEM_QUALITY_UNCOMMON)
+        return false;
 
     if (!underBagPressure
         || HasCompanionProtectedLogisticsRoute(companion, item, routes)
@@ -833,6 +988,8 @@ static void MaintainCompanionAtVendor(
                 + std::to_string(companion->GetFreeInventorySpace())
                 + " bag slots free.";
             registration.InventorySnapshotInitialized = false;
+            RecordCompanionResult(
+                registration, true, registration.MaintenanceStatus);
         }
     }
     if (registration.AutoRepair && canUseRepairer)
@@ -1347,9 +1504,14 @@ static void ProcessCompanionLogistics(
             + (totalSent == 1 ? " item stack." : " item stacks.");
         registration.MaintenanceStatus = registration.LogisticsStatus;
         registration.InventorySnapshotInitialized = false;
+        RecordCompanionResult(
+            registration, true, registration.LogisticsStatus);
     }
     else if (!failure.empty())
+    {
         registration.LogisticsStatus = failure;
+        RecordCompanionResult(registration, false, failure);
+    }
     else
         registration.LogisticsStatus =
             "Nothing eligible exceeded the configured reserves or catch-all rules.";
@@ -1489,17 +1651,13 @@ static bool IsNeededCompanionQuestObject(Player* companion, GameObject* gameObje
         || gameObject->GetGoType() != GAMEOBJECT_TYPE_CHEST)
         return false;
 
-    GameObjectQuestItemList const* items =
-        sObjectMgr->GetGameObjectQuestItemList(gameObject->GetEntry());
-    if (!items)
-        return false;
-
-    for (uint32 itemId : *items)
-    {
-        if (itemId && companion->HasQuestForItem(itemId))
-            return true;
-    }
-    return false;
+    // HasQuestForItem remains true after an individual objective reaches its
+    // required quantity while another item objective in the same quest is
+    // incomplete. That made companions repeatedly reopen an already-collected
+    // plan, herb, or other quest object. PlayerBots' predicate compares the
+    // live objective counts and only returns true while this object's item is
+    // still outstanding.
+    return LootObject::IsNeededQuestObject(companion, gameObject);
 }
 
 static void CollectCompanionQuestObject(
@@ -1542,17 +1700,34 @@ static void CollectCompanionQuestObject(
         return;
     }
 
+    if (companion->GetFreeInventorySpace() == 0)
+    {
+        context->GetValue<LootObjectStack*>("available loot")->Get()->Remove(
+            nearest->GetGUID());
+        context->GetValue<LootObject>("loot target")->Set(LootObject());
+        registration.QuestObjectCheckTimer = 5000;
+        registration.QuestObjectStatus = "Waiting for bag space before collecting "
+            + nearest->GetName() + ".";
+        RecordCompanionResult(
+            registration, false, registration.QuestObjectStatus);
+        return;
+    }
+
     LootObject loot(companion, nearest->GetGUID());
     if (loot.IsEmpty())
     {
         registration.QuestObjectStatus =
             "Found " + nearest->GetName() + ", but PlayerBots rejected it.";
+        RecordCompanionResult(
+            registration, false, registration.QuestObjectStatus);
         return;
     }
     if (!loot.IsLootPossible(companion))
     {
         registration.QuestObjectStatus =
             "Found " + nearest->GetName() + ", but it is not currently usable.";
+        RecordCompanionResult(
+            registration, false, registration.QuestObjectStatus);
         return;
     }
 
@@ -1565,6 +1740,7 @@ static void CollectCompanionQuestObject(
     {
         bool moving = companionAI->DoSpecificAction(
             "move to loot", Event("webadmin companion quest object"), true);
+        registration.QuestObjectCheckTimer = moving ? 3000 : 10000;
         status << (moving ? "Moving to " : "Could not move to ")
                << nearest->GetName() << " (" << int(nearestDistance) << "m).";
     }
@@ -1572,10 +1748,15 @@ static void CollectCompanionQuestObject(
     {
         bool opening = companionAI->DoSpecificAction(
             "open loot", Event("webadmin companion quest object"), true);
+        registration.QuestObjectCheckTimer = opening ? 3000 : 10000;
         status << (opening ? "Opening " : "Could not open ")
                << nearest->GetName() << ".";
     }
     registration.QuestObjectStatus = status.str();
+    RecordCompanionResult(
+        registration,
+        registration.QuestObjectStatus.rfind("Could not", 0) != 0,
+        registration.QuestObjectStatus);
 }
 
 static uint32 GetCompanionInventoryCapacity(Player* player)
@@ -1744,12 +1925,153 @@ static void ReportCompanionItem(
         && registration && slot < EQUIPMENT_SLOT_END
         && registration->ProtectedEquipment[slot] == item->GetGUID();
     handler->PSendSysMessage(
-        "WEBADMIN_COMPANION_ITEM\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+        "WEBADMIN_COMPANION_ITEM\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
         player->GetName(), location, bag, slot, item->GetEntry(), item->GetCount(),
         static_cast<uint32>(itemTemplate->Quality), itemTemplate->ItemLevel,
         item->GetUInt32Value(ITEM_FIELD_DURABILITY),
         item->GetUInt32Value(ITEM_FIELD_MAXDURABILITY), protectedItem ? 1 : 0,
+        item->GetGUID().GetCounter(), itemTemplate->RequiredLevel,
+        item->CanBeTraded(false, true) ? 1 : 0,
+        item->IsBOPTradable() ? 1 : 0,
+        item->CanBeTraded(false, true) ? "-" : "Soulbound or otherwise untradeable",
         CompanionProtocolText(itemTemplate->Name1));
+}
+
+static void ReportCompanionState(
+    ChatHandler* handler, Player* player,
+    QuestingCompanionRegistration const* registration,
+    bool includeChangeHistory)
+{
+    bool autoSell = registration && registration->AutoSellTrash;
+    bool autoRepair = registration && registration->AutoRepair;
+    handler->PSendSysMessage(
+        "WEBADMIN_COMPANION_MAINTENANCE\t{}\t{}\t{}", player->GetName(),
+        autoSell ? 1 : 0, autoRepair ? 1 : 0);
+    if (!registration)
+        return;
+
+    handler->PSendSysMessage(
+        "WEBADMIN_COMPANION_BEHAVIOR\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+        player->GetName(), registration->BehaviorPreset,
+        registration->Role, registration->Movement,
+        registration->CombatFocus, registration->FollowDistance,
+        registration->LootEnabled ? 1 : 0,
+        registration->GatherEnabled ? 1 : 0,
+        registration->AutoSellTrash ? 1 : 0,
+        registration->AutoRepair ? 1 : 0);
+    handler->PSendSysMessage(
+        "WEBADMIN_COMPANION_MAINTENANCE_STATUS\t{}\t{}",
+        player->GetName(),
+        CompanionProtocolText(registration->MaintenanceStatus));
+    if (!includeChangeHistory)
+        return;
+
+    for (CompanionEquipmentChange const& change :
+         registration->EquipmentChanges)
+    {
+        handler->PSendSysMessage(
+            "WEBADMIN_COMPANION_EQUIPMENT_CHANGE\t{}\t{}\t{}",
+            player->GetName(), static_cast<int64>(change.ChangedAt),
+            CompanionProtocolText(change.Description));
+    }
+    for (CompanionEquipmentChange const& change :
+         registration->InventoryChanges)
+    {
+        handler->PSendSysMessage(
+            "WEBADMIN_COMPANION_INVENTORY_CHANGE\t{}\t{}\t{}",
+            player->GetName(), static_cast<int64>(change.ChangedAt),
+            CompanionProtocolText(change.Description));
+    }
+}
+
+static void ReportCompanionDiagnostics(
+    ChatHandler* handler, Player* leader, Player* companion,
+    QuestingCompanionRegistration const* registration)
+{
+    if (!handler || !leader || !companion)
+        return;
+
+    Unit* target = companion->GetVictim();
+    if (!target)
+        target = companion->GetSelectedUnit();
+    std::string targetName = target ? target->GetName() : "None";
+
+    bool const sameMap = leader->GetMap() == companion->GetMap();
+    float const distance = sameMap ? companion->GetDistance(leader) : -1.0f;
+    std::string activity;
+    std::string destination;
+    std::string blocker;
+    if (!companion->IsAlive())
+    {
+        activity = "Dead";
+        destination = "Awaiting revival";
+        blocker = "The companion is dead.";
+    }
+    else if (!leader->IsAlive())
+    {
+        activity = "Waiting";
+        destination = "Leader " + leader->GetName();
+        blocker = "The leader is dead.";
+    }
+    else if (companion->IsInCombat())
+    {
+        activity = "Fighting";
+        destination = target ? targetName : "Defending the party";
+        blocker = "None";
+    }
+    else if (registration
+        && (registration->QuestObjectStatus.rfind("Moving to", 0) == 0
+            || registration->QuestObjectStatus.rfind("Opening", 0) == 0))
+    {
+        activity = "Gathering";
+        destination = registration->QuestObjectStatus;
+        blocker = "None";
+    }
+    else if (companion->isMoving())
+    {
+        activity = registration && registration->Movement == "follow"
+            ? "Following" : "Moving";
+        destination = registration && registration->Movement == "follow"
+            ? "Leader " + leader->GetName() : targetName;
+        blocker = "None";
+    }
+    else if (registration && registration->Movement == "stay")
+    {
+        activity = "Staying";
+        destination = "Current position";
+        blocker = "Stay movement is enabled.";
+    }
+    else
+    {
+        activity = "Idle";
+        destination = "Leader " + leader->GetName();
+        blocker = "None";
+    }
+
+    if (!companion->IsAlive() || !leader->IsAlive())
+    {
+        // Preserve the more important death blocker selected above.
+    }
+    else if (companion->GetGroup() != leader->GetGroup())
+        blocker = "The companion is not in the leader's party.";
+    else if (!sameMap)
+        blocker = "The companion is on a different map or instance.";
+    else if (companion->GetFreeInventorySpace() == 0)
+        blocker = "The companion has no free bag slots.";
+    else if (registration && !registration->LootEnabled)
+        blocker = "Looting is disabled in the companion behaviour.";
+
+    handler->PSendSysMessage(
+        "WEBADMIN_COMPANION_DIAGNOSTIC\t{}\t{}\t{}\t{}\t{}\t{:.1f}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+        companion->GetName(), CompanionProtocolText(activity),
+        CompanionProtocolText(targetName), CompanionProtocolText(destination),
+        CompanionProtocolText(blocker), distance,
+        companion->IsAlive() ? 1 : 0, leader->IsAlive() ? 1 : 0,
+        companion->IsInCombat() ? 1 : 0, companion->isMoving() ? 1 : 0,
+        registration ? static_cast<int64>(registration->LastSuccessAt) : 0,
+        CompanionProtocolText(registration ? registration->LastSuccess : "Unknown"),
+        registration ? static_cast<int64>(registration->LastFailureAt) : 0,
+        CompanionProtocolText(registration ? registration->LastFailure : "Unknown"));
 }
 
 static void ReportCompanionInventory(
@@ -1788,43 +2110,7 @@ static void ReportCompanionInventory(
         }
     }
 
-    bool autoSell = registration && registration->AutoSellTrash;
-    bool autoRepair = registration && registration->AutoRepair;
-    handler->PSendSysMessage(
-        "WEBADMIN_COMPANION_MAINTENANCE\t{}\t{}\t{}", player->GetName(),
-        autoSell ? 1 : 0, autoRepair ? 1 : 0);
-    if (registration)
-    {
-        handler->PSendSysMessage(
-            "WEBADMIN_COMPANION_BEHAVIOR\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
-            player->GetName(), registration->BehaviorPreset,
-            registration->Role, registration->Movement,
-            registration->CombatFocus, registration->FollowDistance,
-            registration->LootEnabled ? 1 : 0,
-            registration->GatherEnabled ? 1 : 0,
-            registration->AutoSellTrash ? 1 : 0,
-            registration->AutoRepair ? 1 : 0);
-        handler->PSendSysMessage(
-            "WEBADMIN_COMPANION_MAINTENANCE_STATUS\t{}\t{}",
-            player->GetName(),
-            CompanionProtocolText(registration->MaintenanceStatus));
-        for (CompanionEquipmentChange const& change :
-             registration->EquipmentChanges)
-        {
-            handler->PSendSysMessage(
-                "WEBADMIN_COMPANION_EQUIPMENT_CHANGE\t{}\t{}\t{}",
-                player->GetName(), static_cast<int64>(change.ChangedAt),
-                CompanionProtocolText(change.Description));
-        }
-        for (CompanionEquipmentChange const& change :
-             registration->InventoryChanges)
-        {
-            handler->PSendSysMessage(
-                "WEBADMIN_COMPANION_INVENTORY_CHANGE\t{}\t{}\t{}",
-                player->GetName(), static_cast<int64>(change.ChangedAt),
-                CompanionProtocolText(change.Description));
-        }
-    }
+    ReportCompanionState(handler, player, registration, true);
 }
 
 static std::string CompanionObjectiveName(Quest const* quest, uint8 index)
@@ -2031,6 +2317,56 @@ static void AcceptCompanionSpecialQuests(
     }
 }
 
+static void TurnInCompletedCompanionQuestsAt(
+    Player* leader, Player* companion, WorldObject* questGiver,
+    QuestRelationBounds involvedRelations)
+{
+    if (!leader || !companion || !questGiver
+        || !IsActiveQuestingCompanion(leader, companion)
+        || !questGiver->IsWithinDistInMap(companion, INTERACTION_DISTANCE))
+        return;
+
+    PlayerbotAI* companionAI =
+        PlayerbotsMgr::instance().GetPlayerbotAI(companion);
+    if (!companionAI)
+        return;
+
+    for (auto relation = involvedRelations.first;
+         relation != involvedRelations.second; ++relation)
+    {
+        uint32 const questId = relation->second;
+        if (companion->GetQuestStatus(questId) != QUEST_STATUS_COMPLETE
+            || companion->GetQuestRewardStatus(questId))
+            continue;
+
+        WorldPacket packet(CMSG_QUESTGIVER_QUERY_QUEST, 12);
+        packet << questGiver->GetGUID() << questId;
+        companionAI->DoSpecificAction(
+            "turn in query quest",
+            Event("webadmin companion quest turn-in", packet, leader), true);
+    }
+}
+
+static void TurnInCompletedCompanionQuests(
+    Player* leader, WorldObject* questGiver,
+    QuestRelationBounds involvedRelations)
+{
+    if (!leader || !leader->GetSession() || leader->GetSession()->IsBot())
+        return;
+
+    for (QuestingCompanionRegistration const& registration :
+         QuestingCompanions)
+    {
+        if (registration.LeaderGuid != leader->GetGUID())
+            continue;
+
+        Player* companion =
+            ObjectAccessor::FindConnectedPlayer(registration.CompanionGuid);
+        TurnInCompletedCompanionQuestsAt(
+            leader, companion, questGiver, involvedRelations);
+    }
+}
+
 static void AcceptNearbyCompanionSpecialQuests(
     Player* leader, Player* companion)
 {
@@ -2052,6 +2388,10 @@ static void AcceptNearbyCompanionSpecialQuests(
         if (!questGiver)
             continue;
 
+        TurnInCompletedCompanionQuestsAt(
+            leader, companion, questGiver,
+            sObjectMgr->GetCreatureQuestInvolvedRelationBounds(
+                questGiver->GetEntry()));
         AcceptEligibleCompanionSpecialQuests(
             leader, companion, questGiver,
             sObjectMgr->GetCreatureQuestRelationBounds(questGiver->GetEntry()));
@@ -2065,6 +2405,10 @@ static void AcceptNearbyCompanionSpecialQuests(
         if (!questGiver || !questGiver->isSpawned())
             continue;
 
+        TurnInCompletedCompanionQuestsAt(
+            leader, companion, questGiver,
+            sObjectMgr->GetGOQuestInvolvedRelationBounds(
+                questGiver->GetEntry()));
         AcceptEligibleCompanionSpecialQuests(
             leader, companion, questGiver,
             sObjectMgr->GetGOQuestRelationBounds(questGiver->GetEntry()));
@@ -2116,6 +2460,7 @@ public:
         static ChatCommandTable companionCommands =
         {
             { "inspect", HandleCompanionInspectCommand, SEC_PLAYER, Console::Yes },
+            { "inspect-addon", HandleCompanionAddonInspectCommand, SEC_PLAYER, Console::Yes },
             { "start", HandleCompanionStartCommand, SEC_ADMINISTRATOR, Console::Yes },
             { "dismiss", HandleCompanionDismissCommand, SEC_ADMINISTRATOR, Console::Yes },
             { "reset", HandleCompanionResetCommand, SEC_ADMINISTRATOR, Console::Yes },
@@ -2123,9 +2468,17 @@ public:
             { "behavior", HandleCompanionBehaviorCommand, SEC_PLAYER, Console::Yes },
             { "preset", HandleCompanionPresetCommand, SEC_PLAYER, Console::Yes },
             { "regroup", HandleCompanionRegroupCommand, SEC_PLAYER, Console::Yes },
+            { "command", HandleCompanionCommandCommand, SEC_PLAYER, Console::Yes },
+            { "trade", HandleCompanionTradeCommand, SEC_PLAYER, Console::Yes },
             { "logistics", HandleCompanionLogisticsCommand, SEC_ADMINISTRATOR, Console::Yes },
             { "logistics-preview", HandleCompanionLogisticsPreviewCommand, SEC_ADMINISTRATOR, Console::Yes },
             { "logistics-run", HandleCompanionLogisticsRunCommand, SEC_ADMINISTRATOR, Console::Yes }
+        };
+        static ChatCommandTable casterAutoCommands =
+        {
+            { "toggle", HandleCasterAutoToggleCommand, SEC_PLAYER, Console::No },
+            { "stop", HandleCasterAutoStopCommand, SEC_PLAYER, Console::No },
+            { "status", HandleCasterAutoStatusCommand, SEC_PLAYER, Console::No }
         };
         static ChatCommandTable webAdminCommands =
         {
@@ -2142,12 +2495,105 @@ public:
         };
         static ChatCommandTable commands =
         {
-            { "webadmin", webAdminCommands }
+            { "webadmin", webAdminCommands },
+            { "casterauto", casterAutoCommands }
         };
         return commands;
     }
 
 private:
+    static Player* RequireCasterAutoPlayer(ChatHandler* handler)
+    {
+        WorldSession* session = handler ? handler->GetSession() : nullptr;
+        Player* player = session ? session->GetPlayer() : nullptr;
+        if (!player || session->IsBot())
+            handler->SendErrorMessage(
+                "Caster auto-attack is available only to a real logged-in player.");
+        return player;
+    }
+
+    static bool HandleCasterAutoToggleCommand(
+        ChatHandler* handler, char const* args)
+    {
+        Player* player = RequireCasterAutoPlayer(handler);
+        if (!player)
+            return false;
+
+        std::istringstream input(args ? args : "");
+        uint32 spellId = 0;
+        std::string unexpected;
+        if (!(input >> spellId) || spellId == 0 || (input >> unexpected))
+        {
+            handler->SendErrorMessage("Usage: casterauto toggle <spellId>");
+            return false;
+        }
+
+        Unit* target = player->GetSelectedUnit();
+        if (!target || !target->IsAlive()
+            || !player->IsValidAttackTarget(target))
+        {
+            handler->SendErrorMessage("Select a living hostile target first.");
+            return false;
+        }
+
+        SpellInfo const* spellInfo = nullptr;
+        if (!IsAllowedCasterAutoSpell(player, spellId, spellInfo))
+        {
+            handler->SendErrorMessage(
+                "Choose a learned, hostile ranged spell for caster auto-attack.");
+            return false;
+        }
+
+        auto current = CasterAutoAttacks.find(player->GetGUID());
+        if (current != CasterAutoAttacks.end()
+            && current->second.SpellId == spellId
+            && current->second.TargetGuid == target->GetGUID())
+        {
+            StopCasterAutoAttack(player);
+            handler->SendSysMessage("CASTERAUTO STOP toggled-off");
+            return true;
+        }
+
+        CasterAutoAttacks[player->GetGUID()] = {
+            spellId, target->GetGUID(), 0
+        };
+        player->AttackStop();
+        handler->PSendSysMessage(
+            "CASTERAUTO START {} {}", spellId, target->GetName());
+        return true;
+    }
+
+    static bool HandleCasterAutoStopCommand(
+        ChatHandler* handler, char const* /*args*/)
+    {
+        Player* player = RequireCasterAutoPlayer(handler);
+        if (!player)
+            return false;
+        if (CasterAutoAttacks.find(player->GetGUID()) == CasterAutoAttacks.end())
+        {
+            handler->SendSysMessage("CASTERAUTO STOP already-stopped");
+            return true;
+        }
+        StopCasterAutoAttack(player);
+        handler->SendSysMessage("CASTERAUTO STOP requested");
+        return true;
+    }
+
+    static bool HandleCasterAutoStatusCommand(
+        ChatHandler* handler, char const* /*args*/)
+    {
+        Player* player = RequireCasterAutoPlayer(handler);
+        if (!player)
+            return false;
+        auto state = CasterAutoAttacks.find(player->GetGUID());
+        if (state == CasterAutoAttacks.end())
+            handler->SendSysMessage("CASTERAUTO STATUS stopped");
+        else
+            handler->PSendSysMessage(
+                "CASTERAUTO STATUS running {}", state->second.SpellId);
+        return true;
+    }
+
     static bool ParseCompanionArguments(
         ChatHandler* handler, char const* args, Player*& leader,
         std::string& companionName, ObjectGuid& companionGuid)
@@ -2537,6 +2983,305 @@ private:
         return true;
     }
 
+    static bool HandleCompanionCommandCommand(
+        ChatHandler* handler, char const* args)
+    {
+        std::istringstream input(args ? args : "");
+        std::string leaderName, companionName, command;
+        if (!(input >> leaderName >> companionName))
+        {
+            handler->SendErrorMessage(
+                "Usage: webadmin companion command <leader> <companion> <PlayerBots command>");
+            return false;
+        }
+        std::getline(input, command);
+        command.erase(command.begin(), std::find_if(
+            command.begin(), command.end(),
+            [](unsigned char character) { return !std::isspace(character); }));
+        if (command.empty() || command.size() > 255
+            || std::any_of(command.begin(), command.end(), [](unsigned char character)
+            {
+                return character == '\t' || character == '\r'
+                    || character == '\n' || character == '\0';
+            }))
+        {
+            handler->SendErrorMessage(
+                "Enter one PlayerBots command containing no more than 255 characters.");
+            return false;
+        }
+
+        std::string pairArguments = leaderName + " " + companionName;
+        Player* leader = nullptr;
+        ObjectGuid companionGuid;
+        if (!ParseCompanionArguments(
+                handler, pairArguments.c_str(), leader, companionName,
+                companionGuid))
+            return false;
+        Player* companion = nullptr;
+        PlayerbotAI* companionAI = nullptr;
+        if (!RequireActiveCompanion(
+                handler, leader, companionGuid, companion, companionAI))
+            return false;
+
+        // PlayerBots calls its item-transfer chat command "t" and expects an
+        // internal clickable reference when the recipient is not the master.
+        // Accept the friendlier web form "give [character] item [count]" and
+        // resolve an online character name when one was supplied.
+        if (command == "give")
+            command = "t";
+        else if (command.rfind("give ", 0) == 0)
+        {
+            std::string arguments = command.substr(5);
+            std::istringstream argumentInput(arguments);
+            std::string recipientName, itemText;
+            argumentInput >> recipientName;
+            std::getline(argumentInput, itemText);
+            itemText.erase(itemText.begin(), std::find_if(
+                itemText.begin(), itemText.end(),
+                [](unsigned char character) { return !std::isspace(character); }));
+
+            Player* recipient = nullptr;
+            if (normalizePlayerName(recipientName))
+                recipient = ObjectAccessor::FindPlayerByName(recipientName);
+            if (recipient)
+            {
+                if (itemText.empty())
+                {
+                    handler->SendErrorMessage(
+                        "Enter an item name after the give recipient.");
+                    return false;
+                }
+                command = "t " + ChatHelper::FormatWorldobject(recipient)
+                    + " " + itemText;
+            }
+            else
+                command = "t " + arguments;
+        }
+
+        companionAI->HandleCommand(CHAT_MSG_WHISPER, command, leader);
+        handler->PSendSysMessage(
+            "Queued PlayerBots command for {}: {}",
+            companion->GetName(), CompanionProtocolText(command));
+        return true;
+    }
+
+    static bool HandleCompanionTradeCommand(
+        ChatHandler* handler, char const* args)
+    {
+        std::istringstream input(args ? args : "");
+        std::string leaderName, companionName, recipientName, unexpected;
+        uint32 bag = 0, slot = 0, itemGuid = 0, expectedEntry = 0;
+        uint32 quantity = 0;
+        if (!(input >> leaderName >> companionName >> recipientName
+              >> bag >> slot >> itemGuid >> expectedEntry >> quantity)
+            || (input >> unexpected) || bag > UINT8_MAX || slot > UINT8_MAX
+            || itemGuid == 0 || expectedEntry == 0 || quantity == 0)
+        {
+            handler->SendErrorMessage(
+                "Usage: webadmin companion trade <leader> <companion> <recipient> <bag> <slot> <item-guid> <item-entry> <quantity>");
+            return false;
+        }
+
+        std::string pairArguments = leaderName + " " + companionName;
+        Player* leader = nullptr;
+        ObjectGuid companionGuid;
+        if (!ParseCompanionArguments(
+                handler, pairArguments.c_str(), leader, companionName,
+                companionGuid))
+            return false;
+
+        Player* companion = nullptr;
+        PlayerbotAI* companionAI = nullptr;
+        if (!RequireActiveCompanion(
+                handler, leader, companionGuid, companion, companionAI))
+            return false;
+
+        if (!normalizePlayerName(recipientName))
+        {
+            handler->SendErrorMessage("The trade recipient name is invalid.");
+            return false;
+        }
+        Player* recipient = ObjectAccessor::FindPlayerByName(recipientName);
+        if (!recipient)
+        {
+            handler->SendErrorMessage("The trade recipient must be online.");
+            return false;
+        }
+        if (recipient == companion)
+        {
+            handler->SendErrorMessage("A companion cannot trade with itself.");
+            return false;
+        }
+        if (!companion->GetGroup()
+            || companion->GetGroup() != recipient->GetGroup())
+        {
+            handler->SendErrorMessage(
+                "The companion and recipient must be in the same party.");
+            return false;
+        }
+        if (!companion->IsAlive() || !recipient->IsAlive())
+        {
+            handler->SendErrorMessage(
+                "Both characters must be alive before trading.");
+            return false;
+        }
+        if (companion->IsInCombat() || recipient->IsInCombat())
+        {
+            handler->SendErrorMessage(
+                "Wait until both characters are out of combat.");
+            return false;
+        }
+        if (!companion->IsWithinDistInMap(recipient, INTERACTION_DISTANCE))
+        {
+            handler->SendErrorMessage(
+                "The companion and recipient must be close enough to trade.");
+            return false;
+        }
+
+        Item* item = companion->GetItemByPos(
+            static_cast<uint8>(bag), static_cast<uint8>(slot));
+        if (!item || item->GetGUID().GetCounter() != itemGuid
+            || item->GetEntry() != expectedEntry)
+        {
+            handler->SendErrorMessage(
+                "That inventory selection is stale. Refresh the companion inventory and select the item again.");
+            return false;
+        }
+        if (quantity > item->GetCount())
+        {
+            handler->SendErrorMessage(
+                "The companion no longer has the requested quantity. Refresh the inventory.");
+            return false;
+        }
+        if (item->IsInTrade())
+        {
+            handler->SendErrorMessage("That item is already in a trade window.");
+            return false;
+        }
+        if (!item->CanBeTraded(false, true) || item->IsBindedNotWith(recipient))
+        {
+            handler->SendErrorMessage(
+                "That item cannot be traded to the selected recipient. Temporary instance BOP trading is allowed only for an eligible original looter.");
+            return false;
+        }
+
+        if (!companion->GetTrader())
+        {
+            if (recipient->GetTrader())
+            {
+                handler->SendErrorMessage(
+                    "The recipient already has another trade window open.");
+                return false;
+            }
+            WorldPacket initiate(CMSG_INITIATE_TRADE);
+            initiate << recipient->GetGUID();
+            companion->GetSession()->HandleInitiateTradeOpcode(initiate);
+        }
+        if (companion->GetTrader() != recipient || !companion->GetTradeData())
+        {
+            handler->SendErrorMessage(
+                "The trade could not be opened. Make sure both characters are nearby and available.");
+            return false;
+        }
+
+        if (quantity < item->GetCount())
+        {
+            uint16 destination = 0;
+            for (uint8 candidateSlot = INVENTORY_SLOT_ITEM_START;
+                 candidateSlot < INVENTORY_SLOT_ITEM_END && destination == 0;
+                 ++candidateSlot)
+            {
+                if (!companion->GetItemByPos(
+                        INVENTORY_SLOT_BAG_0, candidateSlot))
+                    destination = (INVENTORY_SLOT_BAG_0 << 8) | candidateSlot;
+            }
+            for (uint8 bagSlot = INVENTORY_SLOT_BAG_START;
+                 bagSlot < INVENTORY_SLOT_BAG_END && destination == 0;
+                 ++bagSlot)
+            {
+                Bag* inventoryBag = companion->GetBagByPos(bagSlot);
+                if (!inventoryBag)
+                    continue;
+                for (uint32 candidateSlot = 0;
+                     candidateSlot < inventoryBag->GetBagSize();
+                     ++candidateSlot)
+                {
+                    if (!inventoryBag->GetItemByPos(candidateSlot))
+                    {
+                        destination = (bagSlot << 8) | candidateSlot;
+                        break;
+                    }
+                }
+            }
+            if (destination == 0)
+            {
+                handler->SendErrorMessage(
+                    "The companion needs one empty bag slot to trade part of a stack.");
+                return false;
+            }
+
+            uint16 source = (bag << 8) | slot;
+            companion->SplitItem(source, destination, quantity);
+            item = companion->GetItemByPos(
+                static_cast<uint8>(destination >> 8),
+                static_cast<uint8>(destination & 0xff));
+            if (!item || item->GetEntry() != expectedEntry
+                || item->GetCount() != quantity)
+            {
+                handler->SendErrorMessage(
+                    "The selected stack could not be split for trading.");
+                return false;
+            }
+            bag = item->GetBagSlot();
+            slot = item->GetSlot();
+        }
+
+        int8 tradeSlot = -1;
+        for (uint8 candidate = 0;
+             candidate < TRADE_SLOT_TRADED_COUNT && tradeSlot < 0;
+             ++candidate)
+        {
+            if (!companion->GetTradeData()->GetItem(
+                    static_cast<TradeSlots>(candidate)))
+                tradeSlot = static_cast<int8>(candidate);
+        }
+        if (tradeSlot < 0)
+        {
+            handler->SendErrorMessage(
+                "The companion's trade window has no free item slots.");
+            return false;
+        }
+
+        WorldPacket setItem(CMSG_SET_TRADE_ITEM, 3);
+        setItem << static_cast<uint8>(tradeSlot);
+        setItem << static_cast<uint8>(bag);
+        setItem << static_cast<uint8>(slot);
+        companion->GetSession()->HandleSetTradeItemOpcode(setItem);
+        if (companion->GetTradeData()->GetItem(
+                static_cast<TradeSlots>(tradeSlot)) != item)
+        {
+            handler->SendErrorMessage(
+                "The item could not be placed in the trade window.");
+            return false;
+        }
+
+        if (QuestingCompanionRegistration* registration =
+                FindCompanionRegistration(companionGuid))
+        {
+            RecordCompanionResult(
+                *registration, true,
+                "Placed " + item->GetTemplate()->Name1 + " x"
+                    + std::to_string(item->GetCount())
+                    + " into a trade with " + recipient->GetName() + ".");
+        }
+
+        handler->PSendSysMessage(
+            "Placed {} x{} from {} into the trade window with {}.",
+            item->GetTemplate()->Name1, item->GetCount(), companion->GetName(),
+            recipient->GetName());
+        return true;
+    }
+
     static bool HandleCompanionProtectCommand(ChatHandler* handler, char const* args)
     {
         std::istringstream input(args ? args : "");
@@ -2816,7 +3561,8 @@ private:
         return true;
     }
 
-    static bool HandleCompanionInspectCommand(ChatHandler* handler, char const* args)
+    static bool HandleCompanionInspect(
+        ChatHandler* handler, char const* args, bool includeDetailedInventory)
     {
         Player* leader = ParseLeader(handler, args);
         if (!leader) return false;
@@ -2875,13 +3621,29 @@ private:
                     registration->LogisticsRoutes.size(),
                     CompanionProtocolText(registration->LogisticsStatus));
             }
-            ReportCompanionInventory(handler, bot, registration);
+            if (includeDetailedInventory)
+                ReportCompanionInventory(handler, bot, registration);
+            else
+                ReportCompanionState(handler, bot, registration, false);
+            ReportCompanionDiagnostics(handler, leader, bot, registration);
             ReportCompanionQuestProgress(handler, bot);
             ++count;
         }
         handler->PSendSysMessage(
             "WEBADMIN_COMPANION_SUMMARY\t{}\t{}", leader->GetName(), count);
         return true;
+    }
+
+    static bool HandleCompanionInspectCommand(
+        ChatHandler* handler, char const* args)
+    {
+        return HandleCompanionInspect(handler, args, true);
+    }
+
+    static bool HandleCompanionAddonInspectCommand(
+        ChatHandler* handler, char const* args)
+    {
+        return HandleCompanionInspect(handler, args, false);
     }
 
     static Guild* RequirePlayerGuild(ChatHandler* handler, Player* player)
@@ -3645,6 +4407,7 @@ public:
         if (!player || !player->GetSession() || player->GetSession()->IsBot())
             return;
 
+        UpdateCasterAutoAttack(player, diff);
         UpdateWarlockDualDemon(player, diff);
 
         for (QuestingCompanionRegistration& registration : QuestingCompanions)
@@ -3680,6 +4443,7 @@ public:
             TrackCompanionEquipment(registration, companion);
             TrackCompanionInventory(registration, companion);
             UpdateCompanionCombatFocus(registration, player, companion);
+            UpdateCompanionLootForBagSpace(registration, companion);
 
             if (registration.BagEquipCheckTimer > diff)
             {
@@ -3766,6 +4530,7 @@ public:
             return;
 
         ObjectGuid playerGuid = player->GetGUID();
+        CasterAutoAttacks.erase(playerGuid);
         auto dualDemon = WarlockDualDemons.find(playerGuid);
         if (dualDemon != WarlockDualDemons.end())
         {
@@ -3792,6 +4557,10 @@ public:
 
     bool CanCreatureGossipHello(Player* player, Creature* creature) override
     {
+        TurnInCompletedCompanionQuests(
+            player, creature,
+            sObjectMgr->GetCreatureQuestInvolvedRelationBounds(
+                creature->GetEntry()));
         AcceptCompanionSpecialQuests(
             player, creature,
             sObjectMgr->GetCreatureQuestRelationBounds(creature->GetEntry()));
@@ -3807,6 +4576,10 @@ public:
 
     bool CanGameObjectGossipHello(Player* player, GameObject* gameObject) override
     {
+        TurnInCompletedCompanionQuests(
+            player, gameObject,
+            sObjectMgr->GetGOQuestInvolvedRelationBounds(
+                gameObject->GetEntry()));
         AcceptCompanionSpecialQuests(
             player, gameObject,
             sObjectMgr->GetGOQuestRelationBounds(gameObject->GetEntry()));

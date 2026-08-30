@@ -1,5 +1,4 @@
 @page "/administration-users"
-@rendermode InteractiveServer
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "security.users")]
 @inject AccountsApiClient Api
 @inject AuthenticationStateProvider AuthenticationStateProvider
@@ -137,7 +136,15 @@
                 </select>
             </div>
         </div>
-        @if (newScope == "Assigned") { @AccountSelector(newAccountIds, "new") }
+        @if (newScope != "None")
+        {
+            <div class="form-text mt-2">
+                @(newScope == "Assigned"
+                    ? "These linked accounts define this user's access."
+                    : "Optional: link the user's own accounts so their characters appear first; access remains All accounts.")
+            </div>
+            @AccountSelector(newAccountIds, "new")
+        }
         <div class="d-flex justify-content-between mt-3">
             <div class="form-check"><input class="form-check-input" type="checkbox" @bind="newMustChange" id="must-change" />
                 <label class="form-check-label" for="must-change">Require password change at first login</label></div>
@@ -176,7 +183,15 @@ else
                             <label class="form-check-label">@(enabledDrafts[user.Id] ? "Enabled" : "Disabled")</label></div>
                     </div>
                 </div>
-                @if (scopeDrafts[user.Id] == "Assigned") { @AccountSelector(accountDrafts[user.Id], user.Id.ToString()) }
+                @if (scopeDrafts[user.Id] != "None")
+                {
+                    <div class="form-text mt-2">
+                        @(scopeDrafts[user.Id] == "Assigned"
+                            ? "Linked accounts define this user's access."
+                            : "Optional preferred accounts appear first in the shared hero header; access remains All accounts.")
+                    </div>
+                    @AccountSelector(accountDrafts[user.Id], user.Id.ToString())
+                }
                 @if (user.MustChangePassword) { <div class="small text-warning mt-2">Password change required</div> }
                 @if (user.LockoutUntilUtc > DateTime.UtcNow) { <div class="small text-danger">Locked until @user.LockoutUntilUtc.Value.ToLocalTime()</div> }
                 <div class="mt-3">

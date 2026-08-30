@@ -186,13 +186,31 @@ public sealed record QuestingCompanionQuest(
 public sealed record QuestingCompanionItem(
     string Location, int Bag, int Slot, uint ItemId, int Count,
     int Quality, int ItemLevel, int Durability, int MaximumDurability,
-    bool Protected, string Name);
+    bool Protected, string Name)
+{
+    public ulong ItemGuid { get; init; }
+    public int RequiredLevel { get; init; }
+    public bool Tradeable { get; init; }
+    public bool TemporaryBopTradeable { get; init; }
+    public string TradeRestriction { get; init; } = "";
+}
 public sealed record QuestingCompanionEquipmentChange(
     long ChangedAtUnix, string Description);
 public sealed record QuestingCompanionBehavior(
     string Preset, string Role, string Movement, string CombatFocus,
     double FollowDistance, bool LootEnabled, bool GatherEnabled,
     bool AutoSellTrash, bool AutoRepair);
+public sealed record QuestingCompanionDiagnostics(
+    string Activity, string Target, string Destination, string Blocker,
+    double DistanceFromLeader, bool Alive, bool LeaderAlive,
+    bool InCombat, bool Moving, long LastSuccessAtUnix,
+    string LastSuccess, long LastFailureAtUnix, string LastFailure)
+{
+    public static QuestingCompanionDiagnostics Unknown { get; } = new(
+        "Unknown", "None", "Unknown", "Install bridge protocol 10.",
+        -1, true, true, false, false, 0,
+        "No successful action reported.", 0, "No failed action reported.");
+}
 public sealed record ActiveQuestingCompanion(
     string Name, int Level, int CharacterClass, bool InLeaderParty,
     bool LootEnabled, int FreeBagSlots, int TotalBagSlots,
@@ -203,15 +221,47 @@ public sealed record ActiveQuestingCompanion(
     IReadOnlyList<QuestingCompanionEquipmentChange> RecentEquipmentChanges,
     IReadOnlyList<QuestingCompanionEquipmentChange> RecentInventoryChanges,
     QuestingCompanionBehavior Behavior,
-    QuestingCompanionLogisticsStatus Logistics);
+    QuestingCompanionLogisticsStatus Logistics)
+{
+    public QuestingCompanionDiagnostics Diagnostics { get; init; } =
+        QuestingCompanionDiagnostics.Unknown;
+}
 public sealed record QuestingCompanionStatus(
     string LeaderName, IReadOnlyList<ActiveQuestingCompanion> ActiveCompanions,
     IReadOnlyList<QuestingCompanionCandidate> Candidates,
     IReadOnlyList<QuestingCompanionQuest> LeaderQuests,
     int ProtocolVersion);
+public sealed record CompanionPartySession(
+    uint LeaderGuid, string LeaderName, uint LeaderAccountId,
+    string LeaderUsername, bool LeaderOnline, ulong? StartedByUserId,
+    string StartedByUsername, DateTime StartedAtUtc,
+    DateTime LastLeaderOnlineAtUtc, int OfflineTimeoutMinutes,
+    IReadOnlyList<RealmRosterCharacter> Companions);
+public sealed record RealmRosterCharacter(
+    uint Guid, string Name, string Username, int Level, int CharacterClass,
+    int Race, bool Online, bool IsLeader, bool IsCompanion,
+    uint CurrentHealth = 0, uint? MaximumHealth = null,
+    bool IsPlayerBot = false);
+public sealed record RealmRosterParty(
+    string Key, uint? GroupGuid, string LeaderName, bool Live,
+    bool RememberedCompanionParty, int OfflineTimeoutMinutes,
+    DateTime? LastLeaderOnlineAtUtc,
+    IReadOnlyList<RealmRosterCharacter> Members);
+public sealed record RealmRosterSnapshot(
+    DateTime GeneratedAtUtc, IReadOnlyList<RealmRosterParty> Parties,
+    IReadOnlyList<RealmRosterCharacter> SoloPlayers,
+    IReadOnlyList<CompanionPartySession> CompanionSessions,
+    IReadOnlyList<RealmRosterCharacter>? AvailableHeroes = null);
+public sealed record CompanionPartyTimeoutRequest(
+    string LeaderName, int OfflineTimeoutMinutes);
 public sealed record QuestingCompanionRequest(string LeaderName, string CompanionName);
 public sealed record QuestingCompanionResetRequest(
     string LeaderName, string CompanionName);
+public sealed record QuestingCompanionCommandRequest(
+    string LeaderName, string CompanionName, string Command);
+public sealed record QuestingCompanionTradeRequest(
+    string LeaderName, string CompanionName, string RecipientName,
+    int Bag, int Slot, ulong ItemGuid, uint ItemId, int Quantity);
 public sealed record QuestingCompanionEquipmentProtectionRequest(
     string LeaderName, string CompanionName, int Slot, bool Protected);
 public sealed record QuestingCompanionBehaviorRequest(

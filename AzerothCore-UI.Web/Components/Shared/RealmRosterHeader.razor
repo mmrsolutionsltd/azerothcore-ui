@@ -1,0 +1,418 @@
+@using AzerothCore_UI.Web.Models
+@implements IAsyncDisposable
+@inject AzerothCore_UI.Web.Clients.AccountsApiClient Api
+@inject AzerothCore_UI.Web.Services.SelectedCharacterStore SelectedCharacterStore
+@inject NavigationManager Navigation
+
+<section class="hero-roster" aria-label="Selected heroes and realm roster">
+    <div class="hero-roster-heading">
+        <span>CHOOSE YOUR HEROES</span>
+        <small>@selectedNames.Count/@AzerothCore_UI.Web.Services.SelectedCharacterStore.MaximumCharacters selected</small>
+        <div class="roster-selection-controls">
+            <label title="Include offline characters in the choices below">
+                <input type="checkbox" @bind="showOffline" />
+                <span>Offline</span>
+            </label>
+            <label title="Load and include random PlayerBots in the choices below">
+                <input type="checkbox" checked="@showBots"
+                       @onchange="ToggleBotsAsync" />
+                <span>Bots</span>
+            </label>
+            <button type="button" title="Select up to five visible online characters"
+                    @onclick="SelectOnlineAsync">Online</button>
+            <button type="button" title="Clear the shared hero selection"
+                    disabled="@(selectedNames.Count == 0)" @onclick="ClearAsync">Clear</button>
+        </div>
+        @if (!string.IsNullOrWhiteSpace(message))
+        {
+            <em class="roster-message @(operationSucceeded ? "success" : "failure")">@message</em>
+        }
+    </div>
+
+    @if (snapshot is null)
+    {
+        <div class="roster-loading">Consulting the realm…</div>
+    }
+    else
+    {
+        @if (SelectedHeroes.Count > 0)
+        {
+            <div class="hero-card-row">
+                @foreach (var hero in SelectedHeroes)
+                {
+                    if (hero.Online)
+                    {
+                        var party = PartyFor(hero.Name);
+                        <article @key="hero.Name"
+                                 class="online-hero-card selected class-@hero.CharacterClass @(hero.IsLeader ? "leader" : null) @(hero.IsCompanion ? "companion" : null) @(IsActive(hero.Name) ? "active" : null) @(IsDead(hero) ? "dead" : null)"
+                                 @oncontextmenu="() => SelectOnlyAsync(hero.Name)"
+                                 @oncontextmenu:preventDefault="true">
+                            <button type="button" class="hero-card-main" title="Remove @hero.Name from the shared targets"
+                                    @onclick="args => HandleHeroClickAsync(hero.Name, args)">
+                                <span class="class-medallion">@ClassGlyph(hero.CharacterClass)</span>
+                                <span class="hero-identity">
+                                    <strong>@hero.Name</strong>
+                                    <small>Level @hero.Level @CharacterDisplayNames.Class((byte)hero.CharacterClass)</small>
+                                </span>
+                                <span class="hero-flags">
+                                    <b class="selected-flag">✓ SELECTED</b>
+                                    @if (IsActive(hero.Name)) { <b class="active-flag">ACTIVE</b> }
+                                    @if (hero.IsLeader) { <b title="Online party leader">♛ LEADER</b> }
+                                    else if (hero.IsCompanion) { <b class="bot">COMPANION</b> }
+                                    else if (hero.IsPlayerBot) { <b class="bot">PLAYERBOT</b> }
+                                    else if (party is not null) { <b>PARTY</b> }
+                                    <i title="Online"></i>
+                                </span>
+                                <span class="health-track @(hero.MaximumHealth is null ? "snapshot" : null) @(IsLowHealth(hero) ? "low-health" : null)"
+                                      role="progressbar" aria-label="@($"{hero.Name} health")"
+                                      aria-valuenow="@HealthWidth(hero)" aria-valuemin="0" aria-valuemax="100">
+                                    <span style="@HealthStyle(hero)"></span>
+                                    <em>@HealthText(hero)</em>
+                                </span>
+                            </button>
+                            <div class="hero-card-actions">
+                                <span>@hero.Username</span>
+                                <button type="button" class="focus-hero"
+                                        disabled="@IsActive(hero.Name)"
+                                        title="Use @hero.Name on single-hero pages without changing the selected group"
+                                        @onclick="() => ActivateAsync(hero.Name)">
+                                    @(IsActive(hero.Name) ? "Active" : "Focus")
+                                </button>
+                                <AuthorizeView Policy="players.services">
+                                    <Authorized>
+                                        <button type="button" class="revive-button"
+                                                disabled="@(!IsDead(hero) || reviving.Contains(hero.Name))"
+                                                title="@(IsDead(hero) ? $"Revive {hero.Name}" : $"{hero.Name} is alive")"
+                                                @onclick="() => ReviveAsync(hero.Name)">
+                                            @(reviving.Contains(hero.Name) ? "Reviving…" : "Revive")
+                                        </button>
+                                    </Authorized>
+                                </AuthorizeView>
+                                <button type="button" class="remove-hero" title="Remove @hero.Name from this hero row"
+                                        @onclick="() => RemoveAsync(hero.Name)">×</button>
+                            </div>
+                            @if (ActiveCompanionFor(hero.Name) is { } companion)
+                            {
+                                <CompanionHeaderControls @key="companion.Name"
+                                    LeaderName="@companionLeaderName"
+                                    Companion="@companion"
+                                    ProtocolVersion="@(companionStatus?.ProtocolVersion ?? 0)"
+                                    RefreshRequested="RefreshCompanionControlsAsync" />
+                            }
+                        </article>
+                    }
+                    else
+                    {
+                        <div @key="hero.Name" class="offline-selected selected class-@hero.CharacterClass @(IsActive(hero.Name) ? "active" : null)"
+                             @oncontextmenu="() => SelectOnlyAsync(hero.Name)"
+                             @oncontextmenu:preventDefault="true">
+                            <button type="button" title="Remove @hero.Name from the shared targets"
+                                    @onclick="args => HandleHeroClickAsync(hero.Name, args)">
+                                <span>@ClassGlyph(hero.CharacterClass)</span>
+                                <strong>@hero.Name</strong>
+                                <small>Offline · @hero.Username</small>
+                            </button>
+                            <button type="button" class="focus-hero"
+                                    disabled="@IsActive(hero.Name)"
+                                    title="Use @hero.Name on single-hero pages"
+                                    @onclick="() => ActivateAsync(hero.Name)">
+                                @(IsActive(hero.Name) ? "Active" : "Focus")
+                            </button>
+                            <button type="button" class="remove-hero" title="Remove @hero.Name"
+                                    @onclick="() => RemoveAsync(hero.Name)">×</button>
+                        </div>
+                    }
+                }
+            </div>
+        }
+
+        <div class="hero-choice-strip">
+            <span class="choice-label">@(SelectedHeroes.Count == 0 ? "SELECT HEROES" : "ADD ANOTHER")</span>
+            @foreach (var hero in AvailableChoices)
+            {
+                <button @key="hero.Name" type="button"
+                        class="hero-choice class-@hero.CharacterClass @(hero.Online ? "online" : "offline") @(hero.IsLeader ? "leader" : null)"
+                        disabled="@(selectedNames.Count >= AzerothCore_UI.Web.Services.SelectedCharacterStore.MaximumCharacters)"
+                        title="@MemberTitle(hero)"
+                        @onclick="args => HandleHeroClickAsync(hero.Name, args)"
+                        @oncontextmenu="() => SelectOnlyAsync(hero.Name)"
+                        @oncontextmenu:preventDefault="true">
+                    <i></i>
+                    @if (hero.IsLeader) { <span>♛</span> }
+                    <strong>@hero.Name</strong>
+                    <small>Lv @hero.Level</small>
+                    @if (hero.IsPlayerBot) { <small class="bot-label">BOT</small> }
+                </button>
+            }
+            @if (AvailableChoices.Count == 0)
+            {
+                <small class="all-selected">@(selectedNames.Count == 0 ? "No scoped characters found" : "Your hero row is ready")</small>
+            }
+        </div>
+    }
+</section>
+
+@code {
+    private readonly CancellationTokenSource cancellation = new();
+    private readonly HashSet<string> reviving = new(StringComparer.OrdinalIgnoreCase);
+    private RealmRosterSnapshot? snapshot;
+    private QuestingCompanionStatus? companionStatus;
+    private string companionLeaderName = "";
+    private Task? refreshLoop;
+    private string? activeName;
+    private IReadOnlyList<string> selectedNames = [];
+    private string? message;
+    private bool operationSucceeded;
+    private bool showOffline;
+    private bool showBots;
+
+    private IReadOnlyList<RealmRosterCharacter> AllHeroes =>
+        snapshot?.AvailableHeroes
+        ?? snapshot?.Parties.SelectMany(party => party.Members)
+            .Concat(snapshot.SoloPlayers).DistinctBy(hero => hero.Name,
+                StringComparer.OrdinalIgnoreCase).ToArray()
+        ?? [];
+
+    private IReadOnlyList<RealmRosterCharacter> SelectedHeroes => selectedNames
+        .Select(name => AllHeroes.FirstOrDefault(hero => hero.Name.Equals(
+            name, StringComparison.OrdinalIgnoreCase))
+            ?? new RealmRosterCharacter(0, name, "", 0, 0, 0,
+                false, false, false))
+        .OrderByDescending(hero => hero.IsLeader)
+        .ToArray();
+
+    private IReadOnlyList<RealmRosterCharacter> AvailableChoices => AllHeroes
+        .Where(hero => selectedNames.All(name => !name.Equals(
+            hero.Name, StringComparison.OrdinalIgnoreCase)))
+        .Where(hero => hero.Online || showOffline)
+        .Where(hero => !hero.IsPlayerBot || showBots)
+        .ToArray();
+
+    protected override async Task OnInitializedAsync()
+    {
+        showOffline = IsCompanionPage();
+        Navigation.LocationChanged += OnLocationChanged;
+        activeName = await SelectedCharacterStore.GetAsync();
+        selectedNames = await SelectedCharacterStore.GetSelectedAsync();
+        SelectedCharacterStore.SelectionChanged += OnActiveSelectionChanged;
+        SelectedCharacterStore.SelectedCharactersChanged += OnSelectedCharactersChanged;
+        await RefreshAsync();
+        refreshLoop = RefreshLoopAsync(cancellation.Token);
+    }
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            var retainSelectedBots = AllHeroes.Any(hero => hero.IsPlayerBot
+                && selectedNames.Contains(hero.Name,
+                    StringComparer.OrdinalIgnoreCase));
+            snapshot = await Api.GetRealmRosterAsync(cancellation.Token,
+                showBots || retainSelectedBots);
+            await NormalizeLeaderOrderAsync();
+            await RefreshCompanionControlsAsync();
+        }
+        catch when (!cancellation.IsCancellationRequested) { }
+    }
+
+    private async Task NormalizeLeaderOrderAsync(string? activeCharacter = null)
+    {
+        var stored = await SelectedCharacterStore.GetSelectedAsync();
+        var ordered = stored.OrderByDescending(name =>
+                AllHeroes.FirstOrDefault(hero => hero.Name.Equals(
+                    name, StringComparison.OrdinalIgnoreCase))?.IsLeader == true)
+            .ToArray();
+        selectedNames = ordered;
+        if (stored.SequenceEqual(ordered,
+                StringComparer.OrdinalIgnoreCase)) return;
+        await SelectedCharacterStore.SetSelectedAsync(ordered,
+            activeCharacter ?? await SelectedCharacterStore.GetAsync());
+    }
+
+    private async Task RefreshLoopAsync(CancellationToken token)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(15));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(token))
+                await InvokeAsync(async () => { await RefreshAsync(); StateHasChanged(); });
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+    }
+
+    private async Task ToggleAsync(string name)
+    {
+        if (selectedNames.Contains(name, StringComparer.OrdinalIgnoreCase))
+        {
+            await SelectedCharacterStore.RemoveAsync(name);
+            message = null;
+            return;
+        }
+        if (await SelectedCharacterStore.AddAsync(name))
+        {
+            await NormalizeLeaderOrderAsync(name);
+            operationSucceeded = true;
+            message = null;
+        }
+        else
+        {
+            operationSucceeded = false;
+            message = "Your hero row is full. Remove a hero before adding another.";
+        }
+    }
+
+    private Task HandleHeroClickAsync(string name, MouseEventArgs args) =>
+        args.Detail >= 2 ? SelectOnlineAsync() : ToggleAsync(name);
+
+    private async Task ToggleBotsAsync(ChangeEventArgs args)
+    {
+        showBots = args.Value as bool? == true;
+        if (showBots) await RefreshAsync();
+    }
+
+    private Task RemoveAsync(string name) => SelectedCharacterStore.RemoveAsync(name).AsTask();
+
+    private Task ActivateAsync(string name) =>
+        SelectedCharacterStore.SetAsync(name).AsTask();
+
+    private Task SelectOnlyAsync(string name) =>
+        SelectedCharacterStore.SetSelectedAsync([name], name).AsTask();
+
+    private Task ClearAsync() =>
+        SelectedCharacterStore.SetSelectedAsync([]).AsTask();
+
+    private Task SelectOnlineAsync()
+    {
+        var names = AllHeroes.Where(hero => hero.Online
+                && (showBots || !hero.IsPlayerBot))
+            .OrderByDescending(hero => hero.IsLeader)
+            .Take(AzerothCore_UI.Web.Services.SelectedCharacterStore.MaximumCharacters)
+            .Select(hero => hero.Name)
+            .ToArray();
+        return SelectedCharacterStore.SetSelectedAsync(
+            names, names.FirstOrDefault()).AsTask();
+    }
+
+    private async Task ReviveAsync(string name)
+    {
+        if (!reviving.Add(name)) return;
+        message = null;
+        try
+        {
+            var result = await Api.ApplyCharacterServiceAsync(
+                new CharacterServiceRequest(name, "revive", null, true));
+            operationSucceeded = result?.Success == true;
+            message = result?.Message ?? $"Revive requested for {name}.";
+            await RefreshAsync();
+        }
+        catch (Exception exception)
+        {
+            operationSucceeded = false;
+            message = exception.Message;
+        }
+        finally { reviving.Remove(name); }
+    }
+
+    private void OnActiveSelectionChanged(string name) => _ = InvokeAsync(() =>
+    {
+        activeName = name;
+        StateHasChanged();
+    });
+
+    private void OnSelectedCharactersChanged(IReadOnlyList<string> names) =>
+        _ = InvokeAsync(async () =>
+        {
+            selectedNames = names;
+            await RefreshCompanionControlsAsync();
+            StateHasChanged();
+        });
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs args) =>
+        _ = InvokeAsync(() =>
+        {
+            if (IsCompanionPage()) showOffline = true;
+            StateHasChanged();
+        });
+
+    private bool IsCompanionPage() => Navigation.ToBaseRelativePath(Navigation.Uri)
+        .Split('?', '#')[0].Trim('/').Equals(
+            "questing-companions", StringComparison.OrdinalIgnoreCase);
+
+    private RealmRosterParty? PartyFor(string name) => snapshot?.Parties.FirstOrDefault(
+        party => party.Live && party.Members.Any(member => member.Name.Equals(
+            name, StringComparison.OrdinalIgnoreCase)));
+
+    private bool IsActive(string name) => name.Equals(activeName,
+        StringComparison.OrdinalIgnoreCase);
+    private static bool IsDead(RealmRosterCharacter hero) =>
+        hero.Online && hero.CurrentHealth == 0;
+    private static bool IsLowHealth(RealmRosterCharacter hero) =>
+        hero.MaximumHealth is > 0
+        && hero.CurrentHealth * 100m / hero.MaximumHealth.Value < 30m;
+    private static decimal HealthWidth(RealmRosterCharacter hero) =>
+        hero.MaximumHealth is > 0
+            ? Math.Clamp(hero.CurrentHealth * 100m / hero.MaximumHealth.Value, 0, 100)
+            : hero.CurrentHealth > 0 ? 100 : 0;
+    private static string HealthStyle(RealmRosterCharacter hero)
+    {
+        var width = HealthWidth(hero).ToString("0.##",
+            System.Globalization.CultureInfo.InvariantCulture);
+        var colour = IsLowHealth(hero) || IsDead(hero) ? "#c43b3f" : "#43b856";
+        return $"width:{width}%;background-color:{colour}";
+    }
+    private static string HealthText(RealmRosterCharacter hero) =>
+        hero.MaximumHealth is > 0
+            ? $"{Math.Round(Math.Clamp(hero.CurrentHealth * 100m /
+                hero.MaximumHealth.Value, 0, 100))}%"
+            : hero.CurrentHealth == 0 ? "DEAD" : $"{hero.CurrentHealth:N0} HP";
+    private static string ClassGlyph(int characterClass) => characterClass switch
+    {
+        1 => "⚔", 2 => "✦", 3 => "➶", 4 => "†", 5 => "☼", 6 => "☠",
+        7 => "ϟ", 8 => "✧", 9 => "◉", 11 => "☾", _ => "◆"
+    };
+    private static string MemberTitle(RealmRosterCharacter member) =>
+        $"{member.Name} · Level {member.Level} {CharacterDisplayNames.Class((byte)member.CharacterClass)} · {member.Username}" +
+        (member.IsLeader
+            ? member.Online ? " · Online party leader" : " · Remembered party leader"
+            : member.IsCompanion ? " · Companion"
+            : member.IsPlayerBot ? " · PlayerBot"
+            : member.Online ? " · Online" : " · Offline");
+
+    private ActiveQuestingCompanion? ActiveCompanionFor(string name) =>
+        companionStatus?.ActiveCompanions.FirstOrDefault(companion =>
+            companion.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+
+    private async Task RefreshCompanionControlsAsync()
+    {
+        var leader = SelectedHeroes.FirstOrDefault(hero => hero.Online
+                && !hero.IsPlayerBot && hero.IsLeader)
+            ?? SelectedHeroes.FirstOrDefault(hero => hero.Online
+                && !hero.IsPlayerBot && !hero.IsCompanion);
+        if (leader is null || !SelectedHeroes.Any(hero => hero.IsCompanion))
+        {
+            companionLeaderName = "";
+            companionStatus = null;
+            return;
+        }
+
+        try
+        {
+            companionLeaderName = leader.Name;
+            companionStatus = await Api.GetQuestingCompanionsAsync(leader.Name);
+        }
+        catch when (!cancellation.IsCancellationRequested)
+        {
+            companionStatus = null;
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Navigation.LocationChanged -= OnLocationChanged;
+        SelectedCharacterStore.SelectionChanged -= OnActiveSelectionChanged;
+        SelectedCharacterStore.SelectedCharactersChanged -= OnSelectedCharactersChanged;
+        await cancellation.CancelAsync();
+        if (refreshLoop is not null) await refreshLoop;
+        cancellation.Dispose();
+    }
+}

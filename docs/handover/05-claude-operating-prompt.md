@@ -1,0 +1,3 @@
+# Suggested Claude prompt
+
+You are assisting with the AzerothCore-UI repository and its private AzerothCore PlayerBots server. Read `docs/handover/00-START-HERE.md` and the numbered handover files first. Preserve unrelated dirty working-tree changes. Inspect read-only before live changes. Back up the database before SQL, never expose secrets, never run concurrent worldserver builds, and do not rebuild the old Windows core when the active host is Linux. Run focused tests after changes. For production changes, state the affected service, backup/rollback plan, and verification result. The active host is `azerothmedia` at LAN `192.168.1.77`; use operator-provided SSH keys and credentials at runtime.

@@ -24,6 +24,7 @@ webadmin group launch <leader> <dungeonId>
 webadmin dungeon list
 webadmin creature spawn <anchorPlayer> <creatureId> <level> <despawnMinutes> [count squareSideLength]
 webadmin companion inspect <leader>
+webadmin companion inspect-addon <leader>
 webadmin companion start <leader> <companion>
 webadmin companion dismiss <leader> <companion>
 webadmin companion reset <leader> <companion>
@@ -31,6 +32,8 @@ webadmin companion protect <leader> <companion> <equipmentSlot> <on|off>
 webadmin companion preset <leader> <companion> <questing|dungeon-tank|dungeon-healer>
 webadmin companion behavior <leader> <companion> <preset> <role> <movement> <focus> <distance> <loot> <gather> <sell> <repair>
 webadmin companion regroup <leader> <companion>
+webadmin companion command <leader> <companion> <PlayerBots command>
+webadmin companion trade <leader> <companion> <recipient> <bag> <slot> <itemGuid> <itemId> <quantity>
 webadmin companion logistics <leader> <companion> <trigger> <target> <auto> [category recipient keep]...
 webadmin companion logistics-preview <leader> <companion> [category recipient keep]...
 webadmin companion logistics-run <leader> <companion>
@@ -57,6 +60,10 @@ leader's log when a companion finishes logging in. When the leader talks to a ne
   giver, companions may also independently accept eligible quests for their own class or
   professions. Active companions additionally scan nearby quest givers every two seconds,
   so these personal quests do not depend on the leader accepting or opening the quest.
+  Completed shared and companion-only quests are turned in through the normal PlayerBots
+  reward selection when the companion is within interaction distance of the correct NPC
+  or game object. This works both during the nearby scan and when the leader opens that
+  quest giver.
   All normal race, class, level, reputation, prerequisite, proximity, and
 quest-log checks still apply. Companion startup enables PlayerBots' non-combat `loot`
 and `follow` strategies and clears stale passive/stay state. If the leader dies, the
@@ -69,9 +76,9 @@ once per second for needed quest-item chests within 40 metres, explicitly move t
 open them, and expose the current collection stage through the inspect command.
 While the leader and companion are alive and out of combat, companions also check every
 two seconds for interactable nearby vendors and repairers. Each pass can sell up to six
-different item types: poor-quality (grey) items, white equipment that is unusable or no
-longer an upgrade, and permanently unusable green or blue equipment when no enchanter
-route is available. When free bag space is at or below the configured refill target, it
+different item types: poor-quality (grey) items and white equipment that is unusable or no
+longer an upgrade. Green and better items are never sold automatically, including under
+bag pressure. When free bag space is at or below the configured refill target, it
 also sells items that a freshly recalculated PlayerBots decision marks as auction or
 vendor surplus, unless a material or catch-all mail route protects them. Profession
 tools, active quest items, bags, keys and recipes remain protected. The companion also
@@ -85,6 +92,36 @@ item is restored if PlayerBots tries to replace it while the companion is alive 
 of combat. Protection intentionally lasts only for the current companion session.
 The reset command clears transient AI targets and movement, then restores companion
 follow, combat, loot and quest synchronisation; it is rejected during combat.
+The command bridge queues one normal PlayerBots whisper command for an active companion
+with the selected leader as its master. It never executes AzerothCore console commands.
+For convenience, `give` is accepted as an alias for PlayerBots' `t` trade command; the
+recipient must be nearby and normal trade acceptance rules still apply.
+The dedicated trade command resolves one exact live bag item by slot, item GUID and
+entry, validates quantity, distance, combat state, party membership, ordinary
+tradeability and the allowed-recipient list for temporarily tradeable bind-on-pickup
+loot, then opens the trade and places the item into an ordinary trade slot. Partial
+stacks are split into an empty bag slot first. The real player must still review and
+accept the trade in WoW. Protocol v9 reports the item GUID, required level,
+tradeability and temporary-BOP status used by the Companion Commands trade panel. The
+panel offers a searchable, quality-coloured live inventory, recipient and quantity
+selection, explicit refresh, automatic post-attempt refresh and stale-selection errors.
+The accompanying PlayerBots patch also makes its generic trade action use the core's
+trade-aware `CanBeTraded(false, true)` check.
+Protocol v10 adds live companion diagnostics: current activity, target, destination,
+distance from the leader, movement/combat/alive flags, the highest-priority detected
+blocker, and the latest successful and failed automation results for the current
+worldserver session. The Companion diagnostics page refreshes this state every five
+seconds and offers regroup, full AI reset and permission-controlled revival actions.
+While inside an instance, controlled companions may
+automatically collect only items they can personally use or need, including their
+active quest objectives, usable equipment, appropriate consumables, and materials for
+professions they know. They must leave unusable equipment, irrelevant materials, and
+vendor rubbish behind. Rare (blue), epic, legendary, and higher-quality items must
+always remain available to the real players and the normal group-loot process, even
+when a companion could use them. When a skipped item would be useful to another party
+member, the companion should notify the party with the item and suggested recipient.
+Notifications are suppressed for five minutes for the same companion, loot object and
+item so repeated companion scans do not spam party chat.
 Protocol v3 adds session-scoped behaviour presets and custom controls. Role can be
 auto, tank, healer, or damage; tank and healer are rejected unless the companion's
 current specialization supports them. Movement can follow or stay, combat focus can
@@ -146,7 +183,7 @@ addon-command channel to request this same snapshot in game. A normal player may
 the inspect command only for their own online character; SOAP/console administrators
 retain the ability to inspect a named leader. Starting and dismissing companions remain
 administrator-only operations. Inspect responses begin with
-`WEBADMIN_COMPANION_PROTOCOL\t7`, allowing the addon and website to identify a missing
+`WEBADMIN_COMPANION_PROTOCOL\t10`, allowing the addon and website to identify a missing
 or incompatible bridge without guessing from partial response data.
 Protocol v7 also reports the latest automatic sale or logistics-mail action for the
 compact in-game companion bar.
@@ -187,3 +224,12 @@ update thread. Apply it from the `mod-playerbots` repository with
 After the module is already present in the AzerothCore build, source-only changes only
 require rebuilding the `worldserver` target and installing that binary; CMake
 regeneration is only needed when the module or build structure changes.
+
+### Caster auto-attack
+
+The module also exposes a small, opt-in caster filler attack for the companion addon.
+On a real player's selected hostile target, use `casterauto toggle <spellId>` to start
+repeated casts of a learned, non-passive hostile spell; use `casterauto stop` to stop it
+or `casterauto status` to inspect the current state. The module pauses safely while
+moving or manually casting and stops when the target dies, changes, or leaves range.
+This is deliberately player-only and does not alter PlayerBots behaviour.

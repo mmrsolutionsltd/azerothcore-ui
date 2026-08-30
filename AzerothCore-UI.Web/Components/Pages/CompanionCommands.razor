@@ -1,0 +1,688 @@
+@page "/companion-commands"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "adventures.quests")]
+@using AzerothCore_UI.Web.Models
+@using AzerothCore_UI.Web.Services
+@inject AzerothCore_UI.Web.Clients.AccountsApiClient Api
+@inject RecentPickerSelectionStore RecentSelections
+@inject SelectedCharacterStore SelectedCharacterStore
+@implements IDisposable
+
+<PageTitle>Companion commands</PageTitle>
+
+<p class="text-muted">
+    Send a normal PlayerBots whisper command to one or more active companions. Replies and
+    trade windows appear in the WoW client beside the selected leader.
+</p>
+
+@if (!string.IsNullOrWhiteSpace(message))
+{
+    <div class="alert @(operationPartiallySucceeded ? "alert-warning" : operationSucceeded ? "alert-success" : "alert-danger")">
+        @message
+    </div>
+}
+
+<div class="row g-3">
+    <div class="col-12 col-xl-6">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Leader and companion</span>
+                <button class="btn btn-sm btn-outline-secondary" type="button"
+                        disabled="@(working || string.IsNullOrWhiteSpace(leaderName))"
+                        @onclick="RefreshAsync">
+                    Refresh
+                </button>
+            </div>
+            <div class="card-body">
+                <label class="form-label">Online leader</label>
+                @if (string.IsNullOrWhiteSpace(leaderName))
+                {
+                    <div class="command-selection-empty">Select an online party leader in the realm header.</div>
+                }
+                else
+                {
+                    var leader = players.FirstOrDefault(player => player.Name.Equals(
+                        leaderName, StringComparison.OrdinalIgnoreCase));
+                    <div class="command-leader-card">
+                        <span class="leader-crown">♛</span>
+                        <span><strong>@leaderName</strong><small>@leader?.Username · Online</small></span>
+                        <b>LEADER</b>
+                    </div>
+                }
+                <div class="form-text">The first selected online party leader in the header commands this group.</div>
+
+                <label class="form-label mt-3">Active companion</label>
+                @if (string.IsNullOrWhiteSpace(leaderName))
+                {
+                    <p class="small text-muted mb-0">Select the character you are playing.</p>
+                }
+                else if (loadingCompanions)
+                {
+                    <p class="small text-muted mb-0"><em>Loading active companionsâ€¦</em></p>
+                }
+                else if (CompanionItems.Count == 0)
+                {
+                    <div class="alert alert-secondary mb-0">
+                        This leader has no active companions.
+                        <a href="questing-companions">Start one on the Questing companions page.</a>
+                    </div>
+                }
+                else
+                {
+                    @if (companionNames.Count == 0)
+                    {
+                        <div class="command-selection-empty">
+                            Add one or more active companions to the selected hero cards above.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="selected-command-targets">
+                            @foreach (var name in companionNames)
+                            {
+                                <span>✦ <strong>@name</strong></span>
+                            }
+                        </div>
+                    }
+                    <div class="form-text">The leader is card one; the remaining selected active-companion cards are command targets.</div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12 col-xl-6">
+        <div class="card h-100">
+            <div class="card-header">Command</div>
+            <div class="card-body">
+                <label class="form-label" for="companion-command">PlayerBots command</label>
+                <div class="input-group">
+                    <input id="companion-command" class="form-control" maxlength="255"
+                           placeholder="For example: give Kiesh Linen Cloth 5"
+                           autocomplete="off" @ref="commandInput"
+                           @bind="commandText" @bind:event="oninput"
+                           @onkeydown="HandleCommandKeyDown" />
+                    <button class="btn btn-primary" type="button"
+                            disabled="@(!CanSend)" @onclick="SendAsync">
+                        @(working ? "Sending…" : $"Send to {companionNames.Count}")
+                    </button>
+                </div>
+                <div class="form-text">
+                    <code>give &lt;character&gt; &lt;item&gt; [count]</code> opens a trade;
+                    both characters must be nearby. Omit the character to give the item
+                    to the leader.
+                </div>
+
+                @if (commandResults.Count > 0)
+                {
+                    <div class="list-group mt-3" aria-label="Companion command results">
+                        @foreach (var result in commandResults)
+                        {
+                            <div class="list-group-item d-flex gap-2 align-items-start">
+                                <span class="badge @(result.Succeeded ? "text-bg-success" : "text-bg-danger")">
+                                    @(result.Succeeded ? "Sent" : "Failed")
+                                </span>
+                                <div>
+                                    <strong>@result.CompanionName</strong>
+                                    <div class="small text-muted">@result.Message</div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+
+                <div class="mt-3">
+                    <div class="small fw-semibold mb-2">Useful examples</div>
+                    <div class="d-flex flex-wrap gap-2">
+                        @foreach (var example in Examples)
+                        {
+                            <button class="btn btn-sm btn-outline-secondary" type="button"
+                                    disabled="@working" @onclick="() => UseCommandAsync(example.Command)">
+                                @example.Label
+                            </button>
+                        }
+                        @foreach (var command in customExamples)
+                        {
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-primary" type="button"
+                                        disabled="@working" @onclick="() => UseCommandAsync(command)">
+                                    @command
+                                </button>
+                                <button class="btn btn-outline-danger" type="button"
+                                        disabled="@working" title="Remove from useful examples"
+                                        aria-label="Remove @command from useful examples"
+                                        @onclick="() => RemoveUsefulExampleAsync(command)">
+                                    &times;
+                                </button>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                @if (recentCommands.Count > 0)
+                {
+                    <div class="mt-3">
+                        <div class="small fw-semibold mb-2">Recent commands</div>
+                        <div class="list-group list-group-flush border rounded">
+                            @foreach (var command in recentCommands)
+                            {
+                                <div class="list-group-item d-flex align-items-center gap-2 py-2">
+                                    <button class="btn btn-link text-start flex-grow-1 p-0 text-decoration-none"
+                                            type="button" disabled="@working"
+                                            @onclick="() => UseCommandAsync(command)">
+                                        <code>@command</code>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-primary" type="button"
+                                            disabled="@(working || IsUsefulExample(command))"
+                                            title="Add to useful examples"
+                                            @onclick="() => AddUsefulExampleAsync(command)">
+                                        @(IsUsefulExample(command) ? "Added" : "Add")
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mt-3">
+    <div class="card-header d-flex justify-content-between align-items-center gap-2">
+        <span>Trade a companion item</span>
+        <button class="btn btn-sm btn-outline-secondary" type="button"
+                disabled="@(working || loadingCompanions || string.IsNullOrWhiteSpace(leaderName))"
+                @onclick="RefreshTradeInventoryAsync">
+            @(loadingCompanions ? "Refreshingâ€¦" : "Refresh inventory")
+        </button>
+    </div>
+    <div class="card-body">
+        <p class="small text-muted">
+            Select the exact live bag item. The companion opens a normal trade with a nearby
+            party member and places it in a trade slot; both players still confirm the trade in WoW.
+            Eligible bind-on-pickup instance loot is supported during its trade window.
+        </p>
+        <div class="row g-3 align-items-end">
+            <div class="col-12 col-lg-3">
+                <label class="form-label" for="trade-companion">Companion</label>
+                <select id="trade-companion" class="form-select"
+                        value="@tradeCompanionName" @onchange="SelectTradeCompanionAsync">
+                    <option value="">Select companion</option>
+                    @foreach (var companion in status?.ActiveCompanions ?? [])
+                    {
+                        <option value="@companion.Name">@companion.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="col-12 col-lg-3">
+                <label class="form-label" for="trade-recipient">Recipient</label>
+                <select id="trade-recipient" class="form-select" @bind="tradeRecipientName">
+                    <option value="">Select party member</option>
+                    @foreach (var recipient in TradeRecipients)
+                    {
+                        <option value="@recipient.Name">@recipient.Name (level @recipient.Level)</option>
+                    }
+                </select>
+            </div>
+            <div class="col-12 col-lg-4">
+                <label class="form-label" for="trade-item-filter">Find bag item</label>
+                <input id="trade-item-filter" class="form-control mb-2" type="search"
+                       placeholder="Type an item name or ID" autocomplete="off"
+                       @bind="tradeItemFilter" @bind:event="oninput" />
+                <select id="trade-item" class="form-select companion-trade-items"
+                        size="5" value="@selectedTradeItemGuid"
+                        @onchange="SelectTradeItem">
+                    @if (FilteredTradeItems.Count == 0)
+                    {
+                        <option disabled>No matching bag items</option>
+                    }
+                    @foreach (var item in FilteredTradeItems)
+                    {
+                        <option value="@item.ItemGuid" disabled="@(!item.Tradeable)"
+                                class="@QualityClass(item.Quality)">
+                            @item.Name x@item.Count â€” iLvl @item.ItemLevel@(item.Tradeable ? "" : " (not tradeable)")
+                        </option>
+                    }
+                </select>
+            </div>
+            <div class="col-6 col-lg-1">
+                <label class="form-label" for="trade-quantity">Quantity</label>
+                <input id="trade-quantity" class="form-control" type="number" min="1"
+                       max="@(SelectedTradeItem?.Count ?? 1)" @bind="tradeQuantity" />
+            </div>
+            <div class="col-6 col-lg-1 d-grid">
+                <button class="btn btn-primary" type="button" disabled="@(!CanTrade)"
+                        @onclick="TradeItemAsync">
+                    @(working ? "Addingâ€¦" : "Trade")
+                </button>
+            </div>
+        </div>
+
+        @if (SelectedTradeItem is { } selectedItem)
+        {
+            <div class="small mt-2">
+                <strong class="@QualityClass(selectedItem.Quality)">@selectedItem.Name</strong>
+                <span class="text-muted">
+                    â€” @QualityName(selectedItem.Quality), item level @selectedItem.ItemLevel,
+                    required level @selectedItem.RequiredLevel,
+                    bag @selectedItem.Bag / slot @selectedItem.Slot
+                </span>
+                @if (selectedItem.TemporaryBopTradeable)
+                {
+                    <span class="badge text-bg-warning ms-1">Temporary BOP trade</span>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+<div class="alert alert-info mt-3 mb-0">
+    These are PlayerBots chat commands, not AzerothCore GM commands. Examples include
+    <code>cast bear form</code>, <code>talents spec bear pve</code>,
+    <code>follow</code>, <code>stay</code>, <code>items</code>, and
+    <code>give Kiesh Linen Cloth 5</code>. Some commands complete asynchronously;
+    watch the game chat for the companion's response.
+</div>
+
+@code {
+    private IReadOnlyList<AdministrationPlayer> players = [];
+    private QuestingCompanionStatus? status;
+    private PartySnapshot? party;
+    private IReadOnlyList<string> recentCommands = [];
+    private IReadOnlyList<string> customExamples = [];
+    private IReadOnlySet<string> companionNames =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<CommandResult> commandResults = [];
+    private string leaderName = "";
+    private string commandText = "";
+    private string tradeCompanionName = "";
+    private string tradeRecipientName = "";
+    private string tradeItemFilter = "";
+    private string selectedTradeItemGuid = "";
+    private int tradeQuantity = 1;
+    private string? message;
+    private bool operationSucceeded;
+    private bool operationPartiallySucceeded;
+    private bool working;
+    private bool loadingCompanions;
+    private bool focusCommand;
+    private int selectionGeneration;
+    private ElementReference commandInput;
+
+    private IReadOnlyList<CharacterPickerItem> LeaderItems => players
+        .Where(player => player.Online && !player.IsPlayerBot)
+        .Select(player => new CharacterPickerItem(
+            player.Name, player.Name, $"Account {player.Username}", true))
+        .ToArray();
+
+    private IReadOnlyList<CharacterPickerItem> CompanionItems =>
+        status?.ActiveCompanions
+            .Select(companion => new CharacterPickerItem(
+                companion.Name, companion.Name,
+                $"Level {companion.Level} {ClassName(companion.CharacterClass)}",
+                true))
+            .ToArray() ?? [];
+
+    private bool CanSend => !working
+        && !string.IsNullOrWhiteSpace(leaderName)
+        && companionNames.Count > 0
+        && !string.IsNullOrWhiteSpace(commandText);
+
+    private IReadOnlyList<PartyMember> TradeRecipients =>
+        (party?.Members ?? [])
+            .Where(member => !member.IsPlayerBot
+                && !member.Name.Equals(
+                    tradeCompanionName, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(member => member.Name)
+            .ToArray();
+
+    private ActiveQuestingCompanion? TradeCompanion =>
+        status?.ActiveCompanions.FirstOrDefault(companion =>
+            companion.Name.Equals(
+                tradeCompanionName, StringComparison.OrdinalIgnoreCase));
+
+    private IReadOnlyList<QuestingCompanionItem> FilteredTradeItems =>
+        (TradeCompanion?.Inventory ?? [])
+            .Where(item => item.ItemGuid != 0
+                && (string.IsNullOrWhiteSpace(tradeItemFilter)
+                    || item.Name.Contains(
+                        tradeItemFilter.Trim(), StringComparison.OrdinalIgnoreCase)
+                    || item.ItemId.ToString().Contains(
+                        tradeItemFilter.Trim(), StringComparison.OrdinalIgnoreCase)))
+            .OrderByDescending(item => item.Tradeable)
+            .ThenByDescending(item => item.Quality)
+            .ThenBy(item => item.Name)
+            .ToArray();
+
+    private QuestingCompanionItem? SelectedTradeItem =>
+        ulong.TryParse(selectedTradeItemGuid, out var itemGuid)
+            ? TradeCompanion?.Inventory.FirstOrDefault(
+                item => item.ItemGuid == itemGuid)
+            : null;
+
+    private bool CanTrade => !working && SelectedTradeItem is { Tradeable: true } item
+        && tradeQuantity >= 1 && tradeQuantity <= item.Count
+        && !string.IsNullOrWhiteSpace(tradeRecipientName);
+
+    private IReadOnlyList<(string Label, string Command)> Examples =>
+    [
+        ("Give item", $"give {(string.IsNullOrWhiteSpace(leaderName) ? "Leader" : leaderName)} Linen Cloth 5"),
+        ("Bear form", "cast bear form"),
+        ("Bear talents", "talents spec bear pve"),
+        ("Follow", "follow"),
+        ("Stay", "stay"),
+        ("Inventory", "items")
+    ];
+
+    protected override async Task OnInitializedAsync()
+    {
+        SelectedCharacterStore.SelectionChanged += OnHeaderSelectionChanged;
+        SelectedCharacterStore.SelectedCharactersChanged += OnHeaderCharactersChanged;
+        try
+        {
+            players = await Api.GetAdministrationPlayersAsync();
+            recentCommands = await RecentSelections.GetAsync<string>(
+                RecentPickerKeys.CompanionCommands);
+            customExamples = await RecentSelections.GetAsync<string>(
+                RecentPickerKeys.CompanionCommandExamples);
+            await ApplyHeaderSelectionAsync();
+            if (string.IsNullOrWhiteSpace(leaderName) && LeaderItems.Count == 1)
+            {
+                await SelectedCharacterStore.SetAsync(LeaderItems[0].Name);
+                await ApplyHeaderSelectionAsync();
+            }
+        }
+        catch (Exception exception)
+        {
+            operationSucceeded = false;
+            message = exception.Message;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!focusCommand) return;
+        focusCommand = false;
+        await commandInput.FocusAsync();
+    }
+
+    private async Task SelectLeaderAsync(string? value)
+    {
+        var selectedLeader = value ?? "";
+        if (leaderName.Equals(selectedLeader, StringComparison.OrdinalIgnoreCase)
+            && status is not null)
+            return;
+
+        leaderName = selectedLeader;
+        companionNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        commandResults = [];
+        status = null;
+        party = null;
+        tradeCompanionName = "";
+        tradeRecipientName = "";
+        selectedTradeItemGuid = "";
+        message = null;
+        operationPartiallySucceeded = false;
+        if (!string.IsNullOrWhiteSpace(leaderName))
+            await LoadCompanionsAsync();
+    }
+
+    private async Task ApplyHeaderSelectionAsync()
+    {
+        var selectedNames = await SelectedCharacterStore.GetSelectedAsync();
+        var selectedLeader = selectedNames.Select(name => LeaderItems.FirstOrDefault(
+                item => item.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+            .FirstOrDefault(item => item is not null);
+        if (selectedLeader is null)
+        {
+            await SelectLeaderAsync(null);
+            return;
+        }
+
+        if (!leaderName.Equals(selectedLeader.Value,
+                StringComparison.OrdinalIgnoreCase) || status is null)
+            await SelectLeaderAsync(selectedLeader.Value);
+        else
+            SynchronizeCompanionTargets(selectedNames);
+    }
+
+    private void SynchronizeCompanionTargets(IReadOnlyList<string> selectedNames)
+    {
+        companionNames = (status?.ActiveCompanions ?? [])
+            .Where(companion => selectedNames.Contains(
+                companion.Name, StringComparer.OrdinalIgnoreCase))
+            .Select(companion => companion.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        focusCommand = companionNames.Count > 0;
+    }
+
+    private void OnHeaderSelectionChanged(string _) => QueueHeaderSelection();
+
+    private void OnHeaderCharactersChanged(IReadOnlyList<string> _) =>
+        QueueHeaderSelection();
+
+    private void QueueHeaderSelection()
+    {
+        var generation = Interlocked.Increment(ref selectionGeneration);
+        _ = InvokeAsync(async () =>
+        {
+            await Task.Yield();
+            if (generation != selectionGeneration) return;
+            await ApplyHeaderSelectionAsync();
+            StateHasChanged();
+        });
+    }
+
+    private async Task RefreshAsync()
+    {
+        players = await Api.GetAdministrationPlayersAsync();
+        await ApplyHeaderSelectionAsync();
+        if (!string.IsNullOrWhiteSpace(leaderName)) await LoadCompanionsAsync();
+    }
+
+    private async Task LoadCompanionsAsync()
+    {
+        loadingCompanions = true;
+        try
+        {
+            status = await Api.GetQuestingCompanionsAsync(leaderName);
+            party = await Api.GetPartyAsync(leaderName);
+            SynchronizeCompanionTargets(
+                await SelectedCharacterStore.GetSelectedAsync());
+            var tradeCompanionStillAvailable = status?.ActiveCompanions.Any(
+                companion => companion.Name.Equals(
+                    tradeCompanionName, StringComparison.OrdinalIgnoreCase)) == true;
+            if (!tradeCompanionStillAvailable)
+                tradeCompanionName = status?.ActiveCompanions.Count == 1
+                    ? status.ActiveCompanions[0].Name
+                    : "";
+            var selectedItemStillAvailable = SelectedTradeItem is not null;
+            if (!selectedItemStillAvailable)
+            {
+                selectedTradeItemGuid = "";
+                tradeQuantity = 1;
+            }
+            if (TradeRecipients.All(recipient => !recipient.Name.Equals(
+                    tradeRecipientName, StringComparison.OrdinalIgnoreCase)))
+            {
+                tradeRecipientName = TradeRecipients.Count == 1
+                    ? TradeRecipients[0].Name
+                    : "";
+            }
+            if (companionNames.Count > 0) focusCommand = true;
+            operationSucceeded = true;
+            operationPartiallySucceeded = false;
+            message = null;
+        }
+        catch (Exception exception)
+        {
+            operationSucceeded = false;
+            message = exception.Message;
+        }
+        finally { loadingCompanions = false; }
+    }
+
+    private async Task SendAsync()
+    {
+        if (!CanSend) return;
+        working = true;
+        try
+        {
+            var command = commandText.Trim();
+            var selectedCompanions = CompanionItems
+                .Select(item => item.Value)
+                .Where(companionNames.Contains)
+                .ToArray();
+            var results = new List<CommandResult>(selectedCompanions.Length);
+            foreach (var companionName in selectedCompanions)
+            {
+                try
+                {
+                    var result = await Api.CommandQuestingCompanionAsync(
+                        new(leaderName, companionName, command));
+                    results.Add(new(companionName, true,
+                        result?.Message ?? "Command sent."));
+                }
+                catch (Exception exception)
+                {
+                    results.Add(new(companionName, false, exception.Message));
+                }
+            }
+
+            commandResults = results;
+            var succeeded = results.Count(result => result.Succeeded);
+            var failed = results.Count - succeeded;
+            operationSucceeded = failed == 0;
+            operationPartiallySucceeded = succeeded > 0 && failed > 0;
+            message = failed == 0
+                ? $"Command sent to {succeeded} companion{(succeeded == 1 ? "" : "s")}."
+                : succeeded == 0
+                    ? $"Command failed for all {failed} selected companions."
+                    : $"Command sent to {succeeded} companion{(succeeded == 1 ? "" : "s")}; {failed} failed.";
+
+            if (succeeded > 0)
+                recentCommands = await RecentSelections.RememberAsync(
+                    RecentPickerKeys.CompanionCommands, command, value => value);
+            if (failed == 0)
+                commandText = "";
+        }
+        catch (Exception exception)
+        {
+            operationSucceeded = false;
+            operationPartiallySucceeded = false;
+            message = exception.Message;
+        }
+        finally
+        {
+            working = false;
+            focusCommand = true;
+        }
+    }
+
+    private async Task SelectTradeCompanionAsync(ChangeEventArgs eventArgs)
+    {
+        tradeCompanionName = eventArgs.Value?.ToString() ?? "";
+        selectedTradeItemGuid = "";
+        tradeItemFilter = "";
+        tradeQuantity = 1;
+        await Task.CompletedTask;
+    }
+
+    private void SelectTradeItem(ChangeEventArgs eventArgs)
+    {
+        selectedTradeItemGuid = eventArgs.Value?.ToString() ?? "";
+        tradeQuantity = Math.Min(1, SelectedTradeItem?.Count ?? 1);
+    }
+
+    private async Task RefreshTradeInventoryAsync() => await LoadCompanionsAsync();
+
+    private async Task TradeItemAsync()
+    {
+        var item = SelectedTradeItem;
+        if (!CanTrade || item is null) return;
+
+        working = true;
+        string? tradeMessage = null;
+        var tradeSucceeded = false;
+        try
+        {
+            var result = await Api.TradeQuestingCompanionItemAsync(new(
+                leaderName, tradeCompanionName, tradeRecipientName,
+                item.Bag, item.Slot, item.ItemGuid, item.ItemId, tradeQuantity));
+            tradeSucceeded = true;
+            tradeMessage = result?.Message
+                ?? "The item was placed in the trade window.";
+        }
+        catch (Exception exception)
+        {
+            tradeMessage = exception.Message;
+        }
+        finally
+        {
+            working = false;
+            await LoadCompanionsAsync();
+            operationSucceeded = tradeSucceeded;
+            operationPartiallySucceeded = false;
+            message = tradeMessage;
+        }
+    }
+
+    private async Task UseCommandAsync(string command)
+    {
+        commandText = command;
+        focusCommand = true;
+        await Task.CompletedTask;
+    }
+
+    private bool IsUsefulExample(string command) => customExamples.Contains(
+        command, StringComparer.OrdinalIgnoreCase);
+
+    private async Task AddUsefulExampleAsync(string command)
+    {
+        customExamples = await RecentSelections.RememberAsync(
+            RecentPickerKeys.CompanionCommandExamples, command, value => value);
+    }
+
+    private async Task RemoveUsefulExampleAsync(string command)
+    {
+        customExamples = await RecentSelections.SetAsync(
+            RecentPickerKeys.CompanionCommandExamples,
+            customExamples.Where(value => !value.Equals(
+                command, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private async Task HandleCommandKeyDown(KeyboardEventArgs eventArgs)
+    {
+        if (eventArgs.Key == "Enter" && CanSend)
+            await SendAsync();
+    }
+
+    private static string ClassName(int value) => value switch
+    {
+        1 => "Warrior", 2 => "Paladin", 3 => "Hunter", 4 => "Rogue",
+        5 => "Priest", 6 => "Death Knight", 7 => "Shaman", 8 => "Mage",
+        9 => "Warlock", 11 => "Druid", _ => $"Class {value}"
+    };
+
+    private static string QualityClass(int quality) => quality switch
+    {
+        0 => "quality-poor", 2 => "quality-uncommon", 3 => "quality-rare",
+        4 => "quality-epic", 5 => "quality-legendary", 7 => "quality-heirloom",
+        _ => "quality-common"
+    };
+
+    private static string QualityName(int quality) => quality switch
+    {
+        0 => "Poor", 1 => "Common", 2 => "Uncommon", 3 => "Rare",
+        4 => "Epic", 5 => "Legendary", 6 => "Artifact", 7 => "Heirloom",
+        _ => "Unknown quality"
+    };
+
+    public void Dispose()
+    {
+        SelectedCharacterStore.SelectionChanged -= OnHeaderSelectionChanged;
+        SelectedCharacterStore.SelectedCharactersChanged -= OnHeaderCharactersChanged;
+    }
+
+    private sealed record CommandResult(
+        string CompanionName, bool Succeeded, string Message);
+}

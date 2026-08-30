@@ -1,39 +1,84 @@
 @page "/questing-companions"
-@rendermode InteractiveServer
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "adventures.quests")]
 @implements IAsyncDisposable
 @inject AccountsApiClient Api
 @inject Microsoft.AspNetCore.Components.Authorization.AuthenticationStateProvider AuthenticationStateProvider
+@inject AzerothCore_UI.Web.Services.SelectedCharacterStore SelectedCharacterStore
 
 <PageTitle>Questing companions</PageTitle>
-<p class="text-muted">
-    Play the leader normally while selected characters follow, fight, complete shared
-    quests, and accept eligible personal class or profession quests as PlayerBots.
-</p>
+<div class="companion-sanctum">
+<div class="companion-hero">
+    <div><span class="eyebrow">HOUSEHOLD PARTY COMMAND</span><h2>Questing Companion Hall</h2>
+        <p>Lead the adventure normally while trusted heroes follow, fight, gather and share the journey.</p></div>
+    <div class="companion-rune"><span>PARTIES REMEMBERED</span><small>Independent groups for every household player</small></div>
+</div>
 
 @if (!string.IsNullOrWhiteSpace(message))
 {
     <div class="alert @(operationSucceeded ? "alert-success" : "alert-danger")">@message</div>
 }
 
-<div class="row g-3">
+@if (RememberedSessions.Count > 0)
+{
+    <div class="remembered-parties">
+        <span class="section-label">REMEMBERED COMPANION PARTIES</span>
+        <div>
+            @foreach (var session in RememberedSessions)
+            {
+                <button type="button" class="remembered-party @(leaderName.Equals(session.LeaderName, StringComparison.OrdinalIgnoreCase) ? "selected" : null)"
+                        @onclick="() => RestoreSessionAsync(session)">
+                    <span class="party-crown">♛</span>
+                    <strong>@session.LeaderName</strong>
+                    <small>@(session.LeaderOnline ? "Online leader" : "Offline grace") · @session.Companions.Count companion(s)</small>
+                    <span class="party-lineup">@string.Join(" · ", session.Companions.Select(companion => companion.Name))</span>
+                </button>
+            }
+        </div>
+    </div>
+}
+
+<div class="row g-2">
     <div class="col-12 col-xl-6">
-        <div class="card h-100">
-            <div class="card-header">1. Online leader</div>
+        <div class="card companion-card h-100">
+            <div class="card-header"><span class="step-rune">I</span> Online party leader</div>
             <div class="card-body">
-                <CharacterPicker Items="LeaderItems" AllowBots="false"
-                                 SelectedValue="leaderName"
-                                 SelectedValueChanged="SelectLeaderAsync" />
+                @if (string.IsNullOrWhiteSpace(leaderName))
+                {
+                    <div class="header-selection-empty">Select an online hero in the realm header.</div>
+                }
+                else
+                {
+                    var leader = realmRoster?.AvailableHeroes?.FirstOrDefault(player => player.Name.Equals(
+                        leaderName, StringComparison.OrdinalIgnoreCase));
+                    <div class="header-party-member leader">
+                        <span class="party-crown">♛</span>
+                        <span><strong>@leaderName</strong><small>Level @leader?.Level · @leader?.Username</small></span>
+                        <b>LEADER</b>
+                    </div>
+                }
+                <div class="form-text">The selected party's online leader is resolved from the realm header.</div>
                 <p class="small text-muted mt-2 mb-0">
                     This is the character you continue to control in the WoW client.
                 </p>
+                @if (CurrentSession is not null)
+                {
+                    <div class="retention-setting">
+                        <div><strong>Remember this party</strong><small>After its leader goes offline</small></div>
+                        <select class="form-select form-select-sm" @bind="offlineTimeoutMinutes" @bind:after="SaveTimeoutAsync" disabled="@working">
+                            <option value="1">1 minute</option><option value="5">5 minutes</option>
+                            <option value="10">10 minutes</option><option value="15">15 minutes</option>
+                            <option value="30">30 minutes</option><option value="60">1 hour</option>
+                            <option value="120">2 hours</option>
+                        </select>
+                    </div>
+                }
             </div>
         </div>
     </div>
 
     <div class="col-12 col-xl-6">
-        <div class="card h-100">
-            <div class="card-header">2. Offline companions</div>
+        <div class="card companion-card h-100">
+            <div class="card-header"><span class="step-rune">II</span> Choose companions</div>
             <div class="card-body">
                 @if (status is null)
                 {
@@ -41,13 +86,30 @@
                 }
                 else
                 {
-                    <CharacterPicker Items="CompanionItems" Multiple="true"
-                                     AllowBots="false" ShowOfflineInitially="true"
-                                     RememberSelection="false"
-                                     PreserveItemOrder="true"
-                                     MaximumSelections="4"
-                                     SelectedValues="selectedCompanions"
-                                     SelectedValuesChanged="SetCompanions" />
+                    var selectedLineup = HeaderCompanionNames;
+                    @if (selectedLineup.Count == 0)
+                    {
+                        <div class="header-selection-empty">Add offline heroes in the realm header to form the companion line-up.</div>
+                    }
+                    else
+                    {
+                        <div class="header-companion-lineup">
+                            @foreach (var name in selectedLineup)
+                            {
+                                var active = status.ActiveCompanions.Any(companion =>
+                                    companion.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+                                var ready = selectedCompanions.Contains(name);
+                                var candidate = status.Candidates.FirstOrDefault(value =>
+                                    value.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+                                <div class="header-party-member @(active ? "active" : ready ? "ready" : "unavailable")">
+                                    <span>✦</span>
+                                    <span><strong>@name</strong><small>@candidate?.Username</small></span>
+                                    <b>@(active ? "ACTIVE" : ready ? "READY" : "UNAVAILABLE")</b>
+                                </div>
+                            }
+                        </div>
+                    }
+                    <div class="form-text">The header is the single source of truth: leader first, then up to four companions.</div>
                     @if (UnavailableCandidates.Count > 0)
                     {
                         <details class="small text-muted mt-2">
@@ -105,7 +167,7 @@
                                     disabled="@working" @onclick="CancelAccountLink">Cancel</button>
                         </div>
                     }
-                    <button class="btn btn-primary mt-3" type="button"
+                    <button class="companion-action mt-3" type="button"
                             disabled="@(working || selectedCompanions.Count == 0)"
                             @onclick="StartAsync">
                         Start selected companions
@@ -262,52 +324,6 @@
     *@
 </div>
 
-@if (status is { ActiveCompanions.Count: > 0 })
-{
-    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3 mb-2">
-        <div>
-            <h2 class="h5 mb-0">Companion controls</h2>
-            <span class="small text-muted">Quest progress remains available in the in-game addon.</span>
-        </div>
-        <div class="d-flex align-items-center gap-2">
-            @if (status.ProtocolVersion > 0)
-            {
-                <span class="badge text-bg-secondary">Bridge v@status.ProtocolVersion</span>
-            }
-            <button class="btn btn-sm btn-outline-secondary" type="button"
-                    disabled="@(working || string.IsNullOrWhiteSpace(leaderName))"
-                    @onclick="RefreshAsync">Refresh</button>
-        </div>
-    </div>
-    @if (status.ProtocolVersion < 2)
-    {
-        <div class="alert alert-warning py-2 small">
-            Equipment, bag contents and maintenance controls require bridge protocol 2.
-            Build and install the current mod-web-admin source when convenient.
-        </div>
-    }
-    else
-    {
-        <div class="row g-3">
-            @foreach (var companion in status.ActiveCompanions)
-            {
-                <div class="col-12 col-xxl-6">
-                    <CompanionManagementPanel @key="companion.Name"
-                        LeaderName="@leaderName" Companion="companion"
-                        ProtocolVersion="status.ProtocolVersion" Disabled="working"
-                        DismissRequested="DismissAsync"
-                        BehaviorRequested="SetBehaviorAsync"
-                        PresetRequested="SetPresetAsync"
-                        RegroupRequested="RegroupCompanionAsync"
-                        ResetRequested="ResetCompanionAsync"
-                        ProtectionRequested="SetEquipmentProtectionAsync"
-                        RefreshRequested="RefreshAsync" />
-                </div>
-            }
-        </div>
-    }
-}
-
 <div class="alert alert-info mt-3 mb-0">
     Any offline, same-faction character in your assigned WoW accounts can be a companion.
     Characters on the leader's account are trusted automatically; characters on another
@@ -319,10 +335,12 @@
     party loot must be enabled in PlayerBots for this to work consistently. Scripted or
     item-started quests may still need manual help.
 </div>
+</div>
 
 @code {
     private IReadOnlyList<AdministrationPlayer> players = [];
     private QuestingCompanionStatus? status;
+    private RealmRosterSnapshot? realmRoster;
     private string leaderName = "";
     private IReadOnlySet<string> selectedCompanions =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -332,40 +350,53 @@
     private QuestingCompanionCandidate? pendingLinkCandidate;
     private readonly CancellationTokenSource refreshCancellation = new();
     private Task? refreshLoop;
+    private string signedInUsername = "";
+    private int offlineTimeoutMinutes = 5;
+    private IReadOnlyList<string> headerSelectedNames = [];
+    private int headerSelectionGeneration;
 
-    private IReadOnlyList<CharacterPickerItem> LeaderItems => players
-        .Where(player => player.Online && !player.IsPlayerBot
-            && (status?.ActiveCompanions.All(companion =>
-                !companion.Name.Equals(player.Name,
-                    StringComparison.OrdinalIgnoreCase)) ?? true))
-        .Select(player => new CharacterPickerItem(
-            player.Name, player.Name, $"Account {player.Username}", true))
-        .ToArray();
+    private IReadOnlyList<CompanionPartySession> RememberedSessions =>
+        realmRoster?.CompanionSessions
+            .OrderByDescending(session => session.LeaderOnline)
+            .ThenByDescending(session => session.StartedAtUtc).ToArray() ?? [];
+    private CompanionPartySession? CurrentSession => RememberedSessions.FirstOrDefault(
+        session => session.LeaderName.Equals(leaderName, StringComparison.OrdinalIgnoreCase));
 
     private IReadOnlyList<QuestingCompanionCandidate> AvailableCandidates =>
         status?.Candidates
             .Where(candidate => !candidate.Online && candidate.SameFaction
                 && candidate.ControlAllowed)
+            .OrderBy(candidate => candidate.Level)
+            .ThenBy(candidate => candidate.Username, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(candidate => candidate.Name, StringComparer.OrdinalIgnoreCase)
             .ToArray() ?? [];
 
     private IReadOnlyList<QuestingCompanionCandidate> UnavailableCandidates =>
-        status?.Candidates.Except(AvailableCandidates).ToArray() ?? [];
+        status?.Candidates.Except(AvailableCandidates)
+            .OrderBy(candidate => candidate.Level)
+            .ThenBy(candidate => candidate.Username, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(candidate => candidate.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray() ?? [];
 
-    private IReadOnlyList<CharacterPickerItem> CompanionItems =>
-        AvailableCandidates.Select(candidate => new CharacterPickerItem(
-            candidate.Name, candidate.Name,
-            $"Level {candidate.Level} {ClassName(candidate.CharacterClass)} · {candidate.Username}",
-            false)).ToArray();
+    private IReadOnlyList<string> HeaderCompanionNames => headerSelectedNames
+        .Where(name => !name.Equals(leaderName, StringComparison.OrdinalIgnoreCase))
+        .ToArray();
 
     protected override async Task OnInitializedAsync()
     {
+        SelectedCharacterStore.SelectionChanged += OnHeaderSelectionChanged;
+        SelectedCharacterStore.SelectedCharactersChanged += OnHeaderCharactersChanged;
         try
         {
             players = await Api.GetAdministrationPlayersAsync();
             var authenticationState =
                 await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            signedInUsername = authenticationState.User.Identity?.Name ?? "";
             canManageAccountLinks = authenticationState.User.IsInRole("Owner")
                 || authenticationState.User.IsInRole("Administrator");
+            try { realmRoster = await Api.GetRealmRosterAsync(); }
+            catch { realmRoster = null; }
+            await ApplyHeaderSelectionAsync(allowRememberedFallback: true);
             refreshLoop = RefreshLoopAsync(refreshCancellation.Token);
         }
         catch (Exception exception)
@@ -376,18 +407,146 @@
 
     private async Task SelectLeaderAsync(string? value)
     {
+        if (leaderName.Equals(value, StringComparison.OrdinalIgnoreCase) && status is not null)
+            return;
         leaderName = value ?? "";
         selectedCompanions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         status = null;
         pendingLinkCandidate = null;
         message = null;
+        var remembered = CurrentSession;
+        offlineTimeoutMinutes = remembered?.OfflineTimeoutMinutes ?? 5;
         if (!string.IsNullOrWhiteSpace(leaderName)) await RefreshAsync();
     }
 
-    private Task SetCompanions(IReadOnlySet<string> values)
+    private async Task ApplyHeaderSelectionAsync(bool allowRememberedFallback = false)
     {
-        selectedCompanions = values;
-        return Task.CompletedTask;
+        var selectedNames = await SelectedCharacterStore.GetSelectedAsync();
+        var activeName = await SelectedCharacterStore.GetAsync();
+        headerSelectedNames = selectedNames.ToArray();
+
+        var selectedSet = selectedNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var selectedParty = realmRoster?.Parties
+            .Where(party => party.Live && party.Members.Any(member =>
+                selectedSet.Contains(member.Name)))
+            .OrderByDescending(party => party.LeaderName.Equals(
+                activeName, StringComparison.OrdinalIgnoreCase))
+            .ThenByDescending(party => party.Members.Any(member => member.Name.Equals(
+                activeName, StringComparison.OrdinalIgnoreCase)))
+            .FirstOrDefault();
+        var activePlayer = players.FirstOrDefault(player =>
+            player.Online && !player.IsPlayerBot && player.Name.Equals(
+                activeName, StringComparison.OrdinalIgnoreCase));
+        var selectedPlayer = selectedNames.Select(name => players.FirstOrDefault(player =>
+                player.Online && !player.IsPlayerBot && player.Name.Equals(
+                    name, StringComparison.OrdinalIgnoreCase)))
+            .FirstOrDefault(player => player is not null);
+        var desiredLeader = selectedParty?.LeaderName
+            ?? activePlayer?.Name
+            ?? selectedPlayer?.Name;
+
+        if (!string.IsNullOrWhiteSpace(desiredLeader))
+        {
+            await SelectLeaderAsync(desiredLeader);
+            SynchronizeSelectedCompanions();
+            return;
+        }
+
+        var matchingSession = RememberedSessions.FirstOrDefault(session =>
+            selectedSet.Contains(session.LeaderName)
+            || session.Companions.Any(companion => selectedSet.Contains(companion.Name)));
+        if (matchingSession is not null)
+        {
+            leaderName = matchingSession.LeaderName;
+            offlineTimeoutMinutes = matchingSession.OfflineTimeoutMinutes;
+            if (matchingSession.LeaderOnline) await RefreshAsync();
+            SynchronizeSelectedCompanions();
+            return;
+        }
+
+        if (allowRememberedFallback && selectedNames.Count == 0)
+        {
+            var restored = RememberedSessions.FirstOrDefault(session =>
+                    session.LeaderOnline && session.StartedByUsername.Equals(
+                        signedInUsername, StringComparison.OrdinalIgnoreCase))
+                ?? RememberedSessions.FirstOrDefault(session => session.LeaderOnline)
+                ?? RememberedSessions.FirstOrDefault();
+            if (restored is not null)
+            {
+                leaderName = restored.LeaderName;
+                offlineTimeoutMinutes = restored.OfflineTimeoutMinutes;
+                headerSelectedNames = new[] { restored.LeaderName }.Concat(
+                    restored.Companions.Select(companion => companion.Name)).ToArray();
+                await SelectedCharacterStore.SetSelectedAsync(
+                    headerSelectedNames, restored.LeaderName);
+                if (restored.LeaderOnline) await RefreshAsync();
+                SynchronizeSelectedCompanions();
+                return;
+            }
+        }
+
+        leaderName = "";
+        status = null;
+        selectedCompanions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private void SynchronizeSelectedCompanions() => selectedCompanions =
+        AvailableCandidates.Where(candidate => headerSelectedNames.Contains(
+                candidate.Name, StringComparer.OrdinalIgnoreCase))
+            .Select(candidate => candidate.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    private void OnHeaderSelectionChanged(string _) => QueueHeaderSelection();
+
+    private void OnHeaderCharactersChanged(IReadOnlyList<string> _) =>
+        QueueHeaderSelection();
+
+    private void QueueHeaderSelection()
+    {
+        var generation = Interlocked.Increment(ref headerSelectionGeneration);
+        _ = InvokeAsync(async () =>
+        {
+            await Task.Yield();
+            if (generation != headerSelectionGeneration) return;
+            await ApplyHeaderSelectionAsync();
+            StateHasChanged();
+        });
+    }
+
+    private async Task RestoreSessionAsync(CompanionPartySession session)
+    {
+        leaderName = session.LeaderName;
+        offlineTimeoutMinutes = session.OfflineTimeoutMinutes;
+        selectedCompanions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        await SelectedCharacterStore.SetSelectedAsync(
+            new[] { session.LeaderName }.Concat(
+                session.Companions.Select(companion => companion.Name)),
+            session.LeaderName);
+        if (session.LeaderOnline) await RefreshAsync();
+        else
+        {
+            status = null;
+            operationSucceeded = true;
+            message = $"{session.LeaderName}'s party is remembered while the leader is briefly offline.";
+        }
+    }
+
+    private async Task SaveTimeoutAsync()
+    {
+        if (string.IsNullOrWhiteSpace(leaderName) || CurrentSession is null) return;
+        try
+        {
+            var result = await Api.SetCompanionPartyTimeoutAsync(
+                new(leaderName, offlineTimeoutMinutes));
+            operationSucceeded = true;
+            message = result?.Message;
+            realmRoster = await Api.GetRealmRosterAsync();
+        }
+        catch (Exception exception)
+        {
+            operationSucceeded = false;
+            message = exception.Message;
+        }
     }
 
     private void RequestAccountLink(QuestingCompanionCandidate candidate, bool linked)
@@ -410,6 +569,7 @@
             message = result?.Message;
             pendingLinkCandidate = null;
             status = await Api.GetQuestingCompanionsAsync(leaderName);
+            try { realmRoster = await Api.GetRealmRosterAsync(); } catch { }
         }
         catch (Exception exception)
         {
@@ -427,6 +587,7 @@
         {
             players = await Api.GetAdministrationPlayersAsync();
             status = await Api.GetQuestingCompanionsAsync(leaderName);
+            try { realmRoster = await Api.GetRealmRosterAsync(); } catch { }
             operationSucceeded = true;
             message = null;
         }
@@ -453,6 +614,7 @@
             selectedCompanions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             await Task.Delay(1500);
             status = await Api.GetQuestingCompanionsAsync(leaderName);
+            try { realmRoster = await Api.GetRealmRosterAsync(); } catch { }
         }
         catch (Exception exception)
         {
@@ -605,7 +767,17 @@
                     try
                     {
                         players = await Api.GetAdministrationPlayersAsync();
-                        status = await Api.GetQuestingCompanionsAsync(leaderName);
+                        try { realmRoster = await Api.GetRealmRosterAsync(); } catch { }
+                        var leaderOnline = players.Any(player => !player.IsPlayerBot
+                            && player.Online && player.Name.Equals(leaderName,
+                                StringComparison.OrdinalIgnoreCase));
+                        if (leaderOnline)
+                            status = await Api.GetQuestingCompanionsAsync(leaderName);
+                        else if (CurrentSession is null)
+                        {
+                            leaderName = "";
+                            status = null;
+                        }
                         operationSucceeded = true;
                         message = null;
                         StateHasChanged();
@@ -624,9 +796,12 @@
 
     public async ValueTask DisposeAsync()
     {
+        SelectedCharacterStore.SelectionChanged -= OnHeaderSelectionChanged;
+        SelectedCharacterStore.SelectedCharactersChanged -= OnHeaderCharactersChanged;
         await refreshCancellation.CancelAsync();
         if (refreshLoop is not null)
             await refreshLoop;
         refreshCancellation.Dispose();
     }
+
 }

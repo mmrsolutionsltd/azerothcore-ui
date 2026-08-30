@@ -1,7 +1,5 @@
 @page "/accounts"
-@page "/"
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "players.accounts")]
-@rendermode InteractiveServer
 @using AzerothCore_UI.Web.Models
 @inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
 

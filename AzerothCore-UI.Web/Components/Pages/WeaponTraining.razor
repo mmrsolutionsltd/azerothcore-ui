@@ -1,5 +1,4 @@
 @page "/weapon-training"
-@rendermode InteractiveServer
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "adventures.training")]
 @using AzerothCore_UI.Web.Models
 @inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
@@ -26,9 +25,9 @@ else
 
     <div class="card mb-4">
         <div class="card-body">
-            <label class="form-label">Character</label>
-            <CharacterPicker Items="@PickerItems" AllowBots="true"
-                             SelectedValue="@playerName" SelectedValueChanged="SelectPlayer" />
+            <SharedCharacterSelection Items="@PickerItems"
+                                      SelectedValueChanged="SelectPlayer" />
+            <div class="form-text">Using the active hero selected in the header.</div>
             <button class="btn btn-primary btn-sm mt-2" disabled="@(!CanLoad)"
                     @onclick="LoadTrainingAsync">Load training</button>
             @if (!string.IsNullOrWhiteSpace(playerName) && SelectedPlayer?.Online != true)

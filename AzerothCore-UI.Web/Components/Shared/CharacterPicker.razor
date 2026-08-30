@@ -1,5 +1,6 @@
 @using AzerothCore_UI.Web.Models
 @inject AzerothCore_UI.Web.Services.SelectedCharacterStore SelectedCharacterStore
+@implements IDisposable
 
 <div class="character-picker border rounded p-2">
 	<div class="character-picker-heading d-flex flex-wrap align-items-center gap-2 mb-2">
@@ -102,6 +103,7 @@
 	{
 		showOffline = ShowOfflineInitially;
 		showBots = AllowBots && ShowBotsInitially;
+		SelectedCharacterStore.SelectionChanged += OnSharedSelectionChanged;
 	}
 
 	protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -151,21 +153,24 @@
 		if (!Multiple)
 		{
 			var selectedItem = Items.FirstOrDefault(item => item.Value == value);
-			if (selectedItem is { IsPlayerBot: false })
+			var nextValue = string.Equals(SelectedValue, value, StringComparison.Ordinal)
+				? null : value;
+			await SelectedValueChanged.InvokeAsync(nextValue);
+			if (nextValue is not null && RememberSelection
+				&& selectedItem is { IsPlayerBot: false })
 				await SelectedCharacterStore.SetAsync(selectedItem.Name);
-			await SelectedValueChanged.InvokeAsync(
-				string.Equals(SelectedValue, value, StringComparison.Ordinal) ? null : value);
 			return;
 		}
 		var values = SelectedValues.ToHashSet(StringComparer.OrdinalIgnoreCase);
+		CharacterPickerItem? rememberedItem = null;
 		if (!values.Remove(value) && values.Count < MaximumSelections)
 		{
 			values.Add(value);
-			var selectedItem = Items.FirstOrDefault(item => item.Value == value);
-			if (RememberSelection && selectedItem is { IsPlayerBot: false })
-				await SelectedCharacterStore.SetAsync(selectedItem.Name);
+			rememberedItem = Items.FirstOrDefault(item => item.Value == value);
 		}
 		await SelectedValuesChanged.InvokeAsync(values);
+		if (RememberSelection && rememberedItem is { IsPlayerBot: false })
+			await SelectedCharacterStore.SetAsync(rememberedItem.Name);
 	}
 
 	private async Task SelectOnlineAsync()
@@ -188,12 +193,11 @@
 
 	private async Task SelectOnlyAsync(CharacterPickerItem item)
 	{
-		if (RememberSelection && !item.IsPlayerBot)
-			await SelectedCharacterStore.SetAsync(item.Name);
-
 		if (!Multiple)
 		{
 			await SelectedValueChanged.InvokeAsync(item.Value);
+			if (RememberSelection && !item.IsPlayerBot)
+				await SelectedCharacterStore.SetAsync(item.Name);
 			return;
 		}
 
@@ -201,8 +205,28 @@
 			? new HashSet<string>([item.Value], StringComparer.OrdinalIgnoreCase)
 			: new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 		await SelectedValuesChanged.InvokeAsync(values);
+		if (RememberSelection && !item.IsPlayerBot)
+			await SelectedCharacterStore.SetAsync(item.Name);
 	}
 
 	private Task ClearAsync() =>
 		SelectedValuesChanged.InvokeAsync(new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+
+	private void OnSharedSelectionChanged(string characterName)
+	{
+		var item = Items.FirstOrDefault(candidate => !candidate.IsPlayerBot
+			&& candidate.Name.Equals(characterName, StringComparison.OrdinalIgnoreCase));
+		if (item is null || IsSelected(item.Value)) return;
+		_ = InvokeAsync(async () =>
+		{
+			if (Multiple)
+				await SelectedValuesChanged.InvokeAsync(
+					new HashSet<string>([item.Value], StringComparer.OrdinalIgnoreCase));
+			else
+				await SelectedValueChanged.InvokeAsync(item.Value);
+		});
+	}
+
+	public void Dispose() =>
+		SelectedCharacterStore.SelectionChanged -= OnSharedSelectionChanged;
 }

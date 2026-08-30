@@ -33,6 +33,7 @@ else if (OperatingSystem.IsLinux())
 builder.Services.AddSingleton<AzerothCore_UI.Api.Data.AzerothCoreConnectionFactory>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Data.AdministrationAccountStore>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Data.CompanionLogisticsStore>();
+builder.Services.AddSingleton<AzerothCore_UI.Api.Data.CompanionPartySessionStore>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Security.AdministrationPasswordHasher>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Security.AdministrationRequestAuthorizer>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Security.AdministrationActivityAudit>();
@@ -52,6 +53,9 @@ builder.Services.AddSingleton<AzerothCore_UI.Api.Services.OperationsAlertStore>(
 builder.Services.AddSingleton<AzerothCore_UI.Api.Services.OperationsEmailSender>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Services.OperationsDashboardService>();
 builder.Services.AddSingleton<AzerothCore_UI.Api.Services.DungeonGuideService>();
+builder.Services.AddSingleton<AzerothCore_UI.Api.Services.CraftingRecipeCatalog>();
+builder.Services.AddSingleton<AzerothCore_UI.Api.Services.CraftingUpgradeService>();
+builder.Services.AddSingleton<AzerothCore_UI.Api.Services.RealmRosterService>();
 builder.Services.AddHostedService<AzerothCore_UI.Api.Services.DatabaseBackupWorker>();
 builder.Services.AddHostedService<AzerothCore_UI.Api.Services.OperationsAlertWorker>();
 builder.Services.AddHealthChecks()

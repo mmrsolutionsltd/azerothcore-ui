@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text.Json;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.JSInterop;
 
@@ -8,28 +9,162 @@ public sealed class SelectedCharacterStore(
     IJSRuntime javascript,
     AuthenticationStateProvider authenticationStateProvider)
 {
+    public const int MaximumCharacters = 5;
+
+    private readonly List<string> selectedCharacters = [];
+    private string? current;
+    private bool loaded;
+
+    public event Action<string>? SelectionChanged;
+    public event Action<IReadOnlyList<string>>? SelectedCharactersChanged;
+
     public async ValueTask<string?> GetAsync()
     {
-        try
-        {
-            return await javascript.InvokeAsync<string?>(
-                "localStorage.getItem", await KeyAsync());
-        }
-        catch (Exception exception) when (
-            exception is InvalidOperationException or JSDisconnectedException
-                or TaskCanceledException)
-        {
-            return null;
-        }
+        await EnsureLoadedAsync();
+        return current;
+    }
+
+    public async ValueTask<IReadOnlyList<string>> GetSelectedAsync()
+    {
+        await EnsureLoadedAsync();
+        return selectedCharacters.ToArray();
     }
 
     public async ValueTask SetAsync(string characterName)
     {
         if (string.IsNullOrWhiteSpace(characterName)) return;
+        await EnsureLoadedAsync();
+        var normalized = characterName.Trim();
+        var listChanged = !selectedCharacters.Contains(
+            normalized, StringComparer.OrdinalIgnoreCase);
+        if (listChanged)
+        {
+            if (selectedCharacters.Count >= MaximumCharacters)
+                selectedCharacters.RemoveAt(0);
+            selectedCharacters.Add(normalized);
+        }
+        await SetCurrentAndPersistAsync(normalized, listChanged);
+    }
+
+    public async ValueTask<bool> AddAsync(string characterName)
+    {
+        if (string.IsNullOrWhiteSpace(characterName)) return false;
+        await EnsureLoadedAsync();
+        var normalized = characterName.Trim();
+        if (selectedCharacters.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+        {
+            await SetCurrentAndPersistAsync(normalized, false);
+            return true;
+        }
+        if (selectedCharacters.Count >= MaximumCharacters) return false;
+        selectedCharacters.Add(normalized);
+        await SetCurrentAndPersistAsync(normalized, true);
+        return true;
+    }
+
+    public async ValueTask RemoveAsync(string characterName)
+    {
+        await EnsureLoadedAsync();
+        var removed = selectedCharacters.RemoveAll(name => name.Equals(
+            characterName, StringComparison.OrdinalIgnoreCase)) > 0;
+        if (!removed) return;
+        var currentChanged = string.Equals(current, characterName,
+            StringComparison.OrdinalIgnoreCase);
+        if (currentChanged) current = selectedCharacters.LastOrDefault();
+        await PersistAsync();
+        SelectedCharactersChanged?.Invoke(selectedCharacters.ToArray());
+        if (currentChanged && current is not null) SelectionChanged?.Invoke(current);
+    }
+
+    public async ValueTask SetSelectedAsync(
+        IEnumerable<string> characterNames, string? activeCharacter = null)
+    {
+        await EnsureLoadedAsync();
+        var names = characterNames.Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name.Trim()).Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(MaximumCharacters).ToArray();
+        var listChanged = !selectedCharacters.SequenceEqual(
+            names, StringComparer.OrdinalIgnoreCase);
+        selectedCharacters.Clear();
+        selectedCharacters.AddRange(names);
+        var next = activeCharacter is not null && names.Contains(
+            activeCharacter, StringComparer.OrdinalIgnoreCase)
+            ? names.First(name => name.Equals(activeCharacter,
+                StringComparison.OrdinalIgnoreCase))
+            : names.LastOrDefault();
+        var currentChanged = !string.Equals(current, next,
+            StringComparison.OrdinalIgnoreCase);
+        current = next;
+        await PersistAsync();
+        if (listChanged) SelectedCharactersChanged?.Invoke(selectedCharacters.ToArray());
+        if (currentChanged && current is not null) SelectionChanged?.Invoke(current);
+    }
+
+    private async ValueTask EnsureLoadedAsync()
+    {
+        if (loaded) return;
+        loaded = true;
         try
         {
-            await javascript.InvokeVoidAsync(
-                "localStorage.setItem", await KeyAsync(), characterName);
+            var key = await KeyAsync();
+            current = await javascript.InvokeAsync<string?>(
+                "localStorage.getItem", key);
+            var serialized = await javascript.InvokeAsync<string?>(
+                "localStorage.getItem", $"{key}:party");
+            if (!string.IsNullOrWhiteSpace(serialized))
+            {
+                try
+                {
+                    selectedCharacters.AddRange(
+                        (JsonSerializer.Deserialize<string[]>(serialized) ?? [])
+                        .Where(name => !string.IsNullOrWhiteSpace(name))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Take(MaximumCharacters));
+                }
+                catch (JsonException)
+                {
+                    // Ignore malformed pre-release browser state.
+                }
+            }
+            if (!string.IsNullOrWhiteSpace(current)
+                && !selectedCharacters.Contains(current,
+                    StringComparer.OrdinalIgnoreCase))
+            {
+                if (selectedCharacters.Count >= MaximumCharacters)
+                    selectedCharacters.RemoveAt(0);
+                selectedCharacters.Add(current);
+            }
+        }
+        catch (Exception exception) when (
+            exception is InvalidOperationException or JSDisconnectedException
+                or TaskCanceledException)
+        {
+            // Browser storage is unavailable while prerendering/disconnecting.
+        }
+    }
+
+    private async ValueTask SetCurrentAndPersistAsync(
+        string characterName, bool listChanged)
+    {
+        var currentChanged = !string.Equals(current, characterName,
+            StringComparison.OrdinalIgnoreCase);
+        current = characterName;
+        await PersistAsync();
+        if (listChanged) SelectedCharactersChanged?.Invoke(selectedCharacters.ToArray());
+        if (currentChanged) SelectionChanged?.Invoke(characterName);
+    }
+
+    private async ValueTask PersistAsync()
+    {
+        try
+        {
+            var key = await KeyAsync();
+            if (string.IsNullOrWhiteSpace(current))
+                await javascript.InvokeVoidAsync("localStorage.removeItem", key);
+            else
+                await javascript.InvokeVoidAsync("localStorage.setItem", key, current);
+            await javascript.InvokeVoidAsync("localStorage.setItem", $"{key}:party",
+                JsonSerializer.Serialize(selectedCharacters));
         }
         catch (Exception exception) when (
             exception is InvalidOperationException or JSDisconnectedException

@@ -1,5 +1,4 @@
 @page "/security-dashboard"
-@rendermode InteractiveServer
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "security.audit")]
 @inject AccountsApiClient Api
 @inject AuthenticationStateProvider AuthenticationStateProvider

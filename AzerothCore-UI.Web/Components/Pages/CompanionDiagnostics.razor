@@ -1,0 +1,308 @@
+@page "/companion-diagnostics"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "adventures.quests")]
+@implements IAsyncDisposable
+@using AzerothCore_UI.Web.Models
+@inject AzerothCore_UI.Web.Clients.AccountsApiClient Api
+@inject AzerothCore_UI.Web.Services.SelectedCharacterStore SelectedCharacterStore
+
+<PageTitle>Companion diagnostics</PageTitle>
+
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+    <p class="text-muted mb-0">
+        Live activity, blockers and recent automation results for the selected leader's companions.
+    </p>
+    <div class="d-flex align-items-center gap-2">
+        <span class="small text-muted">Auto-refreshes every 5 seconds</span>
+        <button class="btn btn-sm btn-outline-primary" type="button"
+                disabled="@(loading || string.IsNullOrWhiteSpace(leaderName))"
+                @onclick="() => RefreshAsync()">Refresh now</button>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(message))
+{
+    <div class="alert @(operationSucceeded ? "alert-success" : "alert-danger")">@message</div>
+}
+
+<SharedCharacterSelection Items="LeaderItems"
+                          SelectedValueChanged="SelectLeaderAsync" />
+
+@if (loading && status is null)
+{
+    <p class="mt-3"><em>Loading companion activityâ€¦</em></p>
+}
+else if (!string.IsNullOrWhiteSpace(leaderName) && status?.ActiveCompanions.Count == 0)
+{
+    <div class="alert alert-secondary mt-3 mb-0">
+        @leaderName has no active companions.
+        <a href="questing-companions">Start one on the Questing companions page.</a>
+    </div>
+}
+else if (status is not null)
+{
+    <div class="row g-3 mt-0">
+        @foreach (var companion in status.ActiveCompanions)
+        {
+            var diagnostic = companion.Diagnostics;
+            <div class="col-12 col-xxl-6">
+                <article class="card h-100 @CardBorder(diagnostic)">
+                    <div class="card-header d-flex flex-wrap align-items-center gap-2">
+                        <strong>@companion.Name</strong>
+                        <span class="small text-muted">
+                            Level @companion.Level @ClassName(companion.CharacterClass)
+                        </span>
+                        <span class="badge @ActivityBadge(diagnostic)">@diagnostic.Activity</span>
+                        <span class="badge @(companion.InLeaderParty ? "text-bg-success" : "text-bg-danger")">
+                            @(companion.InLeaderParty ? "In party" : "Not in party")
+                        </span>
+                        <div class="btn-group btn-group-sm ms-auto" role="group"
+                             aria-label="Recovery actions for @companion.Name">
+                            <button class="btn btn-outline-primary" type="button"
+                                    disabled="@IsWorking(companion.Name)"
+                                    @onclick="() => RegroupAsync(companion.Name)">Regroup</button>
+                            <button class="btn btn-outline-warning" type="button"
+                                    disabled="@IsWorking(companion.Name)"
+                                    title="Clears transient targets and rebuilds follow, combat and loot behaviour"
+                                    @onclick="() => ResetAiAsync(companion.Name)">Reset AI</button>
+                            <AuthorizeView Policy="players.services">
+                                <Authorized>
+                                    <button class="btn btn-outline-danger" type="button"
+                                            disabled="@(diagnostic.Alive || IsWorking(companion.Name))"
+                                            @onclick="() => ReviveAsync(companion.Name)">Revive</button>
+                                </Authorized>
+                            </AuthorizeView>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <dl class="row diagnostics-grid mb-3">
+                            <dt class="col-sm-4">Current target</dt>
+                            <dd class="col-sm-8">@diagnostic.Target</dd>
+                            <dt class="col-sm-4">Destination</dt>
+                            <dd class="col-sm-8">@diagnostic.Destination</dd>
+                            <dt class="col-sm-4">Leader distance</dt>
+                            <dd class="col-sm-8">@Distance(diagnostic.DistanceFromLeader)</dd>
+                            <dt class="col-sm-4">Bag space</dt>
+                            <dd class="col-sm-8">
+                                @companion.FreeBagSlots / @companion.TotalBagSlots free
+                            </dd>
+                            <dt class="col-sm-4">Live flags</dt>
+                            <dd class="col-sm-8 d-flex flex-wrap gap-1">
+                                <span class="badge @(diagnostic.Alive ? "text-bg-success" : "text-bg-danger")">
+                                    @(diagnostic.Alive ? "Alive" : "Dead")
+                                </span>
+                                @if (diagnostic.InCombat)
+                                {
+                                    <span class="badge text-bg-danger">Combat</span>
+                                }
+                                @if (diagnostic.Moving)
+                                {
+                                    <span class="badge text-bg-info">Moving</span>
+                                }
+                                @if (!companion.LootEnabled)
+                                {
+                                    <span class="badge text-bg-warning">Loot disabled</span>
+                                }
+                            </dd>
+                        </dl>
+
+                        <div class="alert @BlockerAlert(diagnostic) py-2 mb-3">
+                            <strong>Blocker:</strong> @diagnostic.Blocker
+                        </div>
+
+                        <div class="row g-2 small">
+                            <div class="col-12 col-lg-6">
+                                <div class="diagnostic-result border rounded p-2 h-100">
+                                    <div class="fw-semibold text-success">Latest success</div>
+                                    <div>@diagnostic.LastSuccess</div>
+                                    <div class="text-muted">@Timestamp(diagnostic.LastSuccessAtUnix)</div>
+                                </div>
+                            </div>
+                            <div class="col-12 col-lg-6">
+                                <div class="diagnostic-result border rounded p-2 h-100">
+                                    <div class="fw-semibold text-danger">Latest failure</div>
+                                    <div>@diagnostic.LastFailure</div>
+                                    <div class="text-muted">@Timestamp(diagnostic.LastFailureAtUnix)</div>
+                                </div>
+                            </div>
+                            <div class="col-12 col-lg-6">
+                                <div class="diagnostic-result border rounded p-2 h-100">
+                                    <div class="fw-semibold">Quest-object collection</div>
+                                    <div>@companion.QuestObjectStatus</div>
+                                </div>
+                            </div>
+                            <div class="col-12 col-lg-6">
+                                <div class="diagnostic-result border rounded p-2 h-100">
+                                    <div class="fw-semibold">Bag maintenance</div>
+                                    <div>@companion.Logistics.Status</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </article>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private readonly CancellationTokenSource refreshCancellation = new();
+    private readonly HashSet<string> workingCompanions =
+        new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<AdministrationPlayer> players = [];
+    private QuestingCompanionStatus? status;
+    private Task? refreshLoop;
+    private string leaderName = "";
+    private string? message;
+    private bool operationSucceeded;
+    private bool loading;
+
+    private IReadOnlyList<CharacterPickerItem> LeaderItems => players
+        .Where(player => player.Online && !player.IsPlayerBot)
+        .Select(player => new CharacterPickerItem(
+            player.Name, player.Name, $"Account {player.Username}", true))
+        .ToArray();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            players = await Api.GetAdministrationPlayersAsync();
+            if (LeaderItems.Count == 1)
+            {
+                await SelectLeaderAsync(LeaderItems[0].Value);
+                if ((await SelectedCharacterStore.GetSelectedAsync()).Count == 0)
+                    await SelectedCharacterStore.SetAsync(LeaderItems[0].Name);
+            }
+        }
+        catch (Exception exception)
+        {
+            operationSucceeded = false;
+            message = exception.Message;
+        }
+        refreshLoop = RefreshLoopAsync(refreshCancellation.Token);
+    }
+
+    private async Task SelectLeaderAsync(string? value)
+    {
+        leaderName = value ?? "";
+        status = null;
+        message = null;
+        if (!string.IsNullOrWhiteSpace(leaderName))
+            await RefreshAsync();
+    }
+
+    private async Task RefreshAsync(bool clearMessage = true)
+    {
+        if (loading || string.IsNullOrWhiteSpace(leaderName)) return;
+        loading = true;
+        try
+        {
+            players = await Api.GetAdministrationPlayersAsync();
+            status = await Api.GetQuestingCompanionsAsync(leaderName);
+            operationSucceeded = true;
+            if (clearMessage)
+                message = null;
+        }
+        catch (Exception exception)
+        {
+            operationSucceeded = false;
+            message = exception.Message;
+        }
+        finally { loading = false; }
+    }
+
+    private Task RegroupAsync(string companion) => ExecuteAsync(
+        companion, "Regrouped",
+        () => Api.RegroupQuestingCompanionAsync(new(leaderName, companion)));
+
+    private Task ResetAiAsync(string companion) => ExecuteAsync(
+        companion, "Reset AI for",
+        () => Api.ResetQuestingCompanionAsync(new(leaderName, companion)));
+
+    private Task ReviveAsync(string companion) => ExecuteAsync(
+        companion, "Revived",
+        () => Api.ApplyCharacterServiceAsync(
+            new(companion, "revive", null, true)));
+
+    private async Task ExecuteAsync(
+        string companion, string action,
+        Func<Task<AdministrationResult?>> operation)
+    {
+        if (!workingCompanions.Add(companion)) return;
+        try
+        {
+            var result = await operation();
+            var actionSucceeded = result?.Success == true;
+            var actionMessage = result?.Message ?? $"{action} {companion}.";
+            await RefreshAsync(false);
+            operationSucceeded = actionSucceeded;
+            message = actionMessage;
+        }
+        catch (Exception exception)
+        {
+            operationSucceeded = false;
+            message = exception.Message;
+        }
+        finally { workingCompanions.Remove(companion); }
+    }
+
+    private bool IsWorking(string companion) =>
+        workingCompanions.Contains(companion);
+
+    private async Task RefreshLoopAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                if (loading || workingCompanions.Count > 0
+                    || string.IsNullOrWhiteSpace(leaderName))
+                    continue;
+                await InvokeAsync(async () =>
+                {
+                    await RefreshAsync(false);
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await refreshCancellation.CancelAsync();
+        if (refreshLoop is not null)
+            await refreshLoop;
+        refreshCancellation.Dispose();
+    }
+
+    private static string ActivityBadge(QuestingCompanionDiagnostics diagnostic) =>
+        diagnostic.Activity switch
+        {
+            "Fighting" => "text-bg-danger",
+            "Gathering" or "Following" or "Moving" => "text-bg-info",
+            "Dead" => "text-bg-dark",
+            "Waiting" or "Staying" => "text-bg-warning",
+            _ => "text-bg-secondary"
+        };
+
+    private static string CardBorder(QuestingCompanionDiagnostics diagnostic) =>
+        diagnostic.Blocker == "None" ? "border-success" : "border-warning";
+    private static string BlockerAlert(QuestingCompanionDiagnostics diagnostic) =>
+        diagnostic.Blocker == "None" ? "alert-success" : "alert-warning";
+    private static string Distance(double distance) => distance < 0
+        ? "Different map or instance" : $"{distance:0.0} metres";
+    private static string Timestamp(long unix) => unix <= 0
+        ? "Not recorded this session"
+        : DateTimeOffset.FromUnixTimeSeconds(unix).ToLocalTime()
+            .ToString("dd MMM HH:mm:ss");
+    private static string ClassName(int value) => value switch
+    {
+        1 => "Warrior", 2 => "Paladin", 3 => "Hunter", 4 => "Rogue",
+        5 => "Priest", 6 => "Death Knight", 7 => "Shaman", 8 => "Mage",
+        9 => "Warlock", 11 => "Druid", _ => $"Class {value}"
+    };
+}

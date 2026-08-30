@@ -1,0 +1,9 @@
+.diagnostics-grid dt,
+.diagnostics-grid dd {
+    margin-bottom: .35rem;
+}
+
+.diagnostic-result {
+    background: var(--bs-tertiary-bg);
+    overflow-wrap: anywhere;
+}

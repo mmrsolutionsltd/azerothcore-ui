@@ -1,5 +1,4 @@
 @page "/quest-helper"
-@rendermode InteractiveServer
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "adventures.quests")]
 @using AzerothCore_UI.Web.Models
 @inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
@@ -13,11 +12,8 @@
     <div class="alert @(operationSucceeded ? "alert-success" : "alert-danger")">@message</div>
 }
 
-<div class="card mb-4"><div class="card-body">
-    <label class="form-label">Character</label>
-    <CharacterPicker Items="@PickerItems" AllowBots="false"
-                     SelectedValue="@SelectedGuidValue" SelectedValueChanged="SelectCharacterAsync" />
-</div></div>
+<SharedCharacterSelection Items="@PickerItems"
+                          SelectedValueChanged="SelectCharacterAsync" />
 
 @if (isLoading)
 {

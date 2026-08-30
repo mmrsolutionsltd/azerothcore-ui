@@ -6,7 +6,7 @@ public static class ClientAddonPackageBuilder
 {
     public const string AddonName = "AzerothCompanion";
     private static readonly string[] IncludedFiles =
-        ["AzerothCompanion.toc", "AzerothCompanion.lua", "README.md"];
+        ["AzerothCompanion.toc", "AzerothCompanion.lua", "CasterAuto.lua", "README.md"];
 
     public static string ResolveAddonDirectory() => Path.Combine(
         AppContext.BaseDirectory, "ClientAddons", AddonName);
@@ -15,6 +15,7 @@ public static class ClientAddonPackageBuilder
     {
         var tocPath = RequiredFile(addonDirectory, "AzerothCompanion.toc");
         RequiredFile(addonDirectory, "AzerothCompanion.lua");
+        RequiredFile(addonDirectory, "CasterAuto.lua");
         var versionLine = File.ReadLines(tocPath).FirstOrDefault(line =>
             line.StartsWith("## Version:", StringComparison.OrdinalIgnoreCase));
         var version = versionLine?.Split(':', 2)[1].Trim();

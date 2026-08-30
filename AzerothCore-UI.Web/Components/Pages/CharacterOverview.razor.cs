@@ -55,4 +55,10 @@ public partial class CharacterOverview
             ? $"{duration.Days}d {duration.Hours}h"
             : $"{duration.Hours}h {duration.Minutes}m";
     }
+
+    private static string ClassGlyph(byte characterClass) => characterClass switch
+    {
+        1 => "⚔", 2 => "✦", 3 => "➶", 4 => "◆", 5 => "✧",
+        6 => "☠", 7 => "ϟ", 8 => "❄", 9 => "♜", 11 => "☘", _ => "◇"
+    };
 }

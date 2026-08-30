@@ -1,13 +1,11 @@
-.modal {
-    background: rgb(0 0 0 / 20%);
-}
+.modal { background:rgba(2,3,5,.78); }
 
 .picker-result-row {
     cursor: pointer;
 }
 
 .picker-result-row:focus-visible {
-    outline: 0.2rem solid rgba(13, 110, 253, 0.5);
+    outline: 0.2rem solid rgba(208, 154, 63, 0.72);
     outline-offset: -0.2rem;
 }
 

@@ -1,5 +1,4 @@
 @page "/dungeon-assistant"
-@rendermode InteractiveServer
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "adventures.dungeons")]
 @using AzerothCore_UI.Web.Models
 @inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
@@ -36,8 +35,9 @@ else
                     <div class="flex-grow-1">
                         <h2 class="h5">Dungeon party assistance</h2>
                         <label class="form-label" for="party-leader">Online real-player leader</label>
-                        <CharacterPicker Items="@AdministrationPickerItems" AllowBots="false"
-                                         SelectedValue="@partyLeader" SelectedValueChanged="SelectPartyLeader" />
+                        <SharedCharacterSelection Items="@AdministrationPickerItems"
+                                                  SelectedValueChanged="SelectPartyLeader" />
+                        <div class="form-text">Using the active online hero from the shared header.</div>
                     </div>
                     <div class="d-flex gap-2">
                         <button class="btn btn-outline-secondary" disabled="@(!CanUseSoap || isLoadingParty)" @onclick="LoadPartyAsync">Inspect party</button>

@@ -399,6 +399,18 @@ public sealed class AccountsApiClient(HttpClient httpClient)
     public Task<QuestingCompanionStatus?> GetQuestingCompanionsAsync(string leaderName) =>
         GetAdministrationAsync<QuestingCompanionStatus>(
             $"api/server-administration/questing-companions/{Uri.EscapeDataString(leaderName)}");
+
+    public Task<RealmRosterSnapshot?> GetRealmRosterAsync(
+        CancellationToken cancellationToken = default,
+        bool includeBots = false) =>
+        httpClient.GetFromJsonAsync<RealmRosterSnapshot>(
+            $"api/realm-roster?includeBots={includeBots.ToString().ToLowerInvariant()}",
+            cancellationToken);
+
+    public Task<AdministrationResult?> SetCompanionPartyTimeoutAsync(
+        CompanionPartyTimeoutRequest request) =>
+        PutResultAsync<CompanionPartyTimeoutRequest, AdministrationResult>(
+            "api/realm-roster/companion-party/timeout", request);
     public Task<AdministrationResult?> StartQuestingCompanionAsync(
         QuestingCompanionRequest request) =>
         PostAsync("api/server-administration/questing-companions/start", request);
@@ -417,6 +429,12 @@ public sealed class AccountsApiClient(HttpClient httpClient)
     public Task<AdministrationResult?> RegroupQuestingCompanionAsync(
         QuestingCompanionResetRequest request) =>
         PostAsync("api/server-administration/questing-companions/regroup", request);
+    public Task<AdministrationResult?> CommandQuestingCompanionAsync(
+        QuestingCompanionCommandRequest request) =>
+        PostAsync("api/server-administration/questing-companions/command", request);
+    public Task<AdministrationResult?> TradeQuestingCompanionItemAsync(
+        QuestingCompanionTradeRequest request) =>
+        PostAsync("api/server-administration/questing-companions/trade", request);
     public Task<AdministrationResult?> SetQuestingCompanionEquipmentProtectionAsync(
         QuestingCompanionEquipmentProtectionRequest request) =>
         PostAsync(
@@ -595,6 +613,15 @@ public sealed class AccountsApiClient(HttpClient httpClient)
         CancellationToken cancellationToken = default) =>
         await httpClient.GetFromJsonAsync<CharacterOverviewSummary[]>(
             "api/characters", cancellationToken) ?? [];
+
+    public Task<CraftingUpgradePlan?> GetCraftingUpgradePlanAsync(
+        uint targetGuid, int maximumSkillGap = 75, int futureLevelHorizon = 5,
+        bool includeSidegrades = false, CancellationToken cancellationToken = default) =>
+        httpClient.GetFromJsonAsync<CraftingUpgradePlan>(
+            $"api/crafting-upgrades/{targetGuid}?maximumSkillGap={maximumSkillGap}" +
+            $"&futureLevelHorizon={futureLevelHorizon}" +
+            $"&includeSidegrades={includeSidegrades.ToString().ToLowerInvariant()}",
+            cancellationToken);
 
     public async Task<IReadOnlyList<CharacterQuest>> GetCharacterQuestsAsync(
         uint guid,

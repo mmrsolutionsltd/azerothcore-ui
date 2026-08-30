@@ -1,6 +1,5 @@
 @page "/characters/{CharacterGuid:long}"
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "players.characters")]
-@rendermode InteractiveServer
 @using AzerothCore_UI.Web.Models
 @inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
 

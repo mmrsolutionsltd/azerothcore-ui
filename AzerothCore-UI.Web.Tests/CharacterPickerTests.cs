@@ -182,6 +182,22 @@ public sealed class CharacterPickerTests : BunitContext
             invocation => invocation.Identifier == "localStorage.setItem");
     }
 
+    [Fact]
+    public async Task SharedHeaderSelectionUpdatesAnExistingPicker()
+    {
+        string? selectedValue = null;
+        var picker = Render<CharacterPicker>(parameters => parameters
+            .Add(component => component.Items, Items)
+            .Add(component => component.RememberSelection, false)
+            .Add(component => component.SelectedValueChanged,
+                value => selectedValue = value));
+
+        await Services.GetRequiredService<SelectedCharacterStore>()
+            .SetAsync("Anduin");
+
+        picker.WaitForAssertion(() => Assert.Equal("anduin", selectedValue));
+    }
+
     private IRenderedComponent<CharacterPicker> RenderPicker(bool allowBots = true) =>
         Render<CharacterPicker>(parameters => parameters
             .Add(component => component.Items, Items)
