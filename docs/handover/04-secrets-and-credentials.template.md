@@ -14,5 +14,7 @@ Do not commit a filled copy. Keep values in a password manager or on the host wi
 | Dynu update credential | DDNS client | host service/config |
 | Caddy TLS state | HTTPS | service-managed state directory |
 | Website owner/admin credentials | UI login | `azerothcore_ui` database/password manager |
+| Claude SSH private key | Automation login | `C:\Users\<operator>\.ssh\azerothcore_claude` |
+| Claude MySQL credential | Automation SQL login | local secret file/password manager; MySQL user `claude_ops` |
 
 Former credentials shared in chat should be rotated. Give Claude only the minimum secret needed for an operation through an interactive prompt or short-lived environment variable; never place passwords in source, Git history, logs, screenshots, or this handover pack.
