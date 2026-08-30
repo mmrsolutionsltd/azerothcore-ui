@@ -5,7 +5,54 @@
 }
 
 .player-action-tool {
+    position: relative;
+    display: flex;
+    min-height: 100%;
     min-width: 0;
+    padding: .8rem;
+    border: 1px solid rgba(212, 175, 55, .34);
+    border-radius: .7rem;
+    background: linear-gradient(145deg, rgba(20, 27, 45, .96), rgba(11, 16, 30, .94));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), 0 8px 18px rgba(0, 0, 0, .16);
+}
+
+.player-action-tool::before {
+    position: absolute;
+    top: .45rem;
+    bottom: .45rem;
+    left: 0;
+    width: 2px;
+    border-radius: 2px;
+    background: linear-gradient(180deg, rgba(240, 201, 92, .75), rgba(83, 160, 255, .2));
+    content: "";
+}
+
+.player-action-tool > :first-child {
+    width: 100%;
+}
+
+::deep .player-action-tool {
+    font-size: .82rem;
+}
+
+::deep .player-action-tool .player-action-tool-heading h2 {
+    font-size: .88rem;
+    letter-spacing: .02em;
+}
+
+::deep .player-action-tool .form-control,
+::deep .player-action-tool .form-select,
+::deep .player-action-tool .btn {
+    font-size: .78rem;
+}
+
+::deep .player-action-tool .btn {
+    padding: .28rem .55rem;
+}
+
+::deep .player-action-tool small,
+::deep .player-action-tool .small {
+    font-size: .72rem;
 }
 
 @media (min-width: 992px) {
