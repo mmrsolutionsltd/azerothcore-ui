@@ -1,0 +1,84 @@
+@using AzerothCore_UI.Web.Models
+
+<article class="upgrade-card @CraftingVisuals.AvailabilityClass(Recommendation.Availability) @CraftingVisuals.QualityClass(Recommendation.Item.Quality)">
+    <div class="item-icon"><span>@CraftingVisuals.SlotGlyph(SlotId)</span></div>
+    <div class="item-main">
+        <div class="item-title-row">
+            <div>
+                <h4>@Recommendation.Item.Name</h4>
+                <span>Item level @Recommendation.Item.ItemLevel · Requires @Recommendation.Item.RequiredLevel</span>
+            </div>
+            <span class="availability-badge">@CraftingVisuals.AvailabilityLabel(Recommendation.Availability)</span>
+        </div>
+
+        <div class="stat-comparison">
+            @foreach (var delta in Recommendation.StatDeltas.Where(delta => Math.Abs(delta.Difference) > 0.001).Take(10))
+            {
+                <span class="@(delta.Difference > 0 ? "gain" : "loss")">
+                    @(delta.Difference > 0 ? "+" : "")@CraftingVisuals.FormatNumber(delta.Difference) @delta.Name
+                </span>
+            }
+            @if (!Recommendation.StatDeltas.Any(delta => Math.Abs(delta.Difference) > 0.001))
+            {
+                <span class="neutral">Comparable core stats</span>
+            }
+        </div>
+
+        <div class="source-line">
+            <strong>@Recommendation.SourceCharacterName</strong>
+            <span>@Recommendation.SourceUsername · @Recommendation.SourceLocation</span>
+        </div>
+
+        @if (Recommendation.ProfessionName is not null)
+        {
+            <div class="skill-path">
+                <div>
+                    <span>@Recommendation.ProfessionName</span>
+                    <strong>@Recommendation.CurrentSkill / @Recommendation.RequiredSkill required</strong>
+                </div>
+                <div class="skill-track"><span style="width:@CraftingVisuals.SkillPercent(Recommendation)%"></span></div>
+                @if (Recommendation.SkillGap > 0)
+                {
+                    <small>Raise @Recommendation.ProfessionName by @Recommendation.SkillGap skill, then @Recommendation.RecipeSource.ToLowerInvariant().</small>
+                }
+                else
+                {
+                    <small>@Recommendation.RecipeSource</small>
+                }
+            </div>
+        }
+
+        @if (Recommendation.Materials.Count > 0)
+        {
+            <div class="materials">
+                @foreach (var material in Recommendation.Materials)
+                {
+                    var ready = material.ScopedQuantity >= material.RequiredQuantity;
+                    <span class="@(ready ? "ready" : "missing")" title="Crafter carries @material.CrafterQuantity; scoped characters hold @material.ScopedQuantity">
+                        @material.Name @material.ScopedQuantity/@material.RequiredQuantity
+                    </span>
+                }
+            </div>
+        }
+        @if (Recommendation.ProgressionSteps.Count > 0)
+        {
+            <details class="progression-map" open="@(Recommendation.Availability == "Progression")">
+                <summary>@Recommendation.ProgressionSteps.Count-step crafting path</summary>
+                <ol>
+                    @foreach (var step in Recommendation.ProgressionSteps.OrderBy(step => step.Order))
+                    {
+                        <li class="@(step.Complete ? "complete" : null)">
+                            <span>@step.Order</span>
+                            <div><strong>@step.Title</strong><small>@step.Detail</small></div>
+                        </li>
+                    }
+                </ol>
+            </details>
+        }
+    </div>
+</article>
+
+@code {
+    [Parameter, EditorRequired] public CraftingUpgradeRecommendation Recommendation { get; set; } = null!;
+    [Parameter] public int SlotId { get; set; }
+}

@@ -1,0 +1,54 @@
+@using AzerothCore_UI.Web.Models
+
+<section class="upgrade-drawer">
+    <div class="drawer-heading">
+        <div>
+            <span class="eyebrow">SLOT @Slot.Slot</span>
+            <h3>@Slot.Name upgrades</h3>
+            <p>
+                Equipped:
+                @if (Slot.Equipped is null) { <strong class="quality-0">Nothing</strong> }
+                else { <strong class="@CraftingVisuals.QualityClass(Slot.Equipped.Quality)">@Slot.Equipped.Name</strong> }
+            </p>
+        </div>
+        <div class="drawer-filters" role="group" aria-label="Upgrade source filter">
+            @foreach (var filter in Filters)
+            {
+                <button class="@(Filter == filter.Value ? "active" : null)" type="button"
+                        @onclick="() => FilterChanged.InvokeAsync(filter.Value)">@filter.Label</button>
+            }
+        </div>
+    </div>
+
+    @if (FilteredRecommendations.Count == 0)
+    {
+        <div class="empty-vault">
+            <span>◇</span>
+            <strong>No matching upgrade paths found</strong>
+            <small>Try a wider profession horizon or include sidegrades.</small>
+        </div>
+    }
+    else
+    {
+        <div class="upgrade-grid">
+            @foreach (var recommendation in FilteredRecommendations)
+            {
+                <UpgradeCard Recommendation="recommendation" SlotId="Slot.Slot" />
+            }
+        </div>
+    }
+</section>
+
+@code {
+    private static readonly (string Value, string Label)[] Filters =
+        [("All", "All paths"), ("Owned", "Owned"), ("CraftNow", "Craft now"),
+         ("LearnNext", "Learn next"), ("Progression", "Progression")];
+
+    [Parameter, EditorRequired] public CraftingGearSlot Slot { get; set; } = null!;
+    [Parameter] public string Filter { get; set; } = "All";
+    [Parameter] public EventCallback<string> FilterChanged { get; set; }
+
+    private IReadOnlyList<CraftingUpgradeRecommendation> FilteredRecommendations => Slot.Recommendations
+        .Where(item => Filter == "All" || item.Availability == Filter)
+        .ToArray();
+}

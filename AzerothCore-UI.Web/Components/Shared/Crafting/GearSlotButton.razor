@@ -1,0 +1,26 @@
+@using AzerothCore_UI.Web.Models
+
+@if (Slot is not null)
+{
+    <button type="button"
+            class="gear-slot @CraftingVisuals.QualityClass(Slot.Equipped?.Quality ?? 0) @(Selected ? "selected" : "")"
+            title="Open @Slot.Name upgrade paths"
+            @onclick="() => OnSelected.InvokeAsync()">
+        <span class="slot-icon">@CraftingVisuals.SlotGlyph(SlotId)</span>
+        <span class="slot-copy">
+            <small>@Slot.Name</small>
+            <strong>@(Slot.Equipped?.Name ?? "Empty")</strong>
+        </span>
+        @if (Slot.Recommendations.Count > 0)
+        {
+            <span class="upgrade-count">@Slot.Recommendations.Count</span>
+        }
+    </button>
+}
+
+@code {
+    [Parameter, EditorRequired] public int SlotId { get; set; }
+    [Parameter] public CraftingGearSlot? Slot { get; set; }
+    [Parameter] public bool Selected { get; set; }
+    [Parameter] public EventCallback OnSelected { get; set; }
+}

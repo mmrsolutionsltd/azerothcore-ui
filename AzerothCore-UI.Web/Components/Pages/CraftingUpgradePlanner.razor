@@ -83,7 +83,9 @@
                 <div class="slot-column left-slots">
                     @foreach (var slotId in LeftSlots)
                     {
-                        @SlotButton(slotId)
+                        <GearSlotButton SlotId="slotId" Slot="SlotById(slotId)"
+                                        Selected="selectedSlotId == slotId"
+                                        OnSelected="() => SelectSlot(slotId)" />
                     }
                 </div>
 
@@ -116,14 +118,18 @@
                 <div class="slot-column right-slots">
                     @foreach (var slotId in RightSlots)
                     {
-                        @SlotButton(slotId)
+                        <GearSlotButton SlotId="slotId" Slot="SlotById(slotId)"
+                                        Selected="selectedSlotId == slotId"
+                                        OnSelected="() => SelectSlot(slotId)" />
                     }
                 </div>
 
                 <div class="weapon-slots">
                     @foreach (var slotId in WeaponSlots)
                     {
-                        @SlotButton(slotId)
+                        <GearSlotButton SlotId="slotId" Slot="SlotById(slotId)"
+                                        Selected="selectedSlotId == slotId"
+                                        OnSelected="() => SelectSlot(slotId)" />
                     }
                 </div>
             </div>
@@ -131,120 +137,8 @@
 
         @if (SelectedSlot is { } selectedSlot)
         {
-            <section class="upgrade-drawer">
-                <div class="drawer-heading">
-                    <div>
-                        <span class="eyebrow">SLOT @selectedSlot.Slot</span>
-                        <h3>@selectedSlot.Name upgrades</h3>
-                        <p>
-                            Equipped:
-                            @if (selectedSlot.Equipped is null) { <strong class="quality-0">Nothing</strong> }
-                            else { <strong class="@QualityClass(selectedSlot.Equipped.Quality)">@selectedSlot.Equipped.Name</strong> }
-                        </p>
-                    </div>
-                    <div class="drawer-filters" role="group" aria-label="Upgrade source filter">
-                        @foreach (var filter in Filters)
-                        {
-                            <button class="@(recommendationFilter == filter.Value ? "active" : null)" type="button"
-                                    @onclick="() => recommendationFilter = filter.Value">@filter.Label</button>
-                        }
-                    </div>
-                </div>
-
-                @if (FilteredRecommendations.Count == 0)
-                {
-                    <div class="empty-vault">
-                        <span>◇</span>
-                        <strong>No matching upgrade paths found</strong>
-                        <small>Try a wider profession horizon or include sidegrades.</small>
-                    </div>
-                }
-                else
-                {
-                    <div class="upgrade-grid">
-                        @foreach (var recommendation in FilteredRecommendations)
-                        {
-                            <article class="upgrade-card @AvailabilityClass(recommendation.Availability) @QualityClass(recommendation.Item.Quality)">
-                                <div class="item-icon"><span>@SlotGlyph(selectedSlot.Slot)</span></div>
-                                <div class="item-main">
-                                    <div class="item-title-row">
-                                        <div>
-                                            <h4>@recommendation.Item.Name</h4>
-                                            <span>Item level @recommendation.Item.ItemLevel · Requires @recommendation.Item.RequiredLevel</span>
-                                        </div>
-                                        <span class="availability-badge">@AvailabilityLabel(recommendation.Availability)</span>
-                                    </div>
-
-                                    <div class="stat-comparison">
-                                        @foreach (var delta in recommendation.StatDeltas.Where(delta => Math.Abs(delta.Difference) > 0.001).Take(10))
-                                        {
-                                            <span class="@(delta.Difference > 0 ? "gain" : "loss")">
-                                                @(delta.Difference > 0 ? "+" : "")@FormatNumber(delta.Difference) @delta.Name
-                                            </span>
-                                        }
-                                        @if (!recommendation.StatDeltas.Any(delta => Math.Abs(delta.Difference) > 0.001))
-                                        {
-                                            <span class="neutral">Comparable core stats</span>
-                                        }
-                                    </div>
-
-                                    <div class="source-line">
-                                        <strong>@recommendation.SourceCharacterName</strong>
-                                        <span>@recommendation.SourceUsername · @recommendation.SourceLocation</span>
-                                    </div>
-
-                                    @if (recommendation.ProfessionName is not null)
-                                    {
-                                        <div class="skill-path">
-                                            <div>
-                                                <span>@recommendation.ProfessionName</span>
-                                                <strong>@recommendation.CurrentSkill / @recommendation.RequiredSkill required</strong>
-                                            </div>
-                                            <div class="skill-track"><span style="width:@SkillPercent(recommendation)%"></span></div>
-                                            @if (recommendation.SkillGap > 0)
-                                            {
-                                                <small>Raise @recommendation.ProfessionName by @recommendation.SkillGap skill, then @recommendation.RecipeSource.ToLowerInvariant().</small>
-                                            }
-                                            else
-                                            {
-                                                <small>@recommendation.RecipeSource</small>
-                                            }
-                                        </div>
-                                    }
-
-                                    @if (recommendation.Materials.Count > 0)
-                                    {
-                                        <div class="materials">
-                                            @foreach (var material in recommendation.Materials)
-                                            {
-                                                var ready = material.ScopedQuantity >= material.RequiredQuantity;
-                                                <span class="@(ready ? "ready" : "missing")" title="Crafter carries @material.CrafterQuantity; scoped characters hold @material.ScopedQuantity">
-                                                    @material.Name @material.ScopedQuantity/@material.RequiredQuantity
-                                                </span>
-                                            }
-                                        </div>
-                                    }
-                                    @if (recommendation.ProgressionSteps.Count > 0)
-                                    {
-                                        <details class="progression-map" open="@(recommendation.Availability == "Progression")">
-                                            <summary>@recommendation.ProgressionSteps.Count-step crafting path</summary>
-                                            <ol>
-                                                @foreach (var step in recommendation.ProgressionSteps.OrderBy(step => step.Order))
-                                                {
-                                                    <li class="@(step.Complete ? "complete" : null)">
-                                                        <span>@step.Order</span>
-                                                        <div><strong>@step.Title</strong><small>@step.Detail</small></div>
-                                                    </li>
-                                                }
-                                            </ol>
-                                        </details>
-                                    }
-                                </div>
-                            </article>
-                        }
-                    </div>
-                }
-            </section>
+            <UpgradeDrawer Slot="selectedSlot" Filter="recommendationFilter"
+                           FilterChanged="filter => recommendationFilter = filter" />
         }
 
         <div class="data-footnote">Recipe intelligence: @plan.DataSource · Rankings are advisory and compare item level plus visible item stats.</div>
@@ -263,9 +157,6 @@
     private static readonly int[] LeftSlots = [0, 1, 2, 14, 4, 3, 18, 8];
     private static readonly int[] RightSlots = [9, 5, 6, 7, 10, 11, 12, 13];
     private static readonly int[] WeaponSlots = [15, 16, 17];
-    private static readonly (string Value, string Label)[] Filters =
-        [("All", "All paths"), ("Owned", "Owned"), ("CraftNow", "Craft now"),
-         ("LearnNext", "Learn next"), ("Progression", "Progression")];
 
     private IReadOnlyList<CharacterOverviewSummary> characters = [];
     private CraftingUpgradePlan? plan;
@@ -279,9 +170,6 @@
     private string recommendationFilter = "All";
 
     private CraftingGearSlot? SelectedSlot => plan?.Slots.FirstOrDefault(slot => slot.Slot == selectedSlotId);
-    private IReadOnlyList<CraftingUpgradeRecommendation> FilteredRecommendations => SelectedSlot?.Recommendations
-        .Where(item => recommendationFilter == "All" || item.Availability == recommendationFilter)
-        .ToArray() ?? [];
 
     protected override async Task OnInitializedAsync()
     {
@@ -339,27 +227,13 @@
         finally { loading = false; }
     }
 
-    private RenderFragment SlotButton(int slotId) => builder =>
+    private CraftingGearSlot? SlotById(int slotId) => plan?.Slots.FirstOrDefault(slot => slot.Slot == slotId);
+
+    private void SelectSlot(int slotId)
     {
-        var slot = plan?.Slots.FirstOrDefault(value => value.Slot == slotId);
-        if (slot is null) return;
-        var quality = slot.Equipped?.Quality ?? 0;
-        builder.OpenElement(0, "button");
-        builder.AddAttribute(1, "type", "button");
-        builder.AddAttribute(2, "class", $"gear-slot {QualityClass(quality)} {(selectedSlotId == slotId ? "selected" : "")}");
-        builder.AddAttribute(3, "onclick", EventCallback.Factory.Create(this, () => { selectedSlotId = slotId; recommendationFilter = "All"; }));
-        builder.AddAttribute(4, "title", $"Open {slot.Name} upgrade paths");
-        builder.OpenElement(5, "span"); builder.AddAttribute(6, "class", "slot-icon"); builder.AddContent(7, SlotGlyph(slotId)); builder.CloseElement();
-        builder.OpenElement(8, "span"); builder.AddAttribute(9, "class", "slot-copy");
-        builder.OpenElement(10, "small"); builder.AddContent(11, slot.Name); builder.CloseElement();
-        builder.OpenElement(12, "strong"); builder.AddContent(13, slot.Equipped?.Name ?? "Empty"); builder.CloseElement();
-        builder.CloseElement();
-        if (slot.Recommendations.Count > 0)
-        {
-            builder.OpenElement(14, "span"); builder.AddAttribute(15, "class", "upgrade-count"); builder.AddContent(16, slot.Recommendations.Count); builder.CloseElement();
-        }
-        builder.CloseElement();
-    };
+        selectedSlotId = slotId;
+        recommendationFilter = "All";
+    }
 
     private void FilterToProfession(string profession)
     {
@@ -369,22 +243,6 @@
         recommendationFilter = "All";
     }
 
-    private static string QualityClass(int quality) => $"quality-{Math.Clamp(quality, 0, 7)}";
-    private static string AvailabilityClass(string value) => $"availability-{value.ToLowerInvariant()}";
-    private static string AvailabilityLabel(string value) => value switch
-    {
-        "Owned" => "Already owned", "CraftNow" => "Craft now",
-        "LearnNext" => "Learn next", "Progression" => "Skill journey", _ => value
-    };
     private static string RaceName(int race) => CharacterDisplayNames.Race((byte)race);
     private static string ClassName(int characterClass) => CharacterDisplayNames.Class((byte)characterClass);
-    private static string FormatNumber(double value) => Math.Abs(value % 1) < .001 ? value.ToString("0") : value.ToString("0.0");
-    private static double SkillPercent(CraftingUpgradeRecommendation item) =>
-        Math.Clamp((item.CurrentSkill ?? 0) * 100d / Math.Max(1, item.RequiredSkill ?? 1), 0, 100);
-    private static string SlotGlyph(int slot) => slot switch
-    {
-        0 => "♛", 1 => "◈", 2 => "◆", 3 => "⌁", 4 => "♜", 5 => "═",
-        6 => "Ⅱ", 7 => "♢", 8 => "▤", 9 => "✦", 10 or 11 => "◉",
-        12 or 13 => "✧", 14 => "◇", 15 => "⚔", 16 => "◒", 17 => "➶", 18 => "⚑", _ => "·"
-    };
 }
