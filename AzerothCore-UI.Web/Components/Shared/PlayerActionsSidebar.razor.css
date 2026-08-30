@@ -24,8 +24,15 @@
 }
 
 .player-actions-rail-panel {
+    /* position:sticky always creates a new stacking context (unlike relative/
+       absolute, which only do with a non-auto z-index) - without an explicit
+       z-index here, that context sits at the "auto" level and any modal a
+       sidebar tool opens gets capped underneath .command-deck's z-index:50.
+       This value only needs to clear that; it must never need to compete with
+       the modal itself (z-index 1055+), since the modal is a descendant. */
     position: sticky;
     top: 0;
+    z-index: 60;
     max-height: 100vh;
     overflow-y: auto;
     padding: .7rem .6rem;
