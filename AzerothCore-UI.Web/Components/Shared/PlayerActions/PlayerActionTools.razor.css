@@ -102,6 +102,17 @@
 
 ::deep .player-action-tool .form-check-input {
     accent-color: #bf8735;
+    background-color: #17191d;
+    border-color: #59492f;
+}
+
+::deep .player-action-tool .form-check-input:checked {
+    background-color: #bf8735;
+    border-color: #96692c;
+}
+
+::deep .player-action-tool .form-check-input:focus {
+    box-shadow: 0 0 0 .2rem rgba(191, 135, 53, .25);
 }
 
 ::deep .player-action-tool .btn-outline-primary {
