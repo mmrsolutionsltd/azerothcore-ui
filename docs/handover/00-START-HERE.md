@@ -41,3 +41,4 @@ hostname -I
 
 Read [01-architecture-and-components.md](01-architecture-and-components.md), then [02-build-deploy-and-recovery.md](02-build-deploy-and-recovery.md). The [operations cookbook](06-operations-cookbook.md), [WoW examples](07-wow-character-and-companion-examples.md), and [Blazor/API guide](08-blazor-and-api.md) cover day-to-day work.
 For model/agent context, read [09-llm-and-agent-context.md](09-llm-and-agent-context.md).
+GitHub details and safe authentication guidance are in [10-git-and-github.md](10-git-and-github.md).
