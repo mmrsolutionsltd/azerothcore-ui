@@ -1,31 +1,12 @@
-<div class="player-action-tool-heading d-flex flex-wrap align-items-center gap-2 mb-2">
-    <div class="d-flex flex-wrap align-items-center gap-2">
-        @if (!string.IsNullOrEmpty(Icon))
-        {
-            <span class="tool-rune" aria-hidden="true">@Icon</span>
-        }
-        <h2 class="h5 mb-0">@Title</h2>
-        @if (ShowResult && !string.IsNullOrWhiteSpace(Message))
-        {
-            <span class="small fw-semibold @(Succeeded ? "text-success" : "text-danger")"
-                  role="status">
-                @Message
-            </span>
-        }
-    </div>
-    @if (ChildContent is not null)
+<div class="player-action-tool-heading d-flex align-items-center justify-content-center gap-2 mb-2">
+    @if (!string.IsNullOrEmpty(Icon))
     {
-        <div class="player-action-tool-actions d-flex flex-wrap justify-content-end gap-2 ms-auto">
-            @ChildContent
-        </div>
+        <span class="tool-rune" aria-hidden="true">@Icon</span>
     }
+    <h2 class="h5 mb-0">@Title</h2>
 </div>
 
 @code {
     [Parameter, EditorRequired] public string Title { get; set; } = "";
     [Parameter] public string? Icon { get; set; }
-    [Parameter] public bool ShowResult { get; set; }
-    [Parameter] public string? Message { get; set; }
-    [Parameter] public bool Succeeded { get; set; }
-    [Parameter] public RenderFragment? ChildContent { get; set; }
 }

@@ -92,6 +92,26 @@ public sealed class PlayerActionToolTests : BunitContext
     }
 
     [Fact]
+    public async Task PlayerActionsSidebarUsesSharedHeaderTargetsInSingleColumnMode()
+    {
+        var store = Services.GetRequiredService<SelectedCharacterStore>();
+        await store.SetSelectedAsync(["Jaina", "Uther"], "Jaina");
+
+        var component = Render<PlayerActionsSidebar>();
+
+        component.WaitForAssertion(() =>
+        {
+            var tools = component.FindComponent<PlayerActionTools>();
+            Assert.True(tools.Instance.SingleColumn);
+            Assert.Equal(
+                ["Jaina", "Uther"],
+                tools.Instance.Targets.Select(target => target.Name).ToArray());
+            Assert.Contains("single-column",
+                component.Find(".player-action-tools-grid").ClassList);
+        });
+    }
+
+    [Fact]
     public void CharacterPickerItemsFlowAcrossAndWrap()
     {
         var pickerItems = new[]
@@ -171,23 +191,26 @@ public sealed class PlayerActionToolTests : BunitContext
     }
 
     [Fact]
-    public void ActionResultAppearsBesideTheTitleOnlyAfterExecution()
+    public void HeaderIsTitleOnlyAndResultAppearsInTheFooterAfterExecution()
     {
         var component = Render<GiveMoneyTool>(parameters => parameters
             .Add(tool => tool.Targets, [OnlinePlayer])
             .Add(tool => tool.Available, true));
 
+        Assert.Equal("Give money",
+            component.Find(".player-action-tool-heading h2").TextContent.Trim());
         Assert.Empty(component.FindAll("[role='status']"));
 
         SendButton(component).Click();
 
         component.WaitForAssertion(() =>
         {
-            var heading = component.Find(".player-action-tool-heading");
-            Assert.Equal("Give money", heading.QuerySelector("h2")?.TextContent.Trim());
+            Assert.Empty(component.Find(".player-action-tool-heading")
+                .QuerySelectorAll("[role='status']"));
+            var footer = component.Find(".player-action-tool-footer");
             Assert.Contains(
                 "Send money completed for all 1 selected characters.",
-                heading.QuerySelector("[role='status']")?.TextContent);
+                footer.QuerySelector("[role='status']")?.TextContent);
         });
     }
 

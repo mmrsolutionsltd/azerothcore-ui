@@ -1,22 +1,6 @@
 @inherits PlayerActionToolBase
 
-<PlayerActionToolHeader Title="Guild bank" Icon="⚖" ShowResult="HasActionResult"
-                        Message="@ResultMessage" Succeeded="OperationSucceeded">
-    <button class="btn btn-outline-secondary"
-            disabled="@(!CanInspect)"
-            @onclick="InspectAsync">
-        @(isLoading ? "Inspecting..." : "Inspect guild")
-    </button>
-    @if (guildBank is { IsGuildMaster: true } &&
-         guildBank.PurchasedTabs < guildBank.MaximumTabs)
-    {
-        <button class="btn btn-primary"
-                disabled="@(!Available || IsWorking || !confirmed)"
-                @onclick="UnlockAsync">
-            Unlock next tab
-        </button>
-    }
-</PlayerActionToolHeader>
+<PlayerActionToolHeader Title="Guild bank" Icon="⚖" />
 <p class="small text-muted">
     Requires exactly one online real-player guild master.
 </p>
@@ -57,6 +41,22 @@
     </div>
 }
 <PlayerActionFeedback Results="Results" />
+<PlayerActionToolFooter ShowResult="HasActionResult" Message="@ResultMessage" Succeeded="OperationSucceeded">
+    <button class="btn btn-outline-secondary"
+            disabled="@(!CanInspect)"
+            @onclick="InspectAsync">
+        @(isLoading ? "Inspecting..." : "Inspect guild")
+    </button>
+    @if (guildBank is { IsGuildMaster: true } &&
+         guildBank.PurchasedTabs < guildBank.MaximumTabs)
+    {
+        <button class="btn btn-primary"
+                disabled="@(!Available || IsWorking || !confirmed)"
+                @onclick="UnlockAsync">
+            Unlock next tab
+        </button>
+    }
+</PlayerActionToolFooter>
 
 @code {
     private GuildBankStatus? guildBank;

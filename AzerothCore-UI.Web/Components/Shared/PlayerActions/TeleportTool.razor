@@ -1,41 +1,6 @@
 @inherits PlayerActionToolBase
 
-<PlayerActionToolHeader Title="Teleport" Icon="☄" ShowResult="HasActionResult"
-						Message="@ResultMessage" Succeeded="OperationSucceeded">
-	@if (mode == "place")
-	{
-		<button class="btn btn-primary"
-				disabled="@(!CanExecute || string.IsNullOrWhiteSpace(locationName))"
-				@onclick="TeleportToPlaceAsync">
-			Teleport to place
-		</button>
-	}
-	else if (mode == "npc")
-	{
-		<button class="btn btn-primary"
-				disabled="@(!CanExecute || selectedNpc is null ||
-											(selectedNpc.PotentiallyHostile && !confirmNpcTeleport))"
-				@onclick="TeleportToNpcAsync">
-			Teleport to NPC
-		</button>
-	}
-	else
-	{
-		<button class="btn btn-primary"
-				disabled="@(!CanExecute || string.IsNullOrWhiteSpace(anchorPlayer))"
-				@onclick="MoveToPlayerAsync">
-			Move to player
-		</button>
-	}
-	@if (returnPlayerNames.Count > 0)
-	{
-		<button class="btn btn-outline-secondary"
-				disabled="@(!Available || IsWorking)"
-				@onclick="ReturnAsync">
-			Return
-		</button>
-	}
-</PlayerActionToolHeader>
+<PlayerActionToolHeader Title="Teleport" Icon="☄" />
 <div class="row">
 	<div class="col-auto">
 		<div class="btn-group btn-group-sm mb-2" role="group" aria-label="Teleport destination type">
@@ -151,6 +116,41 @@
 	</div>
 }
 <PlayerActionFeedback Results="Results" />
+<PlayerActionToolFooter ShowResult="HasActionResult" Message="@ResultMessage" Succeeded="OperationSucceeded">
+	@if (mode == "place")
+	{
+		<button class="btn btn-primary"
+				disabled="@(!CanExecute || string.IsNullOrWhiteSpace(locationName))"
+				@onclick="TeleportToPlaceAsync">
+			Teleport to place
+		</button>
+	}
+	else if (mode == "npc")
+	{
+		<button class="btn btn-primary"
+				disabled="@(!CanExecute || selectedNpc is null ||
+											(selectedNpc.PotentiallyHostile && !confirmNpcTeleport))"
+				@onclick="TeleportToNpcAsync">
+			Teleport to NPC
+		</button>
+	}
+	else
+	{
+		<button class="btn btn-primary"
+				disabled="@(!CanExecute || string.IsNullOrWhiteSpace(anchorPlayer))"
+				@onclick="MoveToPlayerAsync">
+			Move to player
+		</button>
+	}
+	@if (returnPlayerNames.Count > 0)
+	{
+		<button class="btn btn-outline-secondary"
+				disabled="@(!Available || IsWorking)"
+				@onclick="ReturnAsync">
+			Return
+		</button>
+	}
+</PlayerActionToolFooter>
 
 <TeleportLocationPickerDialog IsOpen="@showLocationPicker"
 							  InitialSearchText="@locationName"

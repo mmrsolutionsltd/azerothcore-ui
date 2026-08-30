@@ -1,11 +1,6 @@
 @inherits PlayerActionToolBase
 
-<PlayerActionToolHeader Title="Movement speed" Icon="➤" ShowResult="HasActionResult"
-						Message="@ResultMessage" Succeeded="OperationSucceeded">
-	<button class="btn btn-primary" disabled="@(!CanExecute)" @onclick="ApplyAsync">
-		Apply speed
-	</button>
-</PlayerActionToolHeader>
+<PlayerActionToolHeader Title="Movement speed" Icon="➤" />
 <div class="row">
 	<div class="col-3">
 		<div class="input-group mb-2">
@@ -27,6 +22,11 @@
 	</div>
 </div>
 <PlayerActionFeedback Results="Results" />
+<PlayerActionToolFooter ShowResult="HasActionResult" Message="@ResultMessage" Succeeded="OperationSucceeded">
+	<button class="btn btn-primary" disabled="@(!CanExecute)" @onclick="ApplyAsync">
+		Apply speed
+	</button>
+</PlayerActionToolFooter>
 
 @code {
 	private static readonly decimal[] Presets = [0.5m, 1m, 1.5m, 2m, 3m, 5m];
