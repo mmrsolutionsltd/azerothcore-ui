@@ -1,6 +1,6 @@
 @inherits PlayerActionToolBase
 
-<PlayerActionToolHeader Title="Give money" ShowResult="HasActionResult"
+<PlayerActionToolHeader Title="Give money" Icon="☉" ShowResult="HasActionResult"
                         Message="@ResultMessage" Succeeded="OperationSucceeded">
     <button class="btn btn-primary" disabled="@(!CanExecute)" @onclick="SendAsync">
         Send

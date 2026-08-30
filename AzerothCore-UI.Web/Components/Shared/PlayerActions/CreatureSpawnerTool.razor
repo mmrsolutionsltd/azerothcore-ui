@@ -1,6 +1,6 @@
 @inherits PlayerActionToolBase
 
-<PlayerActionToolHeader Title="Creature spawner" ShowResult="HasActionResult"
+<PlayerActionToolHeader Title="Creature spawner" Icon="☠" ShowResult="HasActionResult"
                         Message="@ResultMessage" Succeeded="OperationSucceeded">
     <button class="btn btn-success" disabled="@(!CanSpawn)" @onclick="SpawnAsync">
         Spawn @creatureCount

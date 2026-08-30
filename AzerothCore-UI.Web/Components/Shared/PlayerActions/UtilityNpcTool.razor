@@ -1,6 +1,6 @@
 @inherits PlayerActionToolBase
 
-<PlayerActionToolHeader Title="Summon a useful NPC" ShowResult="HasActionResult"
+<PlayerActionToolHeader Title="Summon a useful NPC" Icon="♞" ShowResult="HasActionResult"
                         Message="@ResultMessage" Succeeded="OperationSucceeded">
     <button class="btn btn-primary" disabled="@(!CanSummon)" @onclick="SummonAsync">
         Summon NPC

@@ -1,6 +1,6 @@
 @inherits PlayerActionToolBase
 
-<PlayerActionToolHeader Title="Give item" ShowResult="HasActionResult"
+<PlayerActionToolHeader Title="Give item" Icon="✉" ShowResult="HasActionResult"
 						Message="@ResultMessage" Succeeded="OperationSucceeded">
 	<button class="btn btn-primary" disabled="@(!CanExecute || itemId == 0)"
 			@onclick="GiveAsync">

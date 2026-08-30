@@ -1,5 +1,9 @@
 <div class="player-action-tool-heading d-flex flex-wrap align-items-center gap-2 mb-2">
-    <div class="d-flex flex-wrap align-items-baseline gap-2">
+    <div class="d-flex flex-wrap align-items-center gap-2">
+        @if (!string.IsNullOrEmpty(Icon))
+        {
+            <span class="tool-rune" aria-hidden="true">@Icon</span>
+        }
         <h2 class="h5 mb-0">@Title</h2>
         @if (ShowResult && !string.IsNullOrWhiteSpace(Message))
         {
@@ -19,6 +23,7 @@
 
 @code {
     [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter] public string? Icon { get; set; }
     [Parameter] public bool ShowResult { get; set; }
     [Parameter] public string? Message { get; set; }
     [Parameter] public bool Succeeded { get; set; }
