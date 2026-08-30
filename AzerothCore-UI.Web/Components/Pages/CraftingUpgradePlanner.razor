@@ -137,7 +137,7 @@
 
         @if (SelectedSlot is { } selectedSlot)
         {
-            <UpgradeDrawer Slot="selectedSlot" Filter="recommendationFilter"
+            <UpgradeDrawer Slot="selectedSlot" Filter="@recommendationFilter"
                            FilterChanged="filter => recommendationFilter = filter" />
         }
 

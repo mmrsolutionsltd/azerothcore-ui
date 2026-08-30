@@ -252,7 +252,10 @@ public sealed class RealmRosterHeaderTests : BunitContext
         component.WaitForAssertion(() =>
         {
             Assert.Equal(1, handler.CraftingUpgradeRequestCount);
-            Assert.Contains("Head", component.Find(".hero-upgrade-panel").TextContent);
+            var panel = component.Find(".hero-upgrade-panel");
+            Assert.Contains("Head", panel.TextContent);
+            Assert.Contains("Bolstered Helm", panel.TextContent);
+            Assert.Empty(panel.QuerySelectorAll(".empty-vault"));
         });
     }
 
@@ -343,8 +346,14 @@ public sealed class RealmRosterHeaderTests : BunitContext
                 return Json(new CraftingUpgradePlan(
                     new CraftingTargetCharacter(1, "Vynlan", "MARK", 20, 9, 10, true),
                     [],
-                    [new CraftingGearSlot(0, "Head", null, [])],
-                    1, 0, 0, 0, "Test catalog"));
+                    [new CraftingGearSlot(0, "Head",
+                        new CraftingGearItem(10, "Old Helm", 1, 10, 5, 1, 4, 1, []),
+                        [new CraftingUpgradeRecommendation(
+                            "CraftNow",
+                            new CraftingGearItem(11, "Bolstered Helm", 3, 20, 15, 1, 4, 1, []),
+                            true, true, null, "Crafter", "CrafterAcct", "Bags", null, null,
+                            null, null, null, 0, null, "Recipe", "Known", [], [], [])])],
+                    1, 1, 0, 0, "Test catalog"));
             }
             if (request.Method != HttpMethod.Get
                 || request.RequestUri!.AbsolutePath != "/api/realm-roster")

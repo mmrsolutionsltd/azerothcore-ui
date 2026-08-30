@@ -183,7 +183,7 @@
                         @if (openPlan.Slots.FirstOrDefault(
                             slot => slot.Slot == openUpgradeSlotId) is { } openSlot)
                         {
-                            <UpgradeDrawer Slot="openSlot" Filter="upgradeFilter"
+                            <UpgradeDrawer Slot="openSlot" Filter="@upgradeFilter"
                                            FilterChanged="filter => upgradeFilter = filter" />
                         }
                     }
