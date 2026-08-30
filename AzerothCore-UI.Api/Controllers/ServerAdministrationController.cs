@@ -647,9 +647,10 @@ public sealed class ServerAdministrationController(
     {
         var classMask = 1L << (target.CharacterClass - 1);
         var raceMask = 1L << (target.Race - 1);
-        var weaponSubclasses = string.Join(',', WeaponSubclassesForClass(target.CharacterClass));
-        var armorSubclasses = string.Join(',', ArmorSubclassesForClass(
-            target.CharacterClass, target.CharacterLevel));
+        var weaponSubclasses = string.Join(',',
+            ArmorProficiencyRules.WeaponSubclasses(target.CharacterClass));
+        var armorSubclasses = string.Join(',',
+            ArmorProficiencyRules.ArmorSubclasses(target.CharacterClass));
         return $"""
             (item.RequiredLevel <= {target.CharacterLevel}
              AND (CAST(item.AllowableClass AS SIGNED) IN (-1, 0)
@@ -670,39 +671,12 @@ public sealed class ServerAdministrationController(
             && (item.AllowableClass is -1 or 0 || (item.AllowableClass & classMask) != 0)
             && (item.AllowableRace is -1 or 0 || (item.AllowableRace & raceMask) != 0)
             && (item.ItemClass != 2
-                || WeaponSubclassesForClass(target.CharacterClass).Contains(item.ItemSubclass))
+                || ArmorProficiencyRules.WeaponSubclasses(target.CharacterClass)
+                    .Contains(item.ItemSubclass))
             && (item.ItemClass != 4
-                || ArmorSubclassesForClass(target.CharacterClass, target.CharacterLevel)
+                || ArmorProficiencyRules.ArmorSubclasses(target.CharacterClass)
                     .Contains(item.ItemSubclass));
     }
-
-    private static int[] WeaponSubclassesForClass(int characterClass) => characterClass switch
-    {
-        1 => [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 13, 15, 16, 18],
-        2 => [0, 1, 4, 5, 6, 7, 8],
-        3 => [0, 1, 2, 3, 6, 7, 8, 10, 13, 15, 18],
-        4 => [0, 2, 3, 4, 7, 13, 15, 16, 18],
-        5 => [4, 10, 15, 19],
-        6 => [0, 1, 4, 5, 6, 7, 8],
-        7 => [0, 1, 4, 5, 10, 13, 15],
-        8 or 9 => [7, 10, 15, 19],
-        11 => [4, 5, 6, 10, 13, 15],
-        _ => [0]
-    };
-
-    private static int[] ArmorSubclassesForClass(int characterClass, int characterLevel) =>
-        characterClass switch
-        {
-            1 => characterLevel >= 40 ? [0, 1, 2, 3, 4, 6] : [0, 1, 2, 3, 6],
-            2 => characterLevel >= 40 ? [0, 1, 2, 3, 4, 6, 7] : [0, 1, 2, 3, 6, 7],
-            3 => characterLevel >= 40 ? [0, 1, 2, 3] : [0, 1, 2],
-            7 => characterLevel >= 40 ? [0, 1, 2, 3, 6, 9] : [0, 1, 2, 6, 9],
-            4 => [0, 1, 2],
-            11 => [0, 1, 2, 8],
-            5 or 8 or 9 => [0, 1],
-            6 => [0, 1, 2, 3, 4, 10],
-            _ => [0]
-        };
 
     private static int InventorySlotGroup(int inventoryType) => inventoryType switch
     {

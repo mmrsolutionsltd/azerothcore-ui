@@ -34,9 +34,16 @@ public sealed class CraftingUpgradeRulesTests
     [Theory]
     [InlineData(5, 1, 20, true)]  // Priest, cloth.
     [InlineData(5, 2, 20, false)] // Priest, leather.
-    [InlineData(3, 3, 39, false)] // Hunter, mail before level 40.
-    [InlineData(3, 3, 40, true)]  // Hunter, mail at level 40.
-    public void AppliesClassAndLevelArmorRules(
+    [InlineData(3, 3, 1, true)]   // Hunter, mail from level 1 (WotLK proficiency).
+    [InlineData(1, 4, 1, true)]   // Warrior, plate from level 1 (WotLK proficiency).
+    [InlineData(2, 4, 1, true)]   // Paladin, plate from level 1 (WotLK proficiency).
+    [InlineData(1, 1, 20, false)] // Warrior, cloth is not a sensible recommendation.
+    [InlineData(1, 2, 20, false)] // Warrior, leather is not a sensible recommendation.
+    [InlineData(3, 2, 20, false)] // Hunter, leather - should be offered mail instead.
+    [InlineData(7, 1, 20, false)] // Shaman, cloth is not a sensible recommendation.
+    [InlineData(6, 1, 20, false)] // Death Knight, cloth is not a sensible recommendation.
+    [InlineData(6, 4, 20, true)]  // Death Knight, plate.
+    public void AppliesClassArmorProficiencyRules(
         int characterClass, int armorSubclass, int level, bool expected)
     {
         var armor = Item(inventoryType: 5, itemLevel: 20,

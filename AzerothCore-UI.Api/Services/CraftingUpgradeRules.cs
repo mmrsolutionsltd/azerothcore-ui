@@ -41,9 +41,9 @@ internal static class CraftingUpgradeRules
             && (item.AllowableRace is -1 or 0
                 || (item.AllowableRace & raceMask) != 0)
             && (item.ItemClass != 2
-                || WeaponSubclasses(characterClass).Contains(item.ItemSubclass))
+                || ArmorProficiencyRules.WeaponSubclasses(characterClass).Contains(item.ItemSubclass))
             && (item.ItemClass != 4
-                || ArmorSubclasses(characterClass, level).Contains(item.ItemSubclass));
+                || ArmorProficiencyRules.ArmorSubclasses(characterClass).Contains(item.ItemSubclass));
     }
 
     public static CraftingGearItem ToGearItem(CraftingItemData item) => new(
@@ -107,34 +107,6 @@ internal static class CraftingUpgradeRules
             16 => [14], 19 => [18], _ => []
         };
 
-    private static int[] WeaponSubclasses(int characterClass) =>
-        characterClass switch
-        {
-            1 => [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 13, 15, 16, 18],
-            2 => [0, 1, 4, 5, 6, 7, 8],
-            3 => [0, 1, 2, 3, 6, 7, 8, 10, 13, 15, 18],
-            4 => [0, 2, 3, 4, 7, 13, 15, 16, 18],
-            5 => [4, 10, 15, 19],
-            6 => [0, 1, 4, 5, 6, 7, 8],
-            7 => [0, 1, 4, 5, 10, 13, 15],
-            8 or 9 => [7, 10, 15, 19],
-            11 => [4, 5, 6, 10, 13, 15],
-            _ => [0]
-        };
-
-    private static int[] ArmorSubclasses(int characterClass, int level) =>
-        characterClass switch
-        {
-            1 => level >= 40 ? [0, 1, 2, 3, 4, 6] : [0, 1, 2, 3, 6],
-            2 => level >= 40 ? [0, 1, 2, 3, 4, 6, 7] : [0, 1, 2, 3, 6, 7],
-            3 => level >= 40 ? [0, 1, 2, 3] : [0, 1, 2],
-            4 => [0, 1, 2],
-            5 or 8 or 9 => [0, 1],
-            6 => [0, 1, 2, 3, 4, 10],
-            7 => level >= 40 ? [0, 1, 2, 3, 6, 9] : [0, 1, 2, 6, 9],
-            11 => [0, 1, 2, 8],
-            _ => [0]
-        };
 }
 
 internal class CraftingItemData
