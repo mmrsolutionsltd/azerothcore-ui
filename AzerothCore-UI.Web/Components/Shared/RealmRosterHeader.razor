@@ -78,6 +78,18 @@
                                         @onclick="() => ActivateAsync(hero.Name)">
                                     @(IsActive(hero.Name) ? "Active" : "Focus")
                                 </button>
+                                <AuthorizeView Policy="players.characters">
+                                    <Authorized>
+                                        <button type="button" class="upgrades-toggle"
+                                                disabled="@upgradesLoading.Contains(hero.Name)"
+                                                title="Show Artisan Gearing Room upgrades for @hero.Name"
+                                                @onclick="() => ToggleUpgradesAsync(hero)">
+                                            @(upgradesLoading.Contains(hero.Name)
+                                                ? "Loading…"
+                                                : (openUpgradesFor == hero.Name ? "Close" : "Upgrades"))
+                                        </button>
+                                    </Authorized>
+                                </AuthorizeView>
                                 <AuthorizeView Policy="players.services">
                                     <Authorized>
                                         <button type="button" class="revive-button"
@@ -124,6 +136,63 @@
                     }
                 }
             </div>
+
+            @if (openUpgradesFor is { } openName
+                && SelectedHeroes.ToList().FindIndex(hero => hero.Name.Equals(
+                    openName, StringComparison.OrdinalIgnoreCase)) is var openIndex
+                && openIndex >= 0)
+            {
+                var openHero = SelectedHeroes[openIndex];
+                <div class="hero-upgrade-backdrop" @onclick="CloseUpgrades"></div>
+                <div class="hero-upgrade-panel"
+                     style="--anchor:calc((@openIndex + .5) * (100% / @SelectedHeroes.Count))">
+                    <div class="hero-upgrade-caret"></div>
+                    <div class="hero-upgrade-header">
+                        <strong>@openHero.Name</strong>
+                        <span>Artisan Gearing Room</span>
+                        <button type="button" class="hero-upgrade-refresh" title="Refresh"
+                                @onclick="() => RefreshUpgradesAsync(openHero)">⟳</button>
+                        <button type="button" class="hero-upgrade-close" title="Close"
+                                @onclick="CloseUpgrades">×</button>
+                    </div>
+                    @if (upgradesLoading.Contains(openName))
+                    {
+                        <p class="hero-upgrade-status"><em>Consulting the forge…</em></p>
+                    }
+                    else if (upgradesError.TryGetValue(openName, out var upgradeError))
+                    {
+                        <div class="alert alert-danger py-2 m-2">@upgradeError</div>
+                    }
+                    else if (upgradePlanCache.TryGetValue(openName, out var openPlan)
+                        && openPlan is not null)
+                    {
+                        <div class="hero-upgrade-summary">
+                            <div><strong>@openPlan.OwnedUpgradeCount</strong><span>Owned</span></div>
+                            <div><strong>@openPlan.CraftNowCount</strong><span>Craft now</span></div>
+                            <div><strong>@openPlan.LearnNextCount</strong><span>Learn next</span></div>
+                            <div><strong>@openPlan.ProgressionCount</strong><span>Progression</span></div>
+                        </div>
+                        <div class="hero-upgrade-slots">
+                            @foreach (var slot in openPlan.Slots)
+                            {
+                                <GearSlotButton SlotId="slot.Slot" Slot="slot"
+                                                Selected="openUpgradeSlotId == slot.Slot"
+                                                OnSelected="() => SelectUpgradeSlot(slot.Slot)" />
+                            }
+                        </div>
+                        @if (openPlan.Slots.FirstOrDefault(
+                            slot => slot.Slot == openUpgradeSlotId) is { } openSlot)
+                        {
+                            <UpgradeDrawer Slot="openSlot" Filter="upgradeFilter"
+                                           FilterChanged="filter => upgradeFilter = filter" />
+                        }
+                    }
+                    else
+                    {
+                        <p class="hero-upgrade-status">No crafting data available.</p>
+                    }
+                </div>
+            }
         }
 
         <div class="hero-choice-strip">
@@ -165,6 +234,15 @@
     private bool operationSucceeded;
     private bool showOffline;
     private bool showBots;
+    private readonly Dictionary<string, CraftingUpgradePlan?> upgradePlanCache =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> upgradesLoading =
+        new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> upgradesError =
+        new(StringComparer.OrdinalIgnoreCase);
+    private string? openUpgradesFor;
+    private int? openUpgradeSlotId;
+    private string upgradeFilter = "All";
 
     private IReadOnlyList<RealmRosterCharacter> AllHeroes =>
         snapshot?.AvailableHeroes
@@ -229,6 +307,8 @@
             activeCharacter ?? await SelectedCharacterStore.GetAsync());
     }
 
+    // Must never call the crafting-upgrade endpoint here - that data is fetched
+    // on demand only (see ToggleUpgradesAsync), not on this 15s poll.
     private async Task RefreshLoopAsync(CancellationToken token)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(15));
@@ -312,6 +392,59 @@
         }
         finally { reviving.Remove(name); }
     }
+
+    private async Task ToggleUpgradesAsync(RealmRosterCharacter hero)
+    {
+        if (openUpgradesFor is not null && openUpgradesFor.Equals(
+                hero.Name, StringComparison.OrdinalIgnoreCase))
+        {
+            openUpgradesFor = null;
+            return;
+        }
+        openUpgradesFor = hero.Name;
+        openUpgradeSlotId = null;
+        upgradeFilter = "All";
+        if (!upgradePlanCache.ContainsKey(hero.Name))
+            await FetchUpgradePlanAsync(hero);
+    }
+
+    private async Task FetchUpgradePlanAsync(RealmRosterCharacter hero)
+    {
+        upgradesLoading.Add(hero.Name);
+        upgradesError.Remove(hero.Name);
+        StateHasChanged();
+        try
+        {
+            var loadedPlan = await Api.GetCraftingUpgradePlanAsync(
+                hero.Guid, cancellationToken: cancellation.Token);
+            upgradePlanCache[hero.Name] = loadedPlan;
+            openUpgradeSlotId = loadedPlan?.Slots
+                .FirstOrDefault(slot => slot.Recommendations.Count > 0)?.Slot
+                ?? loadedPlan?.Slots.FirstOrDefault()?.Slot;
+        }
+        catch (Exception exception) when (!cancellation.IsCancellationRequested)
+        {
+            upgradesError[hero.Name] = exception.Message;
+        }
+        finally
+        {
+            upgradesLoading.Remove(hero.Name);
+        }
+    }
+
+    private Task RefreshUpgradesAsync(RealmRosterCharacter hero)
+    {
+        upgradePlanCache.Remove(hero.Name);
+        return FetchUpgradePlanAsync(hero);
+    }
+
+    private void SelectUpgradeSlot(int slotId)
+    {
+        openUpgradeSlotId = slotId;
+        upgradeFilter = "All";
+    }
+
+    private void CloseUpgrades() => openUpgradesFor = null;
 
     private void OnActiveSelectionChanged(string name) => _ = InvokeAsync(() =>
     {

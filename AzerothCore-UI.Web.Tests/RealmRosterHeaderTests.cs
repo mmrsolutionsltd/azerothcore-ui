@@ -229,6 +229,72 @@ public sealed class RealmRosterHeaderTests : BunitContext
     }
 
     [Fact]
+    public void UpgradesPanelIsNotFetchedUntilToggled()
+    {
+        var component = Render<RealmRosterHeader>();
+        component.WaitForElement(".hero-choice");
+        HeroChoice(component, "Vynlan").Click();
+
+        component.WaitForAssertion(() => Assert.Single(component.FindAll(".online-hero-card")));
+        Assert.Equal(0, handler.CraftingUpgradeRequestCount);
+    }
+
+    [Fact]
+    public void TogglingUpgradesFetchesPlanOnceAndRendersSlots()
+    {
+        var component = Render<RealmRosterHeader>();
+        component.WaitForElement(".hero-choice");
+        HeroChoice(component, "Vynlan").Click();
+        component.WaitForElement(".upgrades-toggle");
+
+        component.Find(".upgrades-toggle").Click();
+
+        component.WaitForAssertion(() =>
+        {
+            Assert.Equal(1, handler.CraftingUpgradeRequestCount);
+            Assert.Contains("Head", component.Find(".hero-upgrade-panel").TextContent);
+        });
+    }
+
+    [Fact]
+    public void ReopeningUpgradesPanelUsesTheCachedPlanWithoutRefetching()
+    {
+        var component = Render<RealmRosterHeader>();
+        component.WaitForElement(".hero-choice");
+        HeroChoice(component, "Vynlan").Click();
+        component.WaitForElement(".upgrades-toggle");
+
+        component.Find(".upgrades-toggle").Click();
+        component.WaitForAssertion(() => Assert.Equal(1, handler.CraftingUpgradeRequestCount));
+
+        component.Find(".upgrades-toggle").Click();
+        component.WaitForAssertion(() => Assert.Empty(component.FindAll(".hero-upgrade-panel")));
+
+        component.Find(".upgrades-toggle").Click();
+        component.WaitForAssertion(() =>
+        {
+            Assert.Equal(1, handler.CraftingUpgradeRequestCount);
+            Assert.Contains("Head", component.Find(".hero-upgrade-panel").TextContent);
+        });
+    }
+
+    [Fact]
+    public void TogglingTheBotsFilterDoesNotTriggerCraftingUpgradeRequests()
+    {
+        var component = Render<RealmRosterHeader>();
+        component.WaitForElement(".hero-choice");
+        HeroChoice(component, "Vynlan").Click();
+        component.WaitForElement(".upgrades-toggle");
+        component.Find(".upgrades-toggle").Click();
+        component.WaitForAssertion(() => Assert.Equal(1, handler.CraftingUpgradeRequestCount));
+
+        component.FindAll(".roster-selection-controls input[type='checkbox']")[1].Change(true);
+
+        component.WaitForAssertion(() => Assert.Contains("Rndhelper", component.Markup));
+        Assert.Equal(1, handler.CraftingUpgradeRequestCount);
+    }
+
+    [Fact]
     public void LiveHealthUsesAPercentageAndTurnsRedBelowThirtyPercent()
     {
         handler.VynlanMaximumHealth = 5_000;
@@ -255,6 +321,7 @@ public sealed class RealmRosterHeaderTests : BunitContext
     {
         public string? RevivedCharacter { get; private set; }
         public uint? VynlanMaximumHealth { get; set; }
+        public int CraftingUpgradeRequestCount { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
@@ -267,6 +334,17 @@ public sealed class RealmRosterHeaderTests : BunitContext
                     cancellationToken: cancellationToken);
                 RevivedCharacter = body?.PlayerName;
                 return Json(new AdministrationResult(true, "Character revived."));
+            }
+            if (request.Method == HttpMethod.Get
+                && request.RequestUri!.AbsolutePath.StartsWith(
+                    "/api/crafting-upgrades/", StringComparison.Ordinal))
+            {
+                CraftingUpgradeRequestCount++;
+                return Json(new CraftingUpgradePlan(
+                    new CraftingTargetCharacter(1, "Vynlan", "MARK", 20, 9, 10, true),
+                    [],
+                    [new CraftingGearSlot(0, "Head", null, [])],
+                    1, 0, 0, 0, "Test catalog"));
             }
             if (request.Method != HttpMethod.Get
                 || request.RequestUri!.AbsolutePath != "/api/realm-roster")
