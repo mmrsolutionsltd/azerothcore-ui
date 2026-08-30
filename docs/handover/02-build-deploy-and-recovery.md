@@ -28,6 +28,28 @@ sudo systemctl cat azerothcore-ui-api.service
 
 Defaults target `mark@azerothmedia` using `$env:USERPROFILE\.ssh\azerothcore_beelink`, upload timestamped releases under `/opt/azerothcore/admin/releases`, activate `/opt/azerothcore/admin/current`, restart UI services, and validate health. `-SkipPublicHealthCheck` is useful when DNS/forwarding is unavailable. The previous release is retained for rollback.
 
+### UI rollback
+
+The deployment script records the active release and previous release. If activation or readiness fails, it automatically switches the symlink back and restarts both UI services. To manually roll back, first list retained releases and identify the desired timestamp:
+
+```bash
+ls -1dt /opt/azerothcore/admin/releases/*
+readlink -f /opt/azerothcore/admin/current
+```
+
+Then atomically switch the `current` symlink and restart the API/Web services:
+
+```bash
+release=/opt/azerothcore/admin/releases/YYYYMMDD-HHMMSS
+ln -s "$release" /opt/azerothcore/admin/current.next
+mv -Tf /opt/azerothcore/admin/current.next /opt/azerothcore/admin/current
+sudo systemctl restart azerothcore-ui-api.service azerothcore-ui-web.service
+curl -fsS http://127.0.0.1:5202/health/ready
+curl -fsS http://127.0.0.1:5211/health/ready
+```
+
+Do not delete the known-good release until the replacement has been validated. The game worldserver is independent of UI release rollback; use the separate binary backup procedure for C++ changes.
+
 ## Dynu dynamic DNS
 
 The production hostname is `azerothcore.ddnsfree.com`. The updater is installed on Linux as a systemd timer:
