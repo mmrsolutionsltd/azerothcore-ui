@@ -29,14 +29,26 @@ Next: <one follow-up request, or none>
 
 ## Practical transport
 
-The simplest transport is copy/paste between Claude and the owner. For same-machine work, use two local files outside Git:
+These files are tracked in Git so the exchange history travels with the repository:
 
 ```text
-.agent/claude-request.md
-.agent/agent-response.md
+.agent/claude-request.md   current open request (or "No open request.")
+.agent/agent-response.md   matching response (or "No open response.")
+.agent/read/                archived, closed exchanges
 ```
 
-Claude overwrites `claude-request.md` only when the previous request is closed; the responding agent overwrites `agent-response.md` with the matching short-id. Do not put credentials, tokens, private keys, or raw production configuration in either file. Add `.agent/` to `.git/info/exclude` if these files are created locally.
+Claude overwrites `claude-request.md` only when the previous request is closed; the responding agent overwrites `agent-response.md` with the matching short-id. Do not put credentials, tokens, private keys, or raw production configuration in either file — they are committed to Git history, so sanitize evidence before writing it, the same as any other tracked file.
+
+## Archiving a closed exchange
+
+Once a `RESPONSE` is `complete` (or the owner has read a `blocked`/`needs-owner-input` response and decided how to proceed), move the pair into `.agent/read/` before opening the next request:
+
+```text
+.agent/read/<short-id>-request.md
+.agent/read/<short-id>-response.md
+```
+
+Then reset `claude-request.md` and `agent-response.md` to their "no open request/response" placeholders. Commit the archive move together with (or immediately before) the next request, so `git log -- .agent/read` is a readable timeline of past agent exchanges. Never edit an archived file in place; if a follow-up is needed, open a new short-id.
 
 ## Rules
 
@@ -47,6 +59,7 @@ Claude overwrites `claude-request.md` only when the previous request is closed; 
 - A response marked `complete` must include verification and rollback information.
 - After deployment, Claude should request a health check rather than assuming success.
 - Database changes require an explicit backup statement; service restarts require an impact statement.
+- Archive a closed exchange to `.agent/read/` before starting the next one; do not let `claude-request.md`/`agent-response.md` accumulate unrelated history.
 
 ## Example
 
