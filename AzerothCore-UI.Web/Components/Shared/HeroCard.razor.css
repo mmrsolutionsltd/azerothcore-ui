@@ -23,6 +23,7 @@
 @keyframes revive-pulse{0%,100%{box-shadow:inset 0 0 16px #000,0 0 8px rgba(196,59,63,.4)}50%{box-shadow:inset 0 0 16px #000,0 0 18px rgba(255,140,80,.7)}}
 .hero-card-actions .upgrades-toggle{margin-left:.22rem;color:#9fc9ff;border-color:#33526e;background:linear-gradient(#1c2b3a,#111a22)}.hero-card-actions .upgrades-toggle:disabled{opacity:.5}
 .hero-card-actions .training-toggle{margin-left:.22rem;color:#9fe0af;border-color:#2f5a3a;background:linear-gradient(#1c2f1e,#111a12)}
+.hero-card-actions .add-companion{margin-left:.22rem;color:#e5c56e;border-color:#6e5a2f;background:linear-gradient(#2f2814,#1a1610)}.hero-card-actions .add-companion:disabled{opacity:.5}
 .hero-card ::deep .companion-header-controls{border-top:1px solid #463820}
 .class-1{--class:#c79c6e}.class-2{--class:#f58cba}.class-3{--class:#abd473}.class-4{--class:#fff569}.class-5{--class:#fff}.class-6{--class:#c41f3b}.class-7{--class:#0070de}.class-8{--class:#69ccf0}.class-9{--class:#9482c9}.class-11{--class:#ff7d0a}
 

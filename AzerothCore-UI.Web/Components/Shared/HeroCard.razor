@@ -77,6 +77,16 @@
                                 @onclick="OnToggleCompanions">
                             @(CompanionsOpen ? "Close" : "Companions")
                         </button>
+                        @if (Companion is null && !string.IsNullOrWhiteSpace(CompanionLeaderName)
+                            && !Hero.Name.Equals(CompanionLeaderName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            <button type="button" class="add-companion"
+                                    disabled="@(AddingCompanion || !CanAddCompanion)"
+                                    title="@AddCompanionTitle"
+                                    @onclick="OnAddCompanion">
+                                @(AddingCompanion ? "Adding…" : "Add companion")
+                            </button>
+                        }
                     </Authorized>
                 </AuthorizeView>
             </Authorized>
@@ -117,6 +127,8 @@
     [Parameter] public ActiveQuestingCompanion? Companion { get; set; }
     [Parameter] public string CompanionLeaderName { get; set; } = "";
     [Parameter] public int ProtocolVersion { get; set; }
+    [Parameter] public QuestingCompanionCandidate? CompanionCandidate { get; set; }
+    [Parameter] public bool AddingCompanion { get; set; }
     [Parameter] public EventCallback<MouseEventArgs> OnHeroClick { get; set; }
     [Parameter] public EventCallback OnSelectOnly { get; set; }
     [Parameter] public EventCallback OnActivate { get; set; }
@@ -126,6 +138,7 @@
     [Parameter] public EventCallback OnRevive { get; set; }
     [Parameter] public EventCallback OnRemove { get; set; }
     [Parameter] public EventCallback OnCompanionRefresh { get; set; }
+    [Parameter] public EventCallback OnAddCompanion { get; set; }
 
     private bool IsDead => Hero.Online && Hero.CurrentHealth == 0;
     private bool IsLowHealth => Hero.MaximumHealth is > 0
@@ -154,4 +167,16 @@
     private string ReviveTitle => Hero.Online
         ? (IsDead ? $"Revive {Hero.Name}" : $"{Hero.Name} is alive")
         : $"Revive {Hero.Name} if needed (offline - live status unknown)";
+
+    private bool CanAddCompanion => CompanionCandidate is
+        { Online: false, SameFaction: true, ControlAllowed: true };
+
+    private string AddCompanionTitle => CompanionCandidate switch
+    {
+        null => $"{Hero.Name} is not currently a companion candidate for {CompanionLeaderName}",
+        { Online: true } => $"{Hero.Name} is already online",
+        { SameFaction: false } => $"{Hero.Name} is the opposite faction",
+        { ControlAllowed: false } candidate => candidate.ControlReason,
+        _ => $"Add {Hero.Name} as a companion for {CompanionLeaderName}, with the same default behaviour as starting a companion group"
+    };
 }

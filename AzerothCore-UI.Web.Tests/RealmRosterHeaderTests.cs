@@ -489,6 +489,28 @@ public sealed class RealmRosterHeaderTests : BunitContext
     }
 
     [Fact]
+    public void AddCompanionButtonStartsJustThatOneBotForTheResolvedLeader()
+    {
+        var component = Render<RealmRosterHeader>();
+        component.WaitForElement(".hero-choice");
+        HeroChoice(component, "Vynlan").Click();
+        HeroChoice(component, "Kiesh").Click();
+
+        component.WaitForAssertion(() => Assert.False(
+            component.FindAll(".add-companion").Single(button =>
+                button.ParentElement!.ParentElement!.TextContent.Contains("Kiesh"))
+                .HasAttribute("disabled")));
+        Assert.DoesNotContain(component.FindAll(".add-companion"), button =>
+            button.ParentElement!.ParentElement!.TextContent.Contains("Vynlan"));
+
+        component.FindAll(".add-companion").Single(button =>
+            button.ParentElement!.ParentElement!.TextContent.Contains("Kiesh")).Click();
+
+        component.WaitForAssertion(() => Assert.Contains(handler.StartedCompanions,
+            entry => entry.LeaderName == "Vynlan" && entry.CompanionName == "Kiesh"));
+    }
+
+    [Fact]
     public void TrainingTabEmbedsTheTrainerFinderAndFindTrainerFiltersToTheDiscipline()
     {
         var component = Render<RealmRosterHeader>();
@@ -598,6 +620,7 @@ public sealed class RealmRosterHeaderTests : BunitContext
         public int TrainingRequestCount { get; private set; }
         public int TrainerSearchRequestCount { get; private set; }
         public string? LastTrainerSearch { get; private set; }
+        public List<(string LeaderName, string CompanionName)> StartedCompanions { get; } = [];
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
@@ -704,6 +727,15 @@ public sealed class RealmRosterHeaderTests : BunitContext
                         Online = false, SameFaction = true, SameAccount = true
                     }],
                     [], 1));
+            }
+            if (request.Method == HttpMethod.Post
+                && request.RequestUri!.AbsolutePath
+                    == "/api/server-administration/questing-companions/start")
+            {
+                var body = await request.Content!.ReadFromJsonAsync<QuestingCompanionRequest>(
+                    cancellationToken: cancellationToken);
+                StartedCompanions.Add((body!.LeaderName, body.CompanionName));
+                return Json(new AdministrationResult(true, $"{body.CompanionName} is joining the party."));
             }
             if (request.Method == HttpMethod.Get
                 && request.RequestUri!.AbsolutePath == "/api/characters")

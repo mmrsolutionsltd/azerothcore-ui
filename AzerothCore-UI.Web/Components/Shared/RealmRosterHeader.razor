@@ -53,6 +53,8 @@
                               Companion="ActiveCompanionFor(hero.Name)"
                               CompanionLeaderName="@companionLeaderName"
                               ProtocolVersion="@(companionStatus?.ProtocolVersion ?? 0)"
+                              CompanionCandidate="CompanionCandidateFor(hero.Name)"
+                              AddingCompanion="addingCompanion.Contains(hero.Name)"
                               OnHeroClick="args => HandleSelectedHeroClickAsync(hero.Name, args)"
                               OnSelectOnly="() => MakeOnlyTargetAsync(hero.Name)"
                               OnActivate="() => ActivateAsync(hero.Name)"
@@ -61,7 +63,8 @@
                               OnToggleTraining="() => ToggleTrainingAsync(hero)"
                               OnRevive="() => ReviveAsync(hero.Name)"
                               OnRemove="() => RemoveAsync(hero.Name)"
-                              OnCompanionRefresh="RefreshCompanionControlsAsync" />
+                              OnCompanionRefresh="RefreshCompanionControlsAsync"
+                              OnAddCompanion="() => AddCompanionAsync(hero)" />
                 }
             </div>
 
@@ -141,6 +144,7 @@
 @code {
     private readonly CancellationTokenSource cancellation = new();
     private readonly HashSet<string> reviving = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> addingCompanion = new(StringComparer.OrdinalIgnoreCase);
     private RealmRosterSnapshot? snapshot;
     private QuestingCompanionStatus? companionStatus;
     private string companionLeaderName = "";
@@ -507,8 +511,42 @@
         companionStatus?.ActiveCompanions.FirstOrDefault(companion =>
             companion.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
 
+    private QuestingCompanionCandidate? CompanionCandidateFor(string name) =>
+        companionStatus?.Candidates.FirstOrDefault(candidate =>
+            candidate.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+
     private RealmRosterCharacter? CompanionLeaderHero => SelectedHeroes.FirstOrDefault(
         hero => hero.Name.Equals(companionLeaderName, StringComparison.OrdinalIgnoreCase));
+
+    // Adds one companion at a time directly from its own hero card, using the same
+    // start call (and default follow/behaviour) that the Companions tab's "Start
+    // selected" issues per hero - just without needing to open that tab or start
+    // everyone in the row at once.
+    private async Task AddCompanionAsync(RealmRosterCharacter hero)
+    {
+        if (string.IsNullOrWhiteSpace(companionLeaderName) || !addingCompanion.Add(hero.Name))
+            return;
+        message = null;
+        try
+        {
+            var result = await Api.StartQuestingCompanionAsync(
+                new QuestingCompanionRequest(companionLeaderName, hero.Name));
+            operationSucceeded = result?.Success == true;
+            message = result?.Message ?? $"{hero.Name} is logging in and joining the party.";
+            await Task.Delay(1000);
+            await RefreshCompanionControlsAsync();
+            await RefreshAsync();
+        }
+        catch (Exception exception)
+        {
+            operationSucceeded = false;
+            message = exception.Message;
+        }
+        finally
+        {
+            addingCompanion.Remove(hero.Name);
+        }
+    }
 
     private async Task RefreshCompanionControlsAsync()
     {
