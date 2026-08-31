@@ -67,7 +67,7 @@ public sealed class CraftingUpgradePlannerTests : BunitContext
     }
 
     [Fact]
-    public async Task UniversalProfessionsAreExcludedFromTheAggregateAndTheToggleList()
+    public async Task NonGearProfessionsAreExcludedFromTheAggregateAndTheToggleList()
     {
         var store = Services.GetRequiredService<SelectedCharacterStore>();
         var component = Render<CraftingUpgradePlanner>();
@@ -80,6 +80,7 @@ public sealed class CraftingUpgradePlannerTests : BunitContext
                 .Select(button => button.TextContent.Trim()).ToArray();
             Assert.Contains("Blacksmithing", chips);
             Assert.DoesNotContain("Cooking", chips);
+            Assert.DoesNotContain("Mining", chips);
             Assert.DoesNotContain("Cooking's Trinket", component.Markup);
         });
     }
@@ -129,7 +130,8 @@ public sealed class CraftingUpgradePlannerTests : BunitContext
                     new CraftingTargetCharacter(1, "Vynlan", "MARK", 20, 9, 10, true),
                     [
                         new CraftingProfessionSummary(1, "Vynlan", "MARK", 164, "Blacksmithing", 300, 375),
-                        new CraftingProfessionSummary(1, "Vynlan", "MARK", 185, "Cooking", 300, 375)
+                        new CraftingProfessionSummary(1, "Vynlan", "MARK", 185, "Cooking", 300, 375),
+                        new CraftingProfessionSummary(1, "Vynlan", "MARK", 186, "Mining", 300, 375)
                     ],
                     [
                         new CraftingGearSlot(0, "Head",

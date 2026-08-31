@@ -138,10 +138,12 @@
 </div>
 
 @code {
-    // These are learnable by every character regardless of primary profession choice
-    // and never produce equippable gear, so they don't belong in the aggregate.
-    private static readonly HashSet<string> UniversalProfessions =
-        new(StringComparer.OrdinalIgnoreCase) { "Cooking", "First Aid", "Fishing" };
+    // Cooking/First Aid/Fishing are learnable by every character regardless of primary
+    // profession choice; Mining/Herbalism/Skinning are pure gathering skills with no
+    // recipes. Neither kind ever produces an equippable gear recommendation, so they
+    // don't belong in the aggregate.
+    private static readonly HashSet<string> NonGearProfessions = new(StringComparer.OrdinalIgnoreCase)
+        { "Cooking", "First Aid", "Fishing", "Mining", "Herbalism", "Skinning" };
 
     private IReadOnlyList<CharacterOverviewSummary> characters = [];
     private CraftingUpgradePlan? plan;
@@ -157,7 +159,7 @@
 
     private IReadOnlyList<string> RelevantProfessions => plan?.Professions
         .Select(profession => profession.ProfessionName)
-        .Where(name => !UniversalProfessions.Contains(name))
+        .Where(name => !NonGearProfessions.Contains(name))
         .Distinct(StringComparer.OrdinalIgnoreCase)
         .OrderBy(name => name)
         .ToArray() ?? [];
@@ -174,7 +176,7 @@
     private IReadOnlyList<CraftingUpgradeRecommendation> FilterRecommendations(
         IReadOnlyList<CraftingUpgradeRecommendation> recommendations) =>
         recommendations.Where(recommendation => recommendation.ProfessionName is null
-            || (!UniversalProfessions.Contains(recommendation.ProfessionName)
+            || (!NonGearProfessions.Contains(recommendation.ProfessionName)
                 && !excludedProfessions.Contains(recommendation.ProfessionName)))
             .ToArray();
 
