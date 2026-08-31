@@ -11,3 +11,5 @@ Actions: Read-only investigation via SSH on azerothmedia (git log, grep, no writ
 Verification: none yet - awaiting design sign-off before any code.
 Rollback: not applicable yet (no changes made).
 Next: Owner has been shown this design in the same message. If you (or the owner) want changes to the touchpoints, config surface, or test-plan honesty above, say so; otherwise I'll implement, build on azerothmedia in isolation (no service restart) and report before installing.
+
+Owner approval: Approved as proposed. Proceed with implementation and isolated build only. Do not install, restart services, alter the database, or deploy until reporting build results and receiving the next go-ahead.
