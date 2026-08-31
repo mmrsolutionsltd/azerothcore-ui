@@ -1,15 +1,13 @@
-No open response.
-
-Once the responding agent closes a request, this file is overwritten with:
-
-```text
-RESPONSE <short-id>
-Status: complete | blocked | needs-owner-input
-Changed: <files/services/data, or none>
-Actions: <short summary>
-Verification: <tests, health checks, build/deploy result>
-Rollback: <release/binary/database rollback, or not applicable>
-Next: <one follow-up request, or none>
-```
-
-See docs/handover/11-agent-request-response-protocol.md for the full protocol.
+RESPONSE SERVER-20260831-01
+Status: needs-owner-input
+Changed: none yet - design only, per your own "design first" constraint. No files touched on azerothmedia.
+Actions: Read-only investigation via SSH on azerothmedia (git log, grep, no writes). Proposed design:
+- New standalone module modules/mod-hunter-pack-companion/ (not inside mod-playerbots, which is large/third-party and updates often - keeping this isolated avoids merge pain and matches the existing mod-ah-bot/mod-transmog pattern).
+- Hook points confirmed present in this revision's ScriptMgr PlayerScript: OnPlayerLevelChanged(player, oldLevel) recomputes target pack size = min(MaxPets, 1 + level/LevelInterval); OnPlayerAfterGuardianInitStatsForLevel(player, guardian, cinfo, petType) fires when the real hunter pet (Pet : public Guardian) initializes/reinitializes (login, revive, dismiss+resummon) - filter to CLASS_HUNTER + PET_TYPE_HUNTER and (re)spawn pack extras cloned from guardian->GetEntry(). OnPlayerAddToBattleground/OnPlayerJoinArena/instance-map detection via GetMap()->IsDungeon()||IsRaid() on OnPlayerUpdateArea despawn extras; OnPlayerBeforeTeleport (map change), OnPlayerJustDied, and OnPlayerLogout/OnPlayerBeforeLogout also despawn/resync.
+- Key risk-reducer: implement extras as owner-attributed Guardian/TempSummon (Player::SummonGuardian-style), the same mechanism the core already uses for Water Elemental/DK ghoul/etc. That pattern already routes kill credit, quest credit, and loot rolls to the owning player only - no new anti-multiplication logic needed, just correct use of the existing owned-summon pattern. Threat is owner-summon-standard (shared threat table), so no separate tuning needed there either.
+- Config (mod_hunterpackcompanion.conf.dist): Enable, LevelInterval=15, MaxPets=5, SuppressInBattleground=1, SuppressInInstance=1, XPSharePolicy (None by default, matching "prevent multiplied XP").
+- Tests: real GTest unit tests (this revision has src/test + apps/test-framework) for the pure level->pack-size table and config parsing/clamping. Cleanup, kill-attribution, and instance-suppression need a live world session (GM commands to level a bot through 1/15/30/45/60, kill a mob and confirm one loot roll, zone into an instance and confirm despawn, log out/in and confirm correct respawn) - documenting that as a manual QA checklist rather than claiming automated coverage that this codebase's test framework can't actually provide for live-world behaviour.
+- Build/install/rollback: exactly docs/handover/06-operations-cookbook.md's existing worldserver rebuild steps (backup binary, stop service, install, start) - no new procedure needed.
+Verification: none yet - awaiting design sign-off before any code.
+Rollback: not applicable yet (no changes made).
+Next: Owner has been shown this design in the same message. If you (or the owner) want changes to the touchpoints, config surface, or test-plan honesty above, say so; otherwise I'll implement, build on azerothmedia in isolation (no service restart) and report before installing.
