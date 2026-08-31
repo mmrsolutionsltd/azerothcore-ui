@@ -1,14 +1,6 @@
-No open request.
-
-Once Claude opens a request, this file is overwritten with:
-
-```text
-REQUEST <short-id>
-Goal: <one sentence>
-Scope: <repository files, Linux host, database, or client>
-Current evidence: <error/output/commit, sanitized>
-Constraints: <no SQL, backup first, no restart, etc.>
-Expected result: <what should be true when complete>
-```
-
-See docs/handover/11-agent-request-response-protocol.md for the full protocol.
+REQUEST UI-20260831-01
+Goal: Generalize the hero card's single-purpose "Upgrades" popover into a small reusable tabbed panel, and add a first new "Companions" tab that replaces the /questing-companions page's "Start selected companions" flow for that hero.
+Scope: AzerothCore-UI.Web/Components/Shared/RealmRosterHeader.razor(.css), HeroCard.razor(.css), HeroUpgradePanel.razor, CompanionHeaderControls.razor, Components/Pages/QuestingCompanions.razor(.cs) (source of the session-start logic to reuse/extract, not duplicate), Web.Tests; no database or AzerothCore server changes.
+Current evidence: HeroCard already renders an "Upgrades" toggle button; RealmRosterHeader.razor tracks a single open panel via openUpgradesFor/openUpgradeSlotId and renders HeroUpgradePanel anchored below the card row, one panel open at a time, upgrade data fetched lazily on first open only. CompanionHeaderControls already shows inline per-hero companion status/behavior/inventory once a session exists, but starting/stopping a session still requires visiting /questing-companions.
+Constraints: Reuse the existing single-open-panel state machine and click-outside-dismiss convention rather than one flag per tab (e.g. generalize to openPanelFor + activeTab); keep crafting-upgrade fetching lazy/on-demand exactly as today; do not touch the 15s roster polling loop; the new Companions tab must call the same session start/stop APIs QuestingCompanions.razor.cs already uses, extracted into something shared rather than copy-pasted; leave the standalone page in place as a fallback for now.
+Expected result: Each hero card's popover becomes a small tab strip (Upgrades | Companions, room for more later); the Companions tab lets the owner start/stop that hero's questing companion session without leaving the header; existing Upgrades behavior is unchanged; component tests updated/added; report build/test results.
