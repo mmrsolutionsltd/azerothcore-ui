@@ -1,38 +1,20 @@
 @inherits PlayerActionToolBase
 
 <PlayerActionToolHeader Title="Movement speed" Icon="➤" />
-<div class="row">
-	<div class="col-3">
-		<div class="input-group mb-2">
-			<input id="player-speed" class="form-control" type="number"
-				   min="0.5" max="10" step="0.25" @bind="speed" />
-			<span class="input-group-text">x</span>
-		</div>
-	</div>
-	<div class="col-9">
-		<div class="d-flex flex-wrap gap-2 mb-2">
-			@foreach (var preset in Presets)
-			{
-				<button class="btn btn-sm btn-outline-secondary" type="button"
-						@onclick="() => speed = preset">
-					@preset.ToString("0.#")x
-				</button>
-			}
-		</div>
-	</div>
+<div class="d-flex flex-wrap gap-2 mb-2" aria-label="Movement speed presets">
+	@foreach (var preset in Presets)
+	{
+		<button class="btn btn-sm btn-outline-secondary" type="button"
+			disabled="@IsWorking" @onclick="() => ApplyPresetAsync(preset)">
+			@preset.ToString("0.#")x
+		</button>
+	}
 </div>
 <PlayerActionFeedback Results="Results" />
-<PlayerActionToolFooter ShowResult="HasActionResult" Message="@ResultMessage" Succeeded="OperationSucceeded">
-	<button class="btn btn-primary" disabled="@(!CanExecute)" @onclick="ApplyAsync">
-		Apply speed
-	</button>
-</PlayerActionToolFooter>
 
 @code {
 	private static readonly decimal[] Presets = [0.5m, 1m, 1.5m, 2m, 3m, 5m];
-	private decimal speed = 1m;
-
-	private Task ApplyAsync() => RunBatchAsync(
-		"Apply speed",
-		player => AccountsClient.SetPlayerSpeedAsync(new(player, speed)));
+	private Task ApplyPresetAsync(decimal preset) => RunBatchAsync(
+		$"Set speed to {preset:0.#}x",
+		player => AccountsClient.SetPlayerSpeedAsync(new(player, preset)));
 }
