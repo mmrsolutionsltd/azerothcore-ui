@@ -1,0 +1,64 @@
+@using AzerothCore_UI.Web.Models
+@inject AzerothCore_UI.Web.Clients.AccountsApiClient Api
+
+<div class="companion-session-panel">
+    <div class="companion-session-heading"><strong>@Leader.Name</strong><span>Questing companions</span></div>
+    @if (Status is null)
+    {
+        <p class="small text-muted">Refresh the roster to inspect companion availability.</p>
+    }
+    else
+    {
+        var active = Status.ActiveCompanions.Select(x => x.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var candidates = SelectedHeroes.Where(x => !x.Name.Equals(Leader.Name, StringComparison.OrdinalIgnoreCase)).ToArray();
+        <div class="companion-session-list">
+            @foreach (var hero in candidates)
+            {
+                var isActive = active.Contains(hero.Name);
+                <span class="companion-session-chip @(isActive ? "active" : null)">@hero.Name <small>@(isActive ? "ACTIVE" : "READY")</small></span>
+            }
+        </div>
+        <div class="companion-session-actions">
+            <button type="button" disabled="@working" @onclick="StartAsync">Start selected</button>
+            @if (Status.ActiveCompanions.Count > 0)
+            {
+                <button type="button" disabled="@working" @onclick="StopAsync">Stop companions</button>
+            }
+        </div>
+        @if (!string.IsNullOrWhiteSpace(message)) { <div class="control-result @(success ? "success" : "failure")">@message</div> }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public RealmRosterCharacter Leader { get; set; } = default!;
+    [Parameter, EditorRequired] public IReadOnlyList<RealmRosterCharacter> SelectedHeroes { get; set; } = [];
+    [Parameter] public QuestingCompanionStatus? Status { get; set; }
+    [Parameter] public EventCallback OnChanged { get; set; }
+    private bool working, success;
+    private string? message;
+
+    private async Task StartAsync()
+    {
+        await ExecuteAsync(async () => {
+            foreach (var hero in SelectedHeroes.Where(x => !x.Name.Equals(Leader.Name, StringComparison.OrdinalIgnoreCase)))
+                await Api.StartQuestingCompanionAsync(new(Leader.Name, hero.Name));
+            return "Selected companions are joining the party.";
+        });
+    }
+    private async Task StopAsync()
+    {
+        await ExecuteAsync(async () => {
+            if (Status is not null)
+                foreach (var companion in Status.ActiveCompanions)
+                    await Api.DismissQuestingCompanionAsync(new(Leader.Name, companion.Name));
+            return "Companions are leaving the party.";
+        });
+    }
+    private async Task ExecuteAsync(Func<Task<string>> action)
+    {
+        if (working) return; working = true; message = null;
+        try { message = await action(); success = true; await OnChanged.InvokeAsync(); }
+        catch (Exception ex) { success = false; message = ex.Message; }
+        finally { working = false; }
+    }
+}

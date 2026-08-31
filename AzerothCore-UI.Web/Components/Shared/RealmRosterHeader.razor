@@ -46,7 +46,8 @@
                               IsTarget="targetNames.Contains(hero.Name)"
                               HasParty="PartyFor(hero.Name) is not null"
                               UpgradesLoading="upgradesLoading.Contains(hero.Name)"
-                              UpgradesOpen="openUpgradesFor == hero.Name"
+                              UpgradesOpen="@(openPanelFor == hero.Name && activePanelTab == "Upgrades")"
+                              CompanionsOpen="@(openPanelFor == hero.Name && activePanelTab == "Companions")"
                               Reviving="reviving.Contains(hero.Name)"
                               Companion="ActiveCompanionFor(hero.Name)"
                               CompanionLeaderName="@companionLeaderName"
@@ -55,17 +56,24 @@
                               OnSelectOnly="() => SelectOnlyAsync(hero.Name)"
                               OnActivate="() => ActivateAsync(hero.Name)"
                               OnToggleUpgrades="() => ToggleUpgradesAsync(hero)"
+                              OnToggleCompanions="() => ToggleCompanionsAsync(hero)"
                               OnRevive="() => ReviveAsync(hero.Name)"
                               OnRemove="() => RemoveAsync(hero.Name)"
                               OnCompanionRefresh="RefreshCompanionControlsAsync" />
                 }
             </div>
 
-            @if (openUpgradesFor is { } openName
+            @if (openPanelFor is { } openName
                 && SelectedHeroes.ToList().FindIndex(hero => hero.Name.Equals(
                     openName, StringComparison.OrdinalIgnoreCase)) is var openIndex
                 && openIndex >= 0)
             {
+                @if (activePanelTab == "Upgrades")
+                {
+                <div class="hero-panel-tabs" role="tablist">
+                    <button type="button" class="@(activePanelTab == "Upgrades" ? "active" : null)" @onclick='() => SetPanelTab("Upgrades")'>Upgrades</button>
+                    <button type="button" @onclick='() => SetPanelTab("Companions")'>Companions</button>
+                </div>
                 <HeroUpgradePanel Hero="SelectedHeroes[openIndex]" AnchorIndex="openIndex"
                                   TotalCount="SelectedHeroes.Count"
                                   Loading="upgradesLoading.Contains(openName)"
@@ -77,6 +85,18 @@
                                   OnClose="CloseUpgrades"
                                   OnSelectSlot="SelectUpgradeSlot"
                                   OnFilterChanged="filter => upgradeFilter = filter" />
+                }
+                else
+                {
+                    <div class="hero-panel-tabs" role="tablist">
+                        <button type="button" @onclick='() => SetPanelTab("Upgrades")'>Upgrades</button>
+                        <button type="button" class="active">Companions</button>
+                    </div>
+                    <CompanionSessionPanel Leader="SelectedHeroes[openIndex]"
+                                           SelectedHeroes="SelectedHeroes"
+                                           Status="companionStatus"
+                                           OnChanged="RefreshCompanionControlsAsync" />
+                }
             }
         }
 
@@ -116,7 +136,8 @@
         new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> upgradesError =
         new(StringComparer.OrdinalIgnoreCase);
-    private string? openUpgradesFor;
+    private string? openPanelFor;
+    private string activePanelTab = "Upgrades";
     private int? openUpgradeSlotId;
     private string upgradeFilter = "All";
     private Dictionary<string, CharacterOverviewSummary> overviewByName =
@@ -293,18 +314,29 @@
 
     private async Task ToggleUpgradesAsync(RealmRosterCharacter hero)
     {
-        if (openUpgradesFor is not null && openUpgradesFor.Equals(
+        if (openPanelFor is not null && openPanelFor.Equals(
                 hero.Name, StringComparison.OrdinalIgnoreCase))
         {
-            openUpgradesFor = null;
+            openPanelFor = null;
             return;
         }
-        openUpgradesFor = hero.Name;
+        openPanelFor = hero.Name;
+        activePanelTab = "Upgrades";
         openUpgradeSlotId = null;
         upgradeFilter = "All";
         if (!upgradePlanCache.ContainsKey(hero.Name))
             await FetchUpgradePlanAsync(hero);
     }
+
+    private Task ToggleCompanionsAsync(RealmRosterCharacter hero)
+    {
+        if (openPanelFor is not null && openPanelFor.Equals(hero.Name, StringComparison.OrdinalIgnoreCase)
+            && activePanelTab == "Companions") { openPanelFor = null; return Task.CompletedTask; }
+        openPanelFor = hero.Name;
+        activePanelTab = "Companions";
+        return RefreshCompanionControlsAsync();
+    }
+    private void SetPanelTab(string tab) => activePanelTab = tab;
 
     private async Task FetchUpgradePlanAsync(RealmRosterCharacter hero)
     {
@@ -342,7 +374,7 @@
         upgradeFilter = "All";
     }
 
-    private void CloseUpgrades() => openUpgradesFor = null;
+    private void CloseUpgrades() => openPanelFor = null;
 
     private void OnActiveSelectionChanged(string name) => _ = InvokeAsync(() =>
     {
