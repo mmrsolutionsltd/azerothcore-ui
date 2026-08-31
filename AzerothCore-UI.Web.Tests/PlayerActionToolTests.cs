@@ -51,18 +51,33 @@ public sealed class PlayerActionToolTests : BunitContext
 
         component.WaitForAssertion(() => Assert.Equal(
             [
+                "Movement speed",
+                "Revive character",
+                "Teleport",
                 "Give item",
                 "Give money",
-                "Teleport",
-                "Movement speed",
                 "Guild bank",
                 "Summon a useful NPC",
-                "Revive character",
                 "Creature spawner"
             ],
             component.FindAll("h2")
                 .Select(heading => heading.TextContent.Trim())
                 .ToArray()));
+    }
+
+    [Fact]
+    public void HideReviveOmitsTheReviveToolWithoutAffectingOthers()
+    {
+        var component = Render<PlayerActionTools>(parameters => parameters
+            .Add(tools => tools.Targets, [OnlinePlayer])
+            .Add(tools => tools.HideRevive, true));
+
+        component.WaitForAssertion(() => Assert.DoesNotContain(
+            "Revive character",
+            component.FindAll("h2").Select(heading => heading.TextContent.Trim())));
+        Assert.Contains(
+            "Give item",
+            component.FindAll("h2").Select(heading => heading.TextContent.Trim()));
     }
 
     [Fact]
@@ -83,6 +98,9 @@ public sealed class PlayerActionToolTests : BunitContext
                 tools.Instance.Targets.Select(target => target.Name).ToArray());
             Assert.Contains("single-column",
                 component.Find(".player-action-tools-grid").ClassList);
+            Assert.DoesNotContain(
+                "Revive character",
+                component.FindAll("h2").Select(heading => heading.TextContent.Trim()));
         });
 
         await component.InvokeAsync(() =>

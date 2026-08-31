@@ -261,12 +261,29 @@ public sealed class RealmRosterHeaderTests : BunitContext
         component.WaitForElement(".hero-choice");
         HeroChoice(component, "Sarafel").Click();
 
-        component.Find(".revive-button").Click();
+        component.WaitForAssertion(() => Assert.Contains(
+            "dead", component.Find(".revive-banner").ClassList));
+        component.Find(".revive-banner").Click();
 
         component.WaitForAssertion(() =>
         {
             Assert.Equal("Sarafel", handler.RevivedCharacter);
             Assert.Contains("Character revived", component.Markup);
+        });
+    }
+
+    [Fact]
+    public void ReviveBannerIsDisabledAndUnmarkedForALivingOnlineHero()
+    {
+        var component = Render<RealmRosterHeader>();
+        component.WaitForElement(".hero-choice");
+        HeroChoice(component, "Vynlan").Click();
+
+        component.WaitForAssertion(() =>
+        {
+            var banner = component.Find(".revive-banner");
+            Assert.DoesNotContain("dead", banner.ClassList);
+            Assert.True(banner.HasAttribute("disabled"));
         });
     }
 
@@ -372,7 +389,7 @@ public sealed class RealmRosterHeaderTests : BunitContext
         {
             var card = component.Find(".hero-card.offline");
             Assert.Contains("OFFLINE", card.QuerySelector(".health-track")!.TextContent);
-            var revive = card.QuerySelector(".revive-button");
+            var revive = card.QuerySelector(".revive-banner");
             Assert.NotNull(revive);
             Assert.False(revive.HasAttribute("disabled"));
         });

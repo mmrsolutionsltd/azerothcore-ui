@@ -20,13 +20,16 @@ else
 
     <div class="player-action-tools-grid @(SingleColumn ? "single-column" : null)">
         <section class="player-action-tool"><MovementSpeedTool Targets="Targets" Available="Available" /></section>
-        <AuthorizeView Policy="players.services">
-            <Authorized>
-                <section class="player-action-tool">
-                    <ReviveCharacterTool Targets="Targets" Available="Available" />
-                </section>
-            </Authorized>
-        </AuthorizeView>
+        @if (!HideRevive)
+        {
+            <AuthorizeView Policy="players.services">
+                <Authorized>
+                    <section class="player-action-tool">
+                        <ReviveCharacterTool Targets="Targets" Available="Available" />
+                    </section>
+                </Authorized>
+            </AuthorizeView>
+        }
         <section class="player-action-tool"><TeleportTool Targets="Targets" Available="Available" /></section>
         <section class="player-action-tool"><GiveItemTool Targets="Targets" Available="Available" /></section>
         <section class="player-action-tool"><GiveMoneyTool Targets="Targets" Available="Available" /></section>
@@ -45,6 +48,7 @@ else
 @code {
     [Parameter, EditorRequired] public IReadOnlyList<PlayerActionTarget> Targets { get; set; } = [];
     [Parameter] public bool SingleColumn { get; set; }
+    [Parameter] public bool HideRevive { get; set; }
 
     private bool isLoading = true;
     private bool Available =>

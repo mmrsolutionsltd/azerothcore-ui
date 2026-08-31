@@ -35,6 +35,18 @@
         }
     </button>
 
+    <AuthorizeView Policy="players.services">
+        <Authorized>
+            <button type="button" class="revive-banner @(IsDead ? "dead" : null)"
+                    disabled="@(Reviving || (Hero.Online && !IsDead))"
+                    title="@ReviveTitle"
+                    @onclick="OnRevive">
+                <span class="revive-icon" aria-hidden="true">✝</span>
+                @(Reviving ? "Reviving…" : (IsDead ? "Revive!" : "Revive"))
+            </button>
+        </Authorized>
+    </AuthorizeView>
+
     @if (Overview is not null)
     {
         <div class="hero-stats" @onclick="OnHeroClick" title="@TargetToggleTitle">
@@ -67,16 +79,6 @@
                         </button>
                     </Authorized>
                 </AuthorizeView>
-            </Authorized>
-        </AuthorizeView>
-        <AuthorizeView Policy="players.services">
-            <Authorized>
-                <button type="button" class="revive-button"
-                        disabled="@(Reviving || (Hero.Online && !IsDead))"
-                        title="@ReviveTitle"
-                        @onclick="OnRevive">
-                    @(Reviving ? "Reviving…" : "Revive")
-                </button>
             </Authorized>
         </AuthorizeView>
         <button type="button" class="dismiss-hero" title="Remove @Hero.Name from this hero row"
