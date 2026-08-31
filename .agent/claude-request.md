@@ -1,19 +1,7 @@
-REQUEST SERVER-20260831-01
-Goal: Design and implement a custom Hunter Pack Companion passive: one additional temporary copy of the hunter's active pet for every 15 hunter levels, capped at five total pets.
-Scope: AzerothCore/mod-playerbots or the appropriate custom server module, plus optional companion addon/UI support. No database changes unless a migration is essential; backup first if one is needed.
-Current evidence: This is a private outdoor-PvE server and the requested progression is levels 1–14 = 1 pet, 15–29 = 2, 30–44 = 3, 45–59 = 4, and 60+ = 5.
-Constraints: Keep the normal persistent hunter pet authoritative. Extra copies should be temporary guardian-style summons. Suppress extras in battlegrounds, raids, and instances; prevent multiplied loot, threat, XP, or quest credit; clean up on death, logout, dismissal, summon/revive, and map transfer. Do not rebuild, deploy, or alter the database until explicitly approved.
-Expected result: First provide an implementation design identifying exact core/module touchpoints, then code only after design approval. Include configurable level interval/cap/XP policy, tests for progression, cleanup, kill attribution, and instance suppression, with build/install and rollback instructions.
-
-Once Claude opens a request, this file is overwritten with:
-
-```text
-REQUEST <short-id>
-Goal: <one sentence>
-Scope: <repository files, Linux host, database, or client>
-Current evidence: <error/output/commit, sanitized>
-Constraints: <no SQL, backup first, no restart, etc.>
-Expected result: <what should be true when complete>
-```
-
-See docs/handover/11-agent-request-response-protocol.md for the full protocol.
+REQUEST SERVER-20260831-02
+Goal: Design (not yet implement) a lightweight, snappier way for the Blazor site to get a few live per-character fields (health, alive/dead, current location) from the running worldserver, instead of relying on the characters.health DB column, which only updates on save.
+Scope: modules/mod-web-admin/src/mod_web_admin.cpp (new command), AzerothCore-UI.Api/AzerothCore-UI.Web (new client call + faster poll for selected heroes only). Separate from and does not touch the Hunter Pack Companion module/files from SERVER-20260831-01, which is still an open, unrelated thread on the same worldserver.
+Current evidence: PlayerSaveInterval is 900000ms (15 min) on this server, so characters.health (what RealmRosterService.cs currently reads) can lag up to 15 minutes behind a real death - the header's Revive button doesn't enable promptly because of this, not a UI bug. mod-web-admin already exposes ~20 custom GM chat commands under .webadmin (Console::Yes, SOAP-callable), each handler reading live in-memory Player state directly and replying via handler->PSendSysMessage("TAG\tfield\tfield...", ...) tab-delimited lines - not JSON. The existing companion/questing status flow already uses this exact pattern.
+Constraints: Owner wants it lightweight - health, alive/dead, and location only, nothing else. Owner floated either the Web site polling faster or the server pushing/the site subscribing; asking which you'd recommend given SOAP here is fundamentally request/response, not pub/sub.
+Proposal: New .webadmin status <name1,name2,...> command (SEC_PLAYER, Console::Yes), one online-only character per name (skip offline - no live state to read), replying WEBADMIN_STATUS\t{name}\t{alive}\t{health}\t{maxHealth}\t{mapId}\t{zoneId}\t{areaId}\t{x}\t{y}\t{z} per line, reading straight off the live Player object (no DB query at all). Api adds a thin client call; Web polls this every 2-3s but only for the header's currently selected heroes (small N), not the whole realm roster. Keeps the existing 15s full-roster poll as-is for everything else.
+Expected result: Your take on this proposal vs. a genuine push/subscribe alternative (e.g. worldserver-initiated WebSocket to the Web app) - recommend one, or a different lightweight approach if you see a better fit given what's already in mod-web-admin. Then I'll write it up as a full request for approval before touching code.
