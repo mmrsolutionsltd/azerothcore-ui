@@ -58,7 +58,7 @@
         <span>@Hero.Username</span>
         <button type="button" class="focus-hero"
                 disabled="@IsActive"
-                title="Use @Hero.Name on single-hero pages without changing the selected group"
+                title="Make @Hero.Name the active hero for single-hero pages (e.g. the Artisan Gearing Room) without changing the selected group"
                 @onclick="OnActivate">
             @(IsActive ? "Active" : "Focus")
         </button>
@@ -148,8 +148,8 @@
         : Hero.CurrentHealth == 0 ? "DEAD" : $"{Hero.CurrentHealth:N0} HP";
 
     private string TargetToggleTitle => IsTarget
-        ? $"{Hero.Name} is a target for the player-action tools - click to exclude"
-        : $"{Hero.Name} is excluded from the player-action tools - click to include";
+        ? $"{Hero.Name} is a target for the player-action tools - click to exclude, double-click to focus"
+        : $"{Hero.Name} is excluded from the player-action tools - click to include, double-click to focus";
 
     private string ReviveTitle => Hero.Online
         ? (IsDead ? $"Revive {Hero.Name}" : $"{Hero.Name} is alive")

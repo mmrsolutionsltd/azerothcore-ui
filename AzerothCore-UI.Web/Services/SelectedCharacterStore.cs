@@ -51,6 +51,20 @@ public sealed class SelectedCharacterStore(
         TargetsChanged?.Invoke(EffectiveTargets());
     }
 
+    /// <summary>Narrows the target set to just this one selected character, without
+    /// touching row membership (unlike <see cref="SetSelectedAsync"/>).</summary>
+    public async ValueTask SetOnlyTargetAsync(string characterName)
+    {
+        await EnsureLoadedAsync();
+        if (!selectedCharacters.Contains(characterName, StringComparer.OrdinalIgnoreCase))
+            return;
+        excludedTargets.Clear();
+        excludedTargets.UnionWith(selectedCharacters.Where(name =>
+            !name.Equals(characterName, StringComparison.OrdinalIgnoreCase)));
+        await PersistAsync();
+        TargetsChanged?.Invoke(EffectiveTargets());
+    }
+
     private string[] EffectiveTargets() => selectedCharacters
         .Where(name => !excludedTargets.Contains(name)).ToArray();
 

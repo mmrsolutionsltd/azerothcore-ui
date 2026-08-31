@@ -197,6 +197,49 @@ public sealed class RealmRosterHeaderTests : BunitContext
     }
 
     [Fact]
+    public void RightClickingAHeroCardMakesItTheOnlyTargetWithoutDiscardingTheGroup()
+    {
+        var component = Render<RealmRosterHeader>();
+        component.WaitForElement(".hero-choice");
+        HeroChoice(component, "Vynlan").Click();
+        HeroChoice(component, "Sarafel").Click();
+        component.WaitForAssertion(() => Assert.Equal(
+            2, component.FindAll(".hero-card.is-target").Count));
+
+        component.FindAll(".hero-card").Single(card =>
+            card.TextContent.Contains("Vynlan")).TriggerEvent(
+                "oncontextmenu", new MouseEventArgs());
+
+        component.WaitForAssertion(() =>
+        {
+            Assert.Equal(2, component.FindAll(".hero-card").Count);
+            var target = Assert.Single(component.FindAll(".hero-card.is-target"));
+            Assert.Contains("Vynlan", target.TextContent);
+        });
+    }
+
+    [Fact]
+    public void DoubleClickingAHeroCardMakesItActiveWithoutDiscardingTheSelectedGroup()
+    {
+        var component = Render<RealmRosterHeader>();
+        component.WaitForElement(".hero-choice");
+        HeroChoice(component, "Vynlan").Click();
+        HeroChoice(component, "Sarafel").Click();
+        component.WaitForAssertion(() => Assert.Contains(
+            "Sarafel", component.Find(".hero-card.active").TextContent));
+
+        component.FindAll(".hero-card-main").Single(button =>
+            button.TextContent.Contains("Vynlan")).TriggerEvent(
+                "onclick", new MouseEventArgs { Detail = 2 });
+
+        component.WaitForAssertion(() =>
+        {
+            Assert.Equal(2, component.FindAll(".hero-card").Count);
+            Assert.Contains("Vynlan", component.Find(".hero-card.active").TextContent);
+        });
+    }
+
+    [Fact]
     public void HeroRowStopsAtFiveCharacters()
     {
         var component = Render<RealmRosterHeader>();

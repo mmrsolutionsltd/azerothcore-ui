@@ -54,7 +54,7 @@
                               CompanionLeaderName="@companionLeaderName"
                               ProtocolVersion="@(companionStatus?.ProtocolVersion ?? 0)"
                               OnHeroClick="args => HandleSelectedHeroClickAsync(hero.Name, args)"
-                              OnSelectOnly="() => SelectOnlyAsync(hero.Name)"
+                              OnSelectOnly="() => MakeOnlyTargetAsync(hero.Name)"
                               OnActivate="() => ActivateAsync(hero.Name)"
                               OnToggleUpgrades="() => ToggleUpgradesAsync(hero)"
                               OnToggleCompanions="() => ToggleCompanionsAsync(hero)"
@@ -273,10 +273,19 @@
     // For heroes already in the header row: clicking the card body toggles whether
     // they're included as a target for the right-side tools. It does not remove them
     // from the row - that's the Dismiss button's job (OnRemove/RemoveAsync below).
+    // Double-clicking instead makes that hero the active/focused one (same as the
+    // Focus button), so dependent UI like the Artisan Gearing Room can update to it.
     private Task HandleSelectedHeroClickAsync(string name, MouseEventArgs args) =>
         args.Detail >= 2
-            ? SelectOnlineAsync()
+            ? ActivateAsync(name)
             : SelectedCharacterStore.ToggleTargetAsync(name).AsTask();
+
+    // Right-clicking an already-selected hero card narrows the target set down to just
+    // that hero, without touching row membership - unlike SelectOnlyAsync below, which
+    // HeroChoiceButton's right-click still uses to solo-select an unselected candidate
+    // into the row.
+    private Task MakeOnlyTargetAsync(string name) =>
+        SelectedCharacterStore.SetOnlyTargetAsync(name).AsTask();
 
     private async Task ToggleBotsAsync(ChangeEventArgs args)
     {
