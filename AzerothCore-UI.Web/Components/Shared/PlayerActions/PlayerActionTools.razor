@@ -19,12 +19,7 @@ else
     }
 
     <div class="player-action-tools-grid @(SingleColumn ? "single-column" : null)">
-        <section class="player-action-tool"><GiveItemTool Targets="Targets" Available="Available" /></section>
-        <section class="player-action-tool"><GiveMoneyTool Targets="Targets" Available="Available" /></section>
-        <section class="player-action-tool"><TeleportTool Targets="Targets" Available="Available" /></section>
         <section class="player-action-tool"><MovementSpeedTool Targets="Targets" Available="Available" /></section>
-        <section class="player-action-tool"><GuildBankTool Targets="Targets" Available="Available" /></section>
-        <section class="player-action-tool"><UtilityNpcTool Targets="Targets" Available="Available" /></section>
         <AuthorizeView Policy="players.services">
             <Authorized>
                 <section class="player-action-tool">
@@ -32,6 +27,11 @@ else
                 </section>
             </Authorized>
         </AuthorizeView>
+        <section class="player-action-tool"><TeleportTool Targets="Targets" Available="Available" /></section>
+        <section class="player-action-tool"><GiveItemTool Targets="Targets" Available="Available" /></section>
+        <section class="player-action-tool"><GiveMoneyTool Targets="Targets" Available="Available" /></section>
+        <section class="player-action-tool"><GuildBankTool Targets="Targets" Available="Available" /></section>
+        <section class="player-action-tool"><UtilityNpcTool Targets="Targets" Available="Available" /></section>
         <AuthorizeView Policy="world.creatures">
             <Authorized>
                 <section class="player-action-tool">
