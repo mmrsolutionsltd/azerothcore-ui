@@ -1,0 +1,168 @@
+@using AzerothCore_UI.Web.Models
+@inject AzerothCore_UI.Web.Clients.AccountsApiClient Api
+
+<div class="hero-training-panel">
+    <div class="hero-training-header">
+        <strong>@Hero.Name</strong>
+        <span>Training</span>
+        <button type="button" class="hero-training-refresh" disabled="@(Loading || working)"
+                @onclick="() => OnChanged.InvokeAsync()">
+            Refresh
+        </button>
+    </div>
+
+    @if (Loading)
+    {
+        <p class="hero-training-status">Checking available training…</p>
+    }
+    else if (Error is not null)
+    {
+        <p class="hero-training-status error">@Error</p>
+    }
+    else
+    {
+        @if (!string.IsNullOrWhiteSpace(message))
+        {
+            <p class="hero-training-message @(success ? "success" : "failure")">@message</p>
+        }
+
+        @if (Starter is { AvailableProfessions.Count: > 0 } starter)
+        {
+            <div class="hero-training-learn">
+                <select @bind="selectedSkillId">
+                    @foreach (var profession in starter.AvailableProfessions)
+                    {
+                        <option value="@profession.SkillId">@profession.Name</option>
+                    }
+                </select>
+                <button type="button" disabled="@(working || !Hero.Online)" @onclick="LearnAsync">
+                    Learn profession
+                </button>
+            </div>
+        }
+
+        @if (Management is { Professions.Count: > 0 } management)
+        {
+            <ul class="hero-training-list">
+                @foreach (var profession in management.Professions)
+                {
+                    <li>
+                        <span>@profession.Name <small>@profession.CurrentSkill/@profession.MaximumSkill</small></span>
+                        @if (pendingUnlearnSkillId == profession.SkillId)
+                        {
+                            <span class="hero-training-confirm">
+                                Unlearn?
+                                <button type="button" disabled="@working"
+                                        @onclick="() => ConfirmUnlearnAsync(profession)">Yes</button>
+                                <button type="button" @onclick="() => pendingUnlearnSkillId = null">No</button>
+                            </span>
+                        }
+                        else
+                        {
+                            <button type="button" class="danger" disabled="@(working || !Hero.Online)"
+                                    @onclick="() => pendingUnlearnSkillId = profession.SkillId">
+                                Unlearn
+                            </button>
+                        }
+                    </li>
+                }
+            </ul>
+        }
+
+        @if (Requirements.Count > 0)
+        {
+            <ul class="hero-training-list">
+                @foreach (var requirement in Requirements)
+                {
+                    <li>
+                        <span>
+                            @(requirement.Name ?? $"Spell {requirement.SpellId}")
+                            <small>@requirement.Category · @requirement.Discipline</small>
+                        </span>
+                        @if (requirement.Category == "Profession")
+                        {
+                            <button type="button" disabled="@(working || !Hero.Online)"
+                                    @onclick="() => GrantAsync(requirement)">
+                                Teach free
+                            </button>
+                        }
+                    </li>
+                }
+            </ul>
+        }
+
+        @if ((Starter is null || Starter.AvailableProfessions.Count == 0)
+            && (Management is null || Management.Professions.Count == 0)
+            && Requirements.Count == 0)
+        {
+            <p class="hero-training-status">No training currently available for @Hero.Name.</p>
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public RealmRosterCharacter Hero { get; set; } = default!;
+    [Parameter] public bool Loading { get; set; }
+    [Parameter] public string? Error { get; set; }
+    [Parameter] public ProfessionStarterCharacter? Starter { get; set; }
+    [Parameter] public ProfessionManagementCharacter? Management { get; set; }
+    [Parameter] public IReadOnlyList<TrainingRequirement> Requirements { get; set; } = [];
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    private ushort selectedSkillId;
+    private ushort? pendingUnlearnSkillId;
+    private bool working;
+    private bool success;
+    private string? message;
+
+    protected override void OnParametersSet()
+    {
+        if (Starter is { AvailableProfessions.Count: > 0 } starter
+            && !starter.AvailableProfessions.Any(profession => profession.SkillId == selectedSkillId))
+            selectedSkillId = starter.AvailableProfessions[0].SkillId;
+    }
+
+    private Task LearnAsync() => ExecuteAsync(async () =>
+    {
+        var result = await Api.LearnProfessionAsync(
+            new LearnProfessionRequest(Hero.Guid, selectedSkillId, true));
+        return result?.Message ?? "The profession was taught.";
+    });
+
+    private Task ConfirmUnlearnAsync(ManagedProfession profession) => ExecuteAsync(async () =>
+    {
+        var result = await Api.UnlearnProfessionAsync(
+            new UnlearnProfessionRequest(Hero.Guid, profession.SkillId, true));
+        pendingUnlearnSkillId = null;
+        return result?.Message ?? "The profession was unlearned.";
+    });
+
+    private Task GrantAsync(TrainingRequirement requirement) => ExecuteAsync(async () =>
+    {
+        var result = await Api.GrantProfessionTrainingAsync(
+            new GrantProfessionTrainingRequest(Hero.Guid, requirement.SpellId, true));
+        return result?.Message ?? "The training was granted.";
+    });
+
+    private async Task ExecuteAsync(Func<Task<string>> action)
+    {
+        if (working) return;
+        working = true;
+        message = null;
+        try
+        {
+            message = await action();
+            success = true;
+            await OnChanged.InvokeAsync();
+        }
+        catch (Exception exception)
+        {
+            success = false;
+            message = exception.Message;
+        }
+        finally
+        {
+            working = false;
+        }
+    }
+}

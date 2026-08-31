@@ -27,12 +27,13 @@ public sealed class RealmRosterHeaderTests : BunitContext
         Services.AddScoped<SelectedCharacterStore>();
         var authorization = AddAuthorization();
         authorization.SetAuthorized("owner");
-        authorization.SetPolicies("players.characters", "players.services");
+        authorization.SetPolicies("players.characters", "players.services", "adventures.training");
         authorization.SetRoles("Owner");
         authorization.SetClaims(
             new Claim(ClaimTypes.NameIdentifier, "owner"),
             new Claim(AdministrationPermissions.ClaimType, "players.characters"),
-            new Claim(AdministrationPermissions.ClaimType, "players.services"));
+            new Claim(AdministrationPermissions.ClaimType, "players.services"),
+            new Claim(AdministrationPermissions.ClaimType, "adventures.training"));
         JSInterop.Mode = JSRuntimeMode.Loose;
     }
 
@@ -357,6 +358,68 @@ public sealed class RealmRosterHeaderTests : BunitContext
     }
 
     [Fact]
+    public void TogglingTrainingFetchesDataOnceAndRendersThePanel()
+    {
+        var component = Render<RealmRosterHeader>();
+        component.WaitForElement(".hero-choice");
+        HeroChoice(component, "Vynlan").Click();
+        component.WaitForElement(".training-toggle");
+
+        component.Find(".training-toggle").Click();
+
+        component.WaitForAssertion(() =>
+        {
+            Assert.Equal(1, handler.TrainingRequestCount);
+            var panel = component.Find(".hero-training-panel");
+            Assert.Contains("Blacksmithing", panel.TextContent);
+            Assert.Contains("Alchemy", panel.TextContent);
+            Assert.Contains("Rough Sharpening Stone", panel.TextContent);
+        });
+    }
+
+    [Fact]
+    public void ReopeningTrainingPanelUsesTheCachedDataWithoutRefetching()
+    {
+        var component = Render<RealmRosterHeader>();
+        component.WaitForElement(".hero-choice");
+        HeroChoice(component, "Vynlan").Click();
+        component.WaitForElement(".training-toggle");
+
+        component.Find(".training-toggle").Click();
+        component.WaitForAssertion(() => Assert.Equal(1, handler.TrainingRequestCount));
+
+        component.Find(".training-toggle").Click();
+        component.WaitForAssertion(() => Assert.Empty(component.FindAll(".hero-training-panel")));
+
+        component.Find(".training-toggle").Click();
+        component.WaitForAssertion(() =>
+        {
+            Assert.Equal(1, handler.TrainingRequestCount);
+            Assert.Contains("Blacksmithing", component.Find(".hero-training-panel").TextContent);
+        });
+    }
+
+    [Fact]
+    public void SwitchingToTheTrainingTabFromUpgradesFetchesTrainingData()
+    {
+        var component = Render<RealmRosterHeader>();
+        component.WaitForElement(".hero-choice");
+        HeroChoice(component, "Vynlan").Click();
+        component.WaitForElement(".upgrades-toggle");
+        component.Find(".upgrades-toggle").Click();
+        component.WaitForElement(".hero-panel-tabs");
+
+        component.FindAll(".hero-panel-tabs button").Single(button =>
+            button.TextContent.Trim() == "Training").Click();
+
+        component.WaitForAssertion(() =>
+        {
+            Assert.Equal(1, handler.TrainingRequestCount);
+            Assert.Contains("Blacksmithing", component.Find(".hero-training-panel").TextContent);
+        });
+    }
+
+    [Fact]
     public void LiveHealthUsesAPercentageAndTurnsRedBelowThirtyPercent()
     {
         handler.VynlanMaximumHealth = 5_000;
@@ -420,6 +483,7 @@ public sealed class RealmRosterHeaderTests : BunitContext
         public string? RevivedCharacter { get; private set; }
         public uint? VynlanMaximumHealth { get; set; }
         public int CraftingUpgradeRequestCount { get; private set; }
+        public int TrainingRequestCount { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
@@ -450,6 +514,45 @@ public sealed class RealmRosterHeaderTests : BunitContext
                             null, null, null, 0, null, "Recipe", "Known", [], [], [])])],
                     1, 1, 0, 0, "Test catalog"));
             }
+            if (request.Method == HttpMethod.Get
+                && request.RequestUri!.AbsolutePath == "/api/training")
+            {
+                TrainingRequestCount++;
+                return Json(new[]
+                {
+                    new CharacterTrainingSummary(1, "MARK", 1, "Vynlan", 20,
+                        [new TrainingRequirement(
+                            "Profession", "Blacksmithing", 9001, "Rough Sharpening Stone",
+                            null, 20, null, 500)])
+                });
+            }
+            if (request.Method == HttpMethod.Get
+                && request.RequestUri!.AbsolutePath == "/api/training/professions/starters")
+            {
+                return Json(new[]
+                {
+                    new ProfessionStarterCharacter(1, "Vynlan", 20, true, 1,
+                        [new AvailableProfession(164, "Blacksmithing", "Primary", 2018, 1, [])])
+                });
+            }
+            if (request.Method == HttpMethod.Get
+                && request.RequestUri!.AbsolutePath == "/api/training/professions/manage")
+            {
+                return Json(new[]
+                {
+                    new ProfessionManagementCharacter(1, "Vynlan", true,
+                        [new ManagedProfession(171, "Alchemy", "Primary", 40, 75, [])])
+                });
+            }
+            if (request.Method == HttpMethod.Post
+                && request.RequestUri!.AbsolutePath == "/api/training/professions/learn")
+                return Json(new AdministrationResult(true, "The profession was taught."));
+            if (request.Method == HttpMethod.Post
+                && request.RequestUri!.AbsolutePath == "/api/training/professions/unlearn")
+                return Json(new AdministrationResult(true, "The profession was unlearned."));
+            if (request.Method == HttpMethod.Post
+                && request.RequestUri!.AbsolutePath == "/api/training/professions/grant")
+                return Json(new AdministrationResult(true, "The training was granted."));
             if (request.Method == HttpMethod.Get
                 && request.RequestUri!.AbsolutePath == "/api/characters")
             {

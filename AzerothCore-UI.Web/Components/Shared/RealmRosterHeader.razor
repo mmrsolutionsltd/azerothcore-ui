@@ -48,6 +48,7 @@
                               UpgradesLoading="upgradesLoading.Contains(hero.Name)"
                               UpgradesOpen="@(openPanelFor == hero.Name && activePanelTab == "Upgrades")"
                               CompanionsOpen="@(openPanelFor == hero.Name && activePanelTab == "Companions")"
+                              TrainingOpen="@(openPanelFor == hero.Name && activePanelTab == "Training")"
                               Reviving="reviving.Contains(hero.Name)"
                               Companion="ActiveCompanionFor(hero.Name)"
                               CompanionLeaderName="@companionLeaderName"
@@ -57,6 +58,7 @@
                               OnActivate="() => ActivateAsync(hero.Name)"
                               OnToggleUpgrades="() => ToggleUpgradesAsync(hero)"
                               OnToggleCompanions="() => ToggleCompanionsAsync(hero)"
+                              OnToggleTraining="() => ToggleTrainingAsync(hero)"
                               OnRevive="() => ReviveAsync(hero.Name)"
                               OnRemove="() => RemoveAsync(hero.Name)"
                               OnCompanionRefresh="RefreshCompanionControlsAsync" />
@@ -68,34 +70,41 @@
                     openName, StringComparison.OrdinalIgnoreCase)) is var openIndex
                 && openIndex >= 0)
             {
-                @if (activePanelTab == "Upgrades")
-                {
                 <div class="hero-panel-tabs" role="tablist">
                     <button type="button" class="@(activePanelTab == "Upgrades" ? "active" : null)" @onclick='() => SetPanelTab("Upgrades")'>Upgrades</button>
-                    <button type="button" @onclick='() => SetPanelTab("Companions")'>Companions</button>
+                    <button type="button" class="@(activePanelTab == "Companions" ? "active" : null)" @onclick='() => SetPanelTab("Companions")'>Companions</button>
+                    <button type="button" class="@(activePanelTab == "Training" ? "active" : null)" @onclick='() => SetPanelTab("Training")'>Training</button>
                 </div>
-                <HeroUpgradePanel Hero="SelectedHeroes[openIndex]" AnchorIndex="openIndex"
-                                  TotalCount="SelectedHeroes.Count"
-                                  Loading="upgradesLoading.Contains(openName)"
-                                  Error="@upgradesError.GetValueOrDefault(openName)"
-                                  Plan="upgradePlanCache.GetValueOrDefault(openName)"
-                                  SelectedSlotId="openUpgradeSlotId"
-                                  Filter="@upgradeFilter"
-                                  OnRefresh="() => RefreshUpgradesAsync(SelectedHeroes[openIndex])"
-                                  OnClose="CloseUpgrades"
-                                  OnSelectSlot="SelectUpgradeSlot"
-                                  OnFilterChanged="filter => upgradeFilter = filter" />
-                }
-                else
+                @if (activePanelTab == "Upgrades")
                 {
-                    <div class="hero-panel-tabs" role="tablist">
-                        <button type="button" @onclick='() => SetPanelTab("Upgrades")'>Upgrades</button>
-                        <button type="button" class="active">Companions</button>
-                    </div>
+                    <HeroUpgradePanel Hero="SelectedHeroes[openIndex]" AnchorIndex="openIndex"
+                                      TotalCount="SelectedHeroes.Count"
+                                      Loading="upgradesLoading.Contains(openName)"
+                                      Error="@upgradesError.GetValueOrDefault(openName)"
+                                      Plan="upgradePlanCache.GetValueOrDefault(openName)"
+                                      SelectedSlotId="openUpgradeSlotId"
+                                      Filter="@upgradeFilter"
+                                      OnRefresh="() => RefreshUpgradesAsync(SelectedHeroes[openIndex])"
+                                      OnClose="CloseUpgrades"
+                                      OnSelectSlot="SelectUpgradeSlot"
+                                      OnFilterChanged="filter => upgradeFilter = filter" />
+                }
+                else if (activePanelTab == "Companions")
+                {
                     <CompanionSessionPanel Leader="SelectedHeroes[openIndex]"
                                            SelectedHeroes="SelectedHeroes"
                                            Status="companionStatus"
                                            OnChanged="RefreshCompanionControlsAsync" />
+                }
+                else
+                {
+                    <HeroTrainingPanel Hero="SelectedHeroes[openIndex]"
+                                       Loading="trainingLoading"
+                                       Error="@trainingError"
+                                       Starter="StarterFor(SelectedHeroes[openIndex].Guid)"
+                                       Management="ManagementFor(SelectedHeroes[openIndex].Guid)"
+                                       Requirements="RequirementsFor(SelectedHeroes[openIndex].Guid)"
+                                       OnChanged="RefreshTrainingDataAsync" />
                 }
             }
         }
@@ -143,6 +152,12 @@
     private Dictionary<string, CharacterOverviewSummary> overviewByName =
         new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> targetNames = new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<CharacterTrainingSummary> trainingCharacters = [];
+    private IReadOnlyList<ProfessionStarterCharacter> trainingStarters = [];
+    private IReadOnlyList<ProfessionManagementCharacter> trainingManagement = [];
+    private bool trainingDataLoaded;
+    private bool trainingLoading;
+    private string? trainingError;
 
     private IReadOnlyList<RealmRosterCharacter> AllHeroes =>
         snapshot?.AvailableHeroes
@@ -336,7 +351,21 @@
         activePanelTab = "Companions";
         return RefreshCompanionControlsAsync();
     }
-    private void SetPanelTab(string tab) => activePanelTab = tab;
+
+    private async Task ToggleTrainingAsync(RealmRosterCharacter hero)
+    {
+        if (openPanelFor is not null && openPanelFor.Equals(hero.Name, StringComparison.OrdinalIgnoreCase)
+            && activePanelTab == "Training") { openPanelFor = null; return; }
+        openPanelFor = hero.Name;
+        activePanelTab = "Training";
+        if (!trainingDataLoaded) await FetchTrainingDataAsync();
+    }
+
+    private async Task SetPanelTab(string tab)
+    {
+        activePanelTab = tab;
+        if (tab == "Training" && !trainingDataLoaded) await FetchTrainingDataAsync();
+    }
 
     private async Task FetchUpgradePlanAsync(RealmRosterCharacter hero)
     {
@@ -375,6 +404,43 @@
     }
 
     private void CloseUpgrades() => openPanelFor = null;
+
+    // The training/profession endpoints return every scoped character at once, so
+    // they're fetched once and cached, then sliced per hero below - not refetched
+    // per card the way crafting-upgrade plans are.
+    private async Task FetchTrainingDataAsync()
+    {
+        trainingLoading = true;
+        trainingError = null;
+        StateHasChanged();
+        try
+        {
+            trainingCharacters = await Api.GetAvailableTrainingAsync(cancellation.Token);
+            trainingStarters = await Api.GetProfessionStartersAsync(cancellation.Token);
+            trainingManagement = await Api.GetProfessionManagementAsync(cancellation.Token);
+            trainingDataLoaded = true;
+        }
+        catch (Exception exception) when (!cancellation.IsCancellationRequested)
+        {
+            trainingError = exception.Message;
+        }
+        finally
+        {
+            trainingLoading = false;
+        }
+    }
+
+    private Task RefreshTrainingDataAsync() => FetchTrainingDataAsync();
+
+    private ProfessionStarterCharacter? StarterFor(uint guid) =>
+        trainingStarters.FirstOrDefault(character => character.CharacterGuid == guid);
+
+    private ProfessionManagementCharacter? ManagementFor(uint guid) =>
+        trainingManagement.FirstOrDefault(character => character.CharacterGuid == guid);
+
+    private IReadOnlyList<TrainingRequirement> RequirementsFor(uint guid) =>
+        trainingCharacters.FirstOrDefault(character => character.CharacterGuid == guid)
+            ?.Requirements ?? [];
 
     private void OnActiveSelectionChanged(string name) => _ = InvokeAsync(() =>
     {

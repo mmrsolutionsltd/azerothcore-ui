@@ -1,0 +1,22 @@
+.hero-training-panel{padding:.5rem;border:1px solid #59472d;border-radius:4px;background:#14120f;color:#d8ccba}
+.hero-training-header{display:flex;align-items:baseline;gap:.4rem;color:#f0cf83;font-size:.72rem}
+.hero-training-header span{color:#958b7c;font-size:.58rem}
+.hero-training-header .hero-training-refresh{margin-left:auto;padding:.1rem .4rem;color:#c8a55f;font-size:.62rem;border:1px solid #59472d;border-radius:3px;background:#1c1914}
+.hero-training-header .hero-training-refresh:hover:not(:disabled){color:#ffe2a1;border-color:#b18442}
+.hero-training-status{margin:.4rem 0;color:#958b7c;font-size:.65rem;text-align:center}
+.hero-training-status.error{color:#e58a86}
+.hero-training-message{margin:.3rem 0;font-size:.62rem}
+.hero-training-message.success{color:#73da8e}
+.hero-training-message.failure{color:#ef7770}
+.hero-training-learn{display:flex;gap:.3rem;margin:.4rem 0}
+.hero-training-learn select{flex:1;min-width:0;padding:.15rem .3rem;font-size:.62rem;color:#d8ccba;border:1px solid #59472d;border-radius:3px;background:#1c1914}
+.hero-training-list{display:flex;flex-direction:column;gap:.2rem;margin:.35rem 0;padding:0;list-style:none}
+.hero-training-list li{display:flex;align-items:center;justify-content:space-between;gap:.4rem;padding:.2rem .3rem;border:1px solid #3e3425;border-radius:3px;background:#111317}
+.hero-training-list li span{min-width:0;overflow:hidden;color:#d8ccba;font-size:.62rem;text-overflow:ellipsis;white-space:nowrap}
+.hero-training-list li small{margin-left:.3rem;color:#958b7c;font-size:.56rem}
+.hero-training-panel button{flex-shrink:0;padding:.12rem .4rem;color:#c8a55f;font-size:.6rem;border:1px solid #59472d;border-radius:3px;background:#1c1914}
+.hero-training-panel button:hover:not(:disabled){color:#ffe2a1;border-color:#b18442}
+.hero-training-panel button:disabled{opacity:.5}
+.hero-training-panel button.danger{color:#e58a86;border-color:#6e352f}
+.hero-training-panel button.danger:hover:not(:disabled){color:#ffb0a8;border-color:#a3413a}
+.hero-training-confirm{display:flex;align-items:center;gap:.25rem;color:#e5b566;font-size:.58rem}

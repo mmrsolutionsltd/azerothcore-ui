@@ -81,6 +81,15 @@
                 </AuthorizeView>
             </Authorized>
         </AuthorizeView>
+        <AuthorizeView Policy="adventures.training">
+            <Authorized Context="trainingPolicy">
+                <button type="button" class="training-toggle"
+                        title="Manage class and profession training for @Hero.Name"
+                        @onclick="OnToggleTraining">
+                    @(TrainingOpen ? "Close" : "Training")
+                </button>
+            </Authorized>
+        </AuthorizeView>
         <button type="button" class="dismiss-hero" title="Remove @Hero.Name from this hero row"
                 @onclick="OnRemove">Dismiss</button>
     </div>
@@ -103,6 +112,7 @@
     [Parameter] public bool UpgradesLoading { get; set; }
     [Parameter] public bool UpgradesOpen { get; set; }
     [Parameter] public bool CompanionsOpen { get; set; }
+    [Parameter] public bool TrainingOpen { get; set; }
     [Parameter] public bool Reviving { get; set; }
     [Parameter] public ActiveQuestingCompanion? Companion { get; set; }
     [Parameter] public string CompanionLeaderName { get; set; } = "";
@@ -112,6 +122,7 @@
     [Parameter] public EventCallback OnActivate { get; set; }
     [Parameter] public EventCallback OnToggleUpgrades { get; set; }
     [Parameter] public EventCallback OnToggleCompanions { get; set; }
+    [Parameter] public EventCallback OnToggleTraining { get; set; }
     [Parameter] public EventCallback OnRevive { get; set; }
     [Parameter] public EventCallback OnRemove { get; set; }
     [Parameter] public EventCallback OnCompanionRefresh { get; set; }
