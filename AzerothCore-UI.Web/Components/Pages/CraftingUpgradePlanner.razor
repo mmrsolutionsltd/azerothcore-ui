@@ -79,15 +79,17 @@
                 <span class="realm-account">@plan.Target.Username · @(plan.Target.Online ? "Online" : "Offline")</span>
             </div>
 
-            @if (plan.Professions.Count > 0)
+            @if (RelevantProfessions.Count > 0)
             {
                 <div class="profession-row">
-                    <span class="scroll-title">The account's artisans</span>
-                    @foreach (var profession in plan.Professions)
+                    <span class="scroll-title">Include professions</span>
+                    @foreach (var profession in RelevantProfessions)
                     {
-                        <button type="button" title="@profession.Username" @onclick="() => FilterToProfession(profession.ProfessionName)">
-                            <strong>@profession.ProfessionName</strong>
-                            <span>@profession.CharacterName · @profession.CurrentSkill/@profession.MaximumSkill</span>
+                        <button type="button"
+                                class="@(excludedProfessions.Contains(profession) ? "excluded" : "included")"
+                                title="@ProfessionSourcesTitle(profession)"
+                                @onclick="() => ToggleProfession(profession)">
+                            @profession
                         </button>
                     }
                 </div>
@@ -136,6 +138,11 @@
 </div>
 
 @code {
+    // These are learnable by every character regardless of primary profession choice
+    // and never produce equippable gear, so they don't belong in the aggregate.
+    private static readonly HashSet<string> UniversalProfessions =
+        new(StringComparer.OrdinalIgnoreCase) { "Cooking", "First Aid", "Fishing" };
+
     private IReadOnlyList<CharacterOverviewSummary> characters = [];
     private CraftingUpgradePlan? plan;
     private string? selectedGuid;
@@ -146,10 +153,37 @@
     private bool loading;
     private string? message;
     private string recommendationFilter = "All";
+    private readonly HashSet<string> excludedProfessions = new(StringComparer.OrdinalIgnoreCase);
 
-    private CraftingGearSlot? SelectedSlot => plan?.Slots.FirstOrDefault(slot => slot.Slot == selectedSlotId);
+    private IReadOnlyList<string> RelevantProfessions => plan?.Professions
+        .Select(profession => profession.ProfessionName)
+        .Where(name => !UniversalProfessions.Contains(name))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(name => name)
+        .ToArray() ?? [];
+
+    private CraftingGearSlot? SelectedSlot =>
+        UpgradeableSlots.FirstOrDefault(slot => slot.Slot == selectedSlotId);
+
     private IReadOnlyList<CraftingGearSlot> UpgradeableSlots =>
-        plan?.Slots.Where(slot => slot.Recommendations.Count > 0).ToArray() ?? [];
+        plan?.Slots
+            .Select(slot => slot with { Recommendations = FilterRecommendations(slot.Recommendations) })
+            .Where(slot => slot.Recommendations.Count > 0)
+            .ToArray() ?? [];
+
+    private IReadOnlyList<CraftingUpgradeRecommendation> FilterRecommendations(
+        IReadOnlyList<CraftingUpgradeRecommendation> recommendations) =>
+        recommendations.Where(recommendation => recommendation.ProfessionName is null
+            || (!UniversalProfessions.Contains(recommendation.ProfessionName)
+                && !excludedProfessions.Contains(recommendation.ProfessionName)))
+            .ToArray();
+
+    private string ProfessionSourcesTitle(string profession) => string.Join(", ",
+        plan?.Professions
+            .Where(candidate => candidate.ProfessionName.Equals(
+                profession, StringComparison.OrdinalIgnoreCase))
+            .Select(candidate => $"{candidate.CharacterName} ({candidate.CurrentSkill}/{candidate.MaximumSkill})")
+            ?? []);
 
     protected override async Task OnInitializedAsync()
     {
@@ -215,7 +249,8 @@
         {
             plan = await Api.GetCraftingUpgradePlanAsync(guid, maximumSkillGap,
                 futureLevelHorizon, includeSidegrades);
-            selectedSlotId = plan?.Slots.FirstOrDefault(slot => slot.Recommendations.Count > 0)?.Slot;
+            excludedProfessions.Clear();
+            selectedSlotId = UpgradeableSlots.FirstOrDefault()?.Slot;
             recommendationFilter = "All";
         }
         catch (Exception ex)
@@ -232,11 +267,11 @@
         recommendationFilter = "All";
     }
 
-    private void FilterToProfession(string profession)
+    private void ToggleProfession(string profession)
     {
-        var slot = plan?.Slots.FirstOrDefault(candidate => candidate.Recommendations.Any(
-            recommendation => recommendation.ProfessionName == profession));
-        if (slot is not null) selectedSlotId = slot.Slot;
+        if (!excludedProfessions.Remove(profession)) excludedProfessions.Add(profession);
+        if (!UpgradeableSlots.Any(slot => slot.Slot == selectedSlotId))
+            selectedSlotId = UpgradeableSlots.FirstOrDefault()?.Slot;
         recommendationFilter = "All";
     }
 

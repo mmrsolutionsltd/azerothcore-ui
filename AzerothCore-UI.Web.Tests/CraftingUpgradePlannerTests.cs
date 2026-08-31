@@ -66,6 +66,47 @@ public sealed class CraftingUpgradePlannerTests : BunitContext
         });
     }
 
+    [Fact]
+    public async Task UniversalProfessionsAreExcludedFromTheAggregateAndTheToggleList()
+    {
+        var store = Services.GetRequiredService<SelectedCharacterStore>();
+        var component = Render<CraftingUpgradePlanner>();
+
+        await component.InvokeAsync(() => store.SetAsync("Vynlan").AsTask());
+
+        component.WaitForAssertion(() =>
+        {
+            var chips = component.FindAll(".profession-row button")
+                .Select(button => button.TextContent.Trim()).ToArray();
+            Assert.Contains("Blacksmithing", chips);
+            Assert.DoesNotContain("Cooking", chips);
+            Assert.DoesNotContain("Cooking's Trinket", component.Markup);
+        });
+    }
+
+    [Fact]
+    public async Task TogglingOffAProfessionRemovesItsOnlyUpgradeFromTheAggregate()
+    {
+        var store = Services.GetRequiredService<SelectedCharacterStore>();
+        var component = Render<CraftingUpgradePlanner>();
+        await component.InvokeAsync(() => store.SetAsync("Vynlan").AsTask());
+        component.WaitForAssertion(() => Assert.Contains("Bolstered Helm", component.Markup));
+
+        component.FindAll(".profession-row button").Single(button =>
+            button.TextContent.Trim() == "Blacksmithing").Click();
+
+        component.WaitForAssertion(() =>
+        {
+            Assert.Empty(component.FindAll(".gear-slot"));
+            Assert.DoesNotContain("Bolstered Helm", component.Markup);
+        });
+
+        component.FindAll(".profession-row button").Single(button =>
+            button.TextContent.Trim() == "Blacksmithing").Click();
+
+        component.WaitForAssertion(() => Assert.Contains("Bolstered Helm", component.Markup));
+    }
+
     private sealed class PlannerHandler : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(
@@ -86,18 +127,28 @@ public sealed class CraftingUpgradePlannerTests : BunitContext
             {
                 return Task.FromResult(Json(new CraftingUpgradePlan(
                     new CraftingTargetCharacter(1, "Vynlan", "MARK", 20, 9, 10, true),
-                    [],
+                    [
+                        new CraftingProfessionSummary(1, "Vynlan", "MARK", 164, "Blacksmithing", 300, 375),
+                        new CraftingProfessionSummary(1, "Vynlan", "MARK", 185, "Cooking", 300, 375)
+                    ],
                     [
                         new CraftingGearSlot(0, "Head",
                             new CraftingGearItem(10, "Old Helm", 1, 10, 5, 1, 4, 1, []),
                             [new CraftingUpgradeRecommendation(
                                 "CraftNow",
                                 new CraftingGearItem(11, "Bolstered Helm", 3, 20, 15, 1, 4, 1, []),
-                                true, true, null, "Crafter", "CrafterAcct", "Bags", null, null,
+                                true, true, null, "Crafter", "CrafterAcct", "Bags", 164, "Blacksmithing",
                                 null, null, null, 0, null, "Recipe", "Known", [], [], [])]),
                         new CraftingGearSlot(4, "Chest",
                             new CraftingGearItem(12, "Empty Chest", 1, 10, 5, 1, 4, 1, []),
-                            [])
+                            []),
+                        new CraftingGearSlot(11, "Trinket",
+                            new CraftingGearItem(13, "Old Trinket", 1, 10, 5, 1, 4, 1, []),
+                            [new CraftingUpgradeRecommendation(
+                                "CraftNow",
+                                new CraftingGearItem(14, "Cooking's Trinket", 3, 20, 15, 1, 4, 1, []),
+                                true, true, null, "Crafter", "CrafterAcct", "Bags", 185, "Cooking",
+                                null, null, null, 0, null, "Recipe", "Known", [], [], [])])
                     ],
                     1, 1, 0, 0, "Test catalog")));
             }
