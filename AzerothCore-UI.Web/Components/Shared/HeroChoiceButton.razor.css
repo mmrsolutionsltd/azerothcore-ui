@@ -1,3 +1,17 @@
-.hero-choice{display:flex;flex:0 0 auto;align-items:center;gap:.2rem;min-height:21px;padding:.11rem .3rem;color:#a8a096;font-size:.56rem;border:1px solid #3a3937;border-bottom-color:#63543c;border-radius:3px;background:#191b1f}.hero-choice:hover:not(:disabled){color:#ffe1a0;border-color:#bd8d3d}.hero-choice.offline{opacity:.5}.hero-choice.offline i{background:#686868;box-shadow:none}.hero-choice.leader{color:#e3bd6e;border-color:#75582c}.hero-choice span{color:#e4b75b}.hero-choice small{color:#706b64;font-size:.44rem}.hero-choice .bot-label{padding:.02rem .14rem;color:#78b9e9;border:1px solid #365c78;border-radius:2px;background:#101d27}.hero-choice:disabled{opacity:.28}
+.hero-choice{display:flex;flex:0 0 auto;align-items:center;gap:.22rem;min-height:21px;padding:.11rem .3rem;color:#a8a096;font-size:.56rem;border:1px solid #3a3937;border-bottom-color:#63543c;border-radius:3px;background:#191b1f}.hero-choice:hover:not(:disabled){color:#ffe1a0;border-color:#bd8d3d}.hero-choice.offline{opacity:.5}.hero-choice.offline i{background:#686868;box-shadow:none}.hero-choice.leader{color:#e3bd6e;border-color:#75582c}.hero-choice .choice-leader{color:#e4b75b}.hero-choice small{color:#706b64;font-size:.44rem}.hero-choice .bot-label{padding:.02rem .14rem;color:#78b9e9;border:1px solid #365c78;border-radius:2px;background:#101d27}.hero-choice:disabled{opacity:.28}
 .hero-choice i{display:block;width:6px;height:6px;border-radius:50%;background:#4ce081;box-shadow:0 0 6px #31d46c}
+.hero-choice .choice-class-glyph{display:grid;place-items:center;color:var(--class,#e4b75b);font-size:1.05em;line-height:1;text-shadow:0 0 4px color-mix(in srgb,var(--class,#e4b75b) 55%,transparent)}
 .class-1{--class:#c79c6e}.class-2{--class:#f58cba}.class-3{--class:#abd473}.class-4{--class:#fff569}.class-5{--class:#fff}.class-6{--class:#c41f3b}.class-7{--class:#0070de}.class-8{--class:#69ccf0}.class-9{--class:#9482c9}.class-11{--class:#ff7d0a}
+
+@media(min-width:1500px){
+    .hero-choice{min-height:27px;padding:.18rem .45rem;gap:.3rem;font-size:.72rem}
+    .hero-choice .choice-class-glyph{font-size:1.1em}
+    .hero-choice small{font-size:.58rem}
+    .hero-choice .bot-label{padding:.05rem .2rem;font-size:.5rem}
+}
+@media(min-width:3200px){
+    .hero-choice{min-height:34px;padding:.24rem .6rem;gap:.38rem;font-size:.88rem}
+    .hero-choice .choice-class-glyph{font-size:1.15em}
+    .hero-choice small{font-size:.7rem}
+    .hero-choice .bot-label{padding:.08rem .26rem;font-size:.6rem}
+}

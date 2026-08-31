@@ -15,7 +15,6 @@
 @media(max-width:500px){.hero-roster-heading>span{font-size:.48rem}}
 
 @media(min-width:1500px){
-    /* intentionally not scaling .hero-choice up here - candidate chips stay small */
     .hero-card-row{grid-template-columns:repeat(5,minmax(180px,1fr));gap:.5rem}
 }
 @media(min-width:3200px){

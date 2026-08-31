@@ -8,7 +8,8 @@
         @oncontextmenu="OnSelectOnly"
         @oncontextmenu:preventDefault="true">
     <i></i>
-    @if (Hero.IsLeader) { <span>♛</span> }
+    <span class="choice-class-glyph" title="@CharacterDisplayNames.Class((byte)Hero.CharacterClass)">@CharacterDisplayNames.ClassGlyph(Hero.CharacterClass)</span>
+    @if (Hero.IsLeader) { <span class="choice-leader">♛</span> }
     <strong>@Hero.Name</strong>
     <small>Lv @Hero.Level</small>
     @if (Hero.IsPlayerBot) { <small class="bot-label">BOT</small> }

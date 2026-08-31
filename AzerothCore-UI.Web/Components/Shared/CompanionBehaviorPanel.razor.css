@@ -1,10 +1,73 @@
 .companion-behavior {
     border-bottom: 1px solid #4a3d28;
-    margin-bottom: .4rem;
-    padding-bottom: .4rem;
+    margin-bottom: .3rem;
+    padding-bottom: .3rem;
 }
 
+/* Tighten Bootstrap's own spacing utilities within this panel only. */
+.companion-behavior .mb-2 { margin-bottom: .3rem !important; }
+.companion-behavior .mb-1 { margin-bottom: .15rem !important; }
+.companion-behavior .mt-2 { margin-top: .3rem !important; }
+.companion-behavior .g-2 { --bs-gutter-x: .4rem; --bs-gutter-y: .3rem; }
+.companion-behavior .gap-1 { gap: .25rem !important; }
+.companion-behavior .gap-2 { gap: .3rem !important; }
+.companion-behavior .gap-3 { gap: .45rem !important; }
+
 .companion-distance {
-    min-width: 2.4rem;
+    min-width: 2.2rem;
     text-align: center;
+    color: #e0bc62;
+    background-color: #17191d !important;
+    border: 1px solid #4a3d28;
 }
+
+/* Questing = neutral gold (default preset), Dungeon tank = blue, Dungeon
+   healer = green - matching WoW's own role-color convention rather than
+   Bootstrap's arbitrary green/blue/cyan defaults. */
+.companion-behavior .btn-outline-success {
+    color: #d6b66e; border-color: #655033; background-color: transparent;
+}
+.companion-behavior .btn-outline-success:hover:not(:disabled) {
+    color: #251705; background-color: #c99442; border-color: #e1b85f;
+}
+.companion-behavior .btn-outline-primary {
+    color: #9fc9ff; border-color: #33526e; background-color: transparent;
+}
+.companion-behavior .btn-outline-primary:hover:not(:disabled) {
+    color: #0e1c28; background-color: #6fa8e0; border-color: #9fc9ff;
+}
+.companion-behavior .btn-outline-info {
+    color: #8fdba0; border-color: #2f5a3d; background-color: transparent;
+}
+.companion-behavior .btn-outline-info:hover:not(:disabled) {
+    color: #0d2013; background-color: #6bbf7f; border-color: #8fdba0;
+}
+.companion-behavior .btn-outline-secondary {
+    color: #cbb47c; border-color: #675235; background-color: transparent;
+}
+.companion-behavior .btn-outline-secondary:hover:not(:disabled) {
+    color: #251705; background-color: #c99442; border-color: #e1b85f;
+}
+.companion-behavior .btn-primary {
+    color: #251705; border-color: #efc86f; background: linear-gradient(#e5c16e, #aa7025);
+}
+
+.companion-behavior .badge.text-bg-secondary {
+    color: #d8ccba; background-color: #2a2620 !important; border: 1px solid #4a3d28;
+}
+
+.companion-behavior .form-check-input {
+    accent-color: #bf8735;
+    background-color: #17191d;
+    border-color: #59492f;
+}
+.companion-behavior .form-check-input:checked {
+    background-color: #bf8735;
+    border-color: #96692c;
+}
+
+.companion-behavior .form-range { accent-color: #bf8735; }
+.companion-behavior .form-range::-webkit-slider-thumb { background: #bf8735; }
+.companion-behavior .form-range::-moz-range-thumb { background: #bf8735; border: none; }
+.companion-behavior .form-range::-webkit-slider-runnable-track { background: #24262b; }
+.companion-behavior .form-range::-moz-range-track { background: #24262b; }

@@ -43,15 +43,6 @@ main {
     box-shadow:0 4px 18px rgba(0,0,0,.3),inset 0 -1px rgba(255,215,139,.08);
 }
 
-    .top-row .page-heading {
-        min-width: 0;
-        flex:0 0 auto;
-        color:#f1d28c;
-        font-family:Georgia,"Times New Roman",serif;
-        text-shadow:0 2px 3px #000,0 0 12px rgba(235,174,70,.2);
-        padding-top:.52rem;
-    }
-
     .top-row ::deep a, .top-row ::deep .btn-link {
         white-space: nowrap;
         margin-left: 1.5rem;
@@ -69,7 +60,6 @@ main {
 
 @media (max-width: 640.98px) {
     .top-row { align-items:stretch; flex-wrap:wrap; padding-top:.35rem; padding-bottom:.35rem; }
-    .top-row .page-heading { flex:1; }
     .top-row ::deep .hero-roster { flex-basis:100%; }
     .top-row ::deep a, .top-row ::deep .btn-link {
         margin-left: 0;
