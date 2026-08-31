@@ -30,14 +30,14 @@
 
 @code {
     private IReadOnlyList<AdministrationPlayer> players = [];
-    private readonly HashSet<string> selectedNames =
+    private readonly HashSet<string> targetNames =
         new(StringComparer.OrdinalIgnoreCase);
     private bool isLoading = true;
     private string? errorMessage;
     private bool railOpen = true;
 
     private IReadOnlyList<PlayerActionTarget> SelectedTargets => players
-        .Where(player => selectedNames.Contains(player.Name))
+        .Where(player => targetNames.Contains(player.Name))
         .OrderBy(player => player.PickerOrder)
         .ThenBy(player => player.Name)
         .Select(PlayerActionTarget.From)
@@ -47,10 +47,11 @@
     {
         SelectedCharacterStore.SelectedCharactersChanged +=
             OnSelectedCharactersChanged;
+        SelectedCharacterStore.TargetsChanged += OnTargetsChanged;
         try
         {
-            selectedNames.UnionWith(
-                await SelectedCharacterStore.GetSelectedAsync());
+            targetNames.UnionWith(
+                await SelectedCharacterStore.GetTargetsAsync());
             players = await AccountsClient.GetAdministrationPlayersAsync();
         }
         catch (Exception exception)
@@ -63,15 +64,27 @@
         }
     }
 
+    // Row membership changes (add/remove/dismiss) can also change the effective
+    // target set, so both events refresh from the store rather than reasoning locally.
     private void OnSelectedCharactersChanged(IReadOnlyList<string> names) =>
-        _ = InvokeAsync(() =>
+        _ = InvokeAsync(async () =>
         {
-            selectedNames.Clear();
-            selectedNames.UnionWith(names);
+            targetNames.Clear();
+            targetNames.UnionWith(await SelectedCharacterStore.GetTargetsAsync());
             StateHasChanged();
         });
 
-    public void Dispose() =>
+    private void OnTargetsChanged(IReadOnlyList<string> names) => _ = InvokeAsync(() =>
+    {
+        targetNames.Clear();
+        targetNames.UnionWith(names);
+        StateHasChanged();
+    });
+
+    public void Dispose()
+    {
         SelectedCharacterStore.SelectedCharactersChanged -=
             OnSelectedCharactersChanged;
+        SelectedCharacterStore.TargetsChanged -= OnTargetsChanged;
+    }
 }

@@ -12,11 +12,13 @@ public sealed class SelectedCharacterStore(
     public const int MaximumCharacters = 5;
 
     private readonly List<string> selectedCharacters = [];
+    private readonly HashSet<string> excludedTargets = new(StringComparer.OrdinalIgnoreCase);
     private string? current;
     private bool loaded;
 
     public event Action<string>? SelectionChanged;
     public event Action<IReadOnlyList<string>>? SelectedCharactersChanged;
+    public event Action<IReadOnlyList<string>>? TargetsChanged;
 
     public async ValueTask<string?> GetAsync()
     {
@@ -29,6 +31,28 @@ public sealed class SelectedCharacterStore(
         await EnsureLoadedAsync();
         return selectedCharacters.ToArray();
     }
+
+    /// <summary>Selected characters currently included as targets for the player-action
+    /// tools. Distinct from row membership (<see cref="GetSelectedAsync"/>) - every
+    /// selected character is a target by default until individually toggled off.</summary>
+    public async ValueTask<IReadOnlyList<string>> GetTargetsAsync()
+    {
+        await EnsureLoadedAsync();
+        return EffectiveTargets();
+    }
+
+    public async ValueTask ToggleTargetAsync(string characterName)
+    {
+        await EnsureLoadedAsync();
+        if (!selectedCharacters.Contains(characterName, StringComparer.OrdinalIgnoreCase))
+            return;
+        if (!excludedTargets.Remove(characterName)) excludedTargets.Add(characterName);
+        await PersistAsync();
+        TargetsChanged?.Invoke(EffectiveTargets());
+    }
+
+    private string[] EffectiveTargets() => selectedCharacters
+        .Where(name => !excludedTargets.Contains(name)).ToArray();
 
     public async ValueTask SetAsync(string characterName)
     {
@@ -134,6 +158,22 @@ public sealed class SelectedCharacterStore(
                     selectedCharacters.RemoveAt(0);
                 selectedCharacters.Add(current);
             }
+
+            var serializedTargets = await javascript.InvokeAsync<string?>(
+                "localStorage.getItem", $"{key}:excluded-targets");
+            if (!string.IsNullOrWhiteSpace(serializedTargets))
+            {
+                try
+                {
+                    excludedTargets.UnionWith(
+                        JsonSerializer.Deserialize<string[]>(serializedTargets) ?? []);
+                    excludedTargets.IntersectWith(selectedCharacters);
+                }
+                catch (JsonException)
+                {
+                    // Ignore malformed pre-release browser state.
+                }
+            }
         }
         catch (Exception exception) when (
             exception is InvalidOperationException or JSDisconnectedException
@@ -156,6 +196,7 @@ public sealed class SelectedCharacterStore(
 
     private async ValueTask PersistAsync()
     {
+        excludedTargets.IntersectWith(selectedCharacters);
         try
         {
             var key = await KeyAsync();
@@ -165,6 +206,8 @@ public sealed class SelectedCharacterStore(
                 await javascript.InvokeVoidAsync("localStorage.setItem", key, current);
             await javascript.InvokeVoidAsync("localStorage.setItem", $"{key}:party",
                 JsonSerializer.Serialize(selectedCharacters));
+            await javascript.InvokeVoidAsync("localStorage.setItem", $"{key}:excluded-targets",
+                JsonSerializer.Serialize(excludedTargets));
         }
         catch (Exception exception) when (
             exception is InvalidOperationException or JSDisconnectedException

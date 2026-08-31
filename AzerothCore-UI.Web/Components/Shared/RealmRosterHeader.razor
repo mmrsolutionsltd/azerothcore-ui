@@ -40,34 +40,24 @@
             <div class="hero-card-row">
                 @foreach (var hero in SelectedHeroes)
                 {
-                    if (hero.Online)
-                    {
-                        <HeroCard @key="hero.Name" Hero="hero"
-                                  IsActive="IsActive(hero.Name)"
-                                  HasParty="PartyFor(hero.Name) is not null"
-                                  UpgradesLoading="upgradesLoading.Contains(hero.Name)"
-                                  UpgradesOpen="openUpgradesFor == hero.Name"
-                                  Reviving="reviving.Contains(hero.Name)"
-                                  Companion="ActiveCompanionFor(hero.Name)"
-                                  CompanionLeaderName="@companionLeaderName"
-                                  ProtocolVersion="@(companionStatus?.ProtocolVersion ?? 0)"
-                                  OnHeroClick="args => HandleHeroClickAsync(hero.Name, args)"
-                                  OnSelectOnly="() => SelectOnlyAsync(hero.Name)"
-                                  OnActivate="() => ActivateAsync(hero.Name)"
-                                  OnToggleUpgrades="() => ToggleUpgradesAsync(hero)"
-                                  OnRevive="() => ReviveAsync(hero.Name)"
-                                  OnRemove="() => RemoveAsync(hero.Name)"
-                                  OnCompanionRefresh="RefreshCompanionControlsAsync" />
-                    }
-                    else
-                    {
-                        <OfflineHeroChip @key="hero.Name" Hero="hero"
-                                         IsActive="IsActive(hero.Name)"
-                                         OnHeroClick="args => HandleHeroClickAsync(hero.Name, args)"
-                                         OnSelectOnly="() => SelectOnlyAsync(hero.Name)"
-                                         OnActivate="() => ActivateAsync(hero.Name)"
-                                         OnRemove="() => RemoveAsync(hero.Name)" />
-                    }
+                    <HeroCard @key="hero.Name" Hero="hero"
+                              Overview="overviewByName.GetValueOrDefault(hero.Name)"
+                              IsActive="IsActive(hero.Name)"
+                              IsTarget="targetNames.Contains(hero.Name)"
+                              HasParty="PartyFor(hero.Name) is not null"
+                              UpgradesLoading="upgradesLoading.Contains(hero.Name)"
+                              UpgradesOpen="openUpgradesFor == hero.Name"
+                              Reviving="reviving.Contains(hero.Name)"
+                              Companion="ActiveCompanionFor(hero.Name)"
+                              CompanionLeaderName="@companionLeaderName"
+                              ProtocolVersion="@(companionStatus?.ProtocolVersion ?? 0)"
+                              OnHeroClick="args => HandleSelectedHeroClickAsync(hero.Name, args)"
+                              OnSelectOnly="() => SelectOnlyAsync(hero.Name)"
+                              OnActivate="() => ActivateAsync(hero.Name)"
+                              OnToggleUpgrades="() => ToggleUpgradesAsync(hero)"
+                              OnRevive="() => ReviveAsync(hero.Name)"
+                              OnRemove="() => RemoveAsync(hero.Name)"
+                              OnCompanionRefresh="RefreshCompanionControlsAsync" />
                 }
             </div>
 
@@ -129,6 +119,9 @@
     private string? openUpgradesFor;
     private int? openUpgradeSlotId;
     private string upgradeFilter = "All";
+    private Dictionary<string, CharacterOverviewSummary> overviewByName =
+        new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> targetNames = new(StringComparer.OrdinalIgnoreCase);
 
     private IReadOnlyList<RealmRosterCharacter> AllHeroes =>
         snapshot?.AvailableHeroes
@@ -158,8 +151,11 @@
         Navigation.LocationChanged += OnLocationChanged;
         activeName = await SelectedCharacterStore.GetAsync();
         selectedNames = await SelectedCharacterStore.GetSelectedAsync();
+        targetNames = new(await SelectedCharacterStore.GetTargetsAsync(),
+            StringComparer.OrdinalIgnoreCase);
         SelectedCharacterStore.SelectionChanged += OnActiveSelectionChanged;
         SelectedCharacterStore.SelectedCharactersChanged += OnSelectedCharactersChanged;
+        SelectedCharacterStore.TargetsChanged += OnTargetsChanged;
         await RefreshAsync();
         refreshLoop = RefreshLoopAsync(cancellation.Token);
     }
@@ -175,6 +171,14 @@
                 showBots || retainSelectedBots);
             await NormalizeLeaderOrderAsync();
             await RefreshCompanionControlsAsync();
+        }
+        catch when (!cancellation.IsCancellationRequested) { }
+
+        try
+        {
+            var overview = await Api.GetCharacterOverviewAsync(cancellation.Token);
+            overviewByName = overview.ToDictionary(
+                character => character.Name, StringComparer.OrdinalIgnoreCase);
         }
         catch when (!cancellation.IsCancellationRequested) { }
     }
@@ -229,6 +233,14 @@
 
     private Task HandleHeroClickAsync(string name, MouseEventArgs args) =>
         args.Detail >= 2 ? SelectOnlineAsync() : ToggleAsync(name);
+
+    // For heroes already in the header row: clicking the card body toggles whether
+    // they're included as a target for the right-side tools. It does not remove them
+    // from the row - that's the Dismiss button's job (OnRemove/RemoveAsync below).
+    private Task HandleSelectedHeroClickAsync(string name, MouseEventArgs args) =>
+        args.Detail >= 2
+            ? SelectOnlineAsync()
+            : SelectedCharacterStore.ToggleTargetAsync(name).AsTask();
 
     private async Task ToggleBotsAsync(ChangeEventArgs args)
     {
@@ -342,9 +354,17 @@
         _ = InvokeAsync(async () =>
         {
             selectedNames = names;
+            targetNames = new(await SelectedCharacterStore.GetTargetsAsync(),
+                StringComparer.OrdinalIgnoreCase);
             await RefreshCompanionControlsAsync();
             StateHasChanged();
         });
+
+    private void OnTargetsChanged(IReadOnlyList<string> names) => _ = InvokeAsync(() =>
+    {
+        targetNames = new(names, StringComparer.OrdinalIgnoreCase);
+        StateHasChanged();
+    });
 
     private void OnLocationChanged(object? sender, LocationChangedEventArgs args) =>
         _ = InvokeAsync(() =>
@@ -397,6 +417,7 @@
         Navigation.LocationChanged -= OnLocationChanged;
         SelectedCharacterStore.SelectionChanged -= OnActiveSelectionChanged;
         SelectedCharacterStore.SelectedCharactersChanged -= OnSelectedCharactersChanged;
+        SelectedCharacterStore.TargetsChanged -= OnTargetsChanged;
         await cancellation.CancelAsync();
         if (refreshLoop is not null) await refreshLoop;
         cancellation.Dispose();

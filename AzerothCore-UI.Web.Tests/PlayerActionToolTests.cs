@@ -94,6 +94,33 @@ public sealed class PlayerActionToolTests : BunitContext
     }
 
     [Fact]
+    public async Task PlayerActionsSidebarTargetsShrinkWhenAHeroIsExcludedAsATarget()
+    {
+        var store = Services.GetRequiredService<SelectedCharacterStore>();
+        await store.SetSelectedAsync(["Jaina", "Uther"], "Jaina");
+
+        var component = Render<PlayerActionsSidebar>();
+        component.WaitForAssertion(() => Assert.Equal(
+            ["Jaina", "Uther"],
+            component.FindComponent<PlayerActionTools>().Instance.Targets
+                .Select(target => target.Name).ToArray()));
+
+        await component.InvokeAsync(() => store.ToggleTargetAsync("Jaina").AsTask());
+
+        component.WaitForAssertion(() => Assert.Equal(
+            ["Uther"],
+            component.FindComponent<PlayerActionTools>().Instance.Targets
+                .Select(target => target.Name).ToArray()));
+
+        await component.InvokeAsync(() => store.ToggleTargetAsync("Jaina").AsTask());
+
+        component.WaitForAssertion(() => Assert.Equal(
+            ["Jaina", "Uther"],
+            component.FindComponent<PlayerActionTools>().Instance.Targets
+                .Select(target => target.Name).ToArray()));
+    }
+
+    [Fact]
     public void CharacterPickerItemsFlowAcrossAndWrap()
     {
         var pickerItems = new[]

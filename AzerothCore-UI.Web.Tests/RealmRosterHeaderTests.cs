@@ -47,14 +47,14 @@ public sealed class RealmRosterHeaderTests : BunitContext
 
         component.WaitForAssertion(() =>
         {
-            var leaders = component.FindAll(".online-hero-card.leader");
+            var leaders = component.FindAll(".hero-card.leader");
             Assert.Equal(2, leaders.Count);
             Assert.Contains("Vynlan", leaders[0].TextContent);
             Assert.Contains("Sarafel", leaders[1].TextContent);
             Assert.All(leaders, leader => Assert.Contains("LEADER", leader.TextContent));
             Assert.Contains("1,250 HP", leaders[0].TextContent);
             Assert.Contains("DEAD", leaders[1].TextContent);
-            Assert.Equal(2, component.FindAll(".selected-flag").Count);
+            Assert.Equal(2, component.FindAll(".target-flag").Count);
         });
     }
 
@@ -69,7 +69,7 @@ public sealed class RealmRosterHeaderTests : BunitContext
 
         component.WaitForAssertion(() =>
         {
-            var cards = component.FindAll(".online-hero-card");
+            var cards = component.FindAll(".hero-card");
             Assert.Equal(2, cards.Count);
             Assert.Contains("Vynlan", cards[0].TextContent);
             Assert.Contains("Kiesh", cards[1].TextContent);
@@ -139,7 +139,7 @@ public sealed class RealmRosterHeaderTests : BunitContext
 
         component.WaitForAssertion(() =>
         {
-            Assert.Equal(5, component.FindAll(".online-hero-card").Count);
+            Assert.Equal(5, component.FindAll(".hero-card").Count);
             Assert.Contains("5/5 selected", component.Markup);
         });
     }
@@ -155,8 +155,8 @@ public sealed class RealmRosterHeaderTests : BunitContext
 
         component.WaitForAssertion(() =>
         {
-            Assert.Single(component.FindAll(".online-hero-card"));
-            Assert.Contains("Sarafel", component.Find(".online-hero-card").TextContent);
+            Assert.Single(component.FindAll(".hero-card"));
+            Assert.Contains("Sarafel", component.Find(".hero-card").TextContent);
             Assert.Contains("1/5 selected", component.Markup);
         });
     }
@@ -170,7 +170,7 @@ public sealed class RealmRosterHeaderTests : BunitContext
         HeroChoice(component, "Kiesh").Click();
 
         component.WaitForAssertion(() => Assert.Contains(
-            "active", component.Find(".online-hero-card").ClassList));
+            "active", component.Find(".hero-card").ClassList));
         Assert.Contains(JSInterop.Invocations, invocation =>
             invocation.Identifier == "localStorage.setItem"
             && invocation.Arguments.Any(argument => Equals(argument, "Kiesh")));
@@ -190,8 +190,8 @@ public sealed class RealmRosterHeaderTests : BunitContext
 
         component.WaitForAssertion(() =>
         {
-            Assert.Equal(2, component.FindAll(".online-hero-card").Count);
-            Assert.Contains("Vynlan", component.Find(".online-hero-card.active").TextContent);
+            Assert.Equal(2, component.FindAll(".hero-card").Count);
+            Assert.Contains("Vynlan", component.Find(".hero-card.active").TextContent);
         });
     }
 
@@ -206,9 +206,51 @@ public sealed class RealmRosterHeaderTests : BunitContext
 
         component.WaitForAssertion(() =>
         {
-            Assert.Equal(5, component.FindAll(".online-hero-card").Count);
+            Assert.Equal(5, component.FindAll(".hero-card").Count);
             Assert.Contains("5/5 selected", component.Markup);
             Assert.True(HeroChoice(component, "Anduin").HasAttribute("disabled"));
+        });
+    }
+
+    [Fact]
+    public void ClickingASelectedHeroCardTogglesTargetWithoutRemovingItFromTheRow()
+    {
+        var component = Render<RealmRosterHeader>();
+        component.WaitForElement(".hero-choice");
+        HeroChoice(component, "Vynlan").Click();
+
+        component.WaitForAssertion(() => Assert.Contains(
+            "is-target", component.Find(".hero-card").ClassList));
+        Assert.Contains("TARGET", component.Find(".hero-card").TextContent);
+
+        component.Find(".hero-card-main").Click();
+
+        component.WaitForAssertion(() =>
+        {
+            Assert.Single(component.FindAll(".hero-card"));
+            Assert.DoesNotContain("is-target", component.Find(".hero-card").ClassList);
+        });
+
+        component.Find(".hero-card-main").Click();
+
+        component.WaitForAssertion(() => Assert.Contains(
+            "is-target", component.Find(".hero-card").ClassList));
+    }
+
+    [Fact]
+    public void DismissButtonRemovesTheHeroFromTheRow()
+    {
+        var component = Render<RealmRosterHeader>();
+        component.WaitForElement(".hero-choice");
+        HeroChoice(component, "Vynlan").Click();
+        component.WaitForElement(".dismiss-hero");
+
+        component.Find(".dismiss-hero").Click();
+
+        component.WaitForAssertion(() =>
+        {
+            Assert.Empty(component.FindAll(".hero-card"));
+            Assert.Contains("0/5 selected", component.Markup);
         });
     }
 
@@ -235,7 +277,7 @@ public sealed class RealmRosterHeaderTests : BunitContext
         component.WaitForElement(".hero-choice");
         HeroChoice(component, "Vynlan").Click();
 
-        component.WaitForAssertion(() => Assert.Single(component.FindAll(".online-hero-card")));
+        component.WaitForAssertion(() => Assert.Single(component.FindAll(".hero-card")));
         Assert.Equal(0, handler.CraftingUpgradeRequestCount);
     }
 
@@ -315,6 +357,42 @@ public sealed class RealmRosterHeaderTests : BunitContext
         });
     }
 
+    [Fact]
+    public void OfflineHeroesRenderAsFullDetailCardsWithWorkingRevive()
+    {
+        var component = Render<RealmRosterHeader>();
+        component.WaitForElement(".hero-choice");
+        component.Find(".roster-selection-controls input[type='checkbox']").Change(true);
+        component.WaitForAssertion(() => Assert.Contains(
+            component.FindAll(".hero-choice"), choice =>
+                choice.TextContent.Contains("Offlinehero")));
+        HeroChoice(component, "Offlinehero").Click();
+
+        component.WaitForAssertion(() =>
+        {
+            var card = component.Find(".hero-card.offline");
+            Assert.Contains("OFFLINE", card.QuerySelector(".health-track")!.TextContent);
+            var revive = card.QuerySelector(".revive-button");
+            Assert.NotNull(revive);
+            Assert.False(revive.HasAttribute("disabled"));
+        });
+    }
+
+    [Fact]
+    public void HeroCardShowsAccountOverviewStatsWhenAvailable()
+    {
+        var component = Render<RealmRosterHeader>();
+        component.WaitForElement(".hero-choice");
+        HeroChoice(component, "Vynlan").Click();
+
+        component.WaitForAssertion(() =>
+        {
+            var card = component.Find(".hero-card");
+            Assert.Contains("Elwynn Forest", card.TextContent);
+            Assert.Contains("3 quests", card.TextContent);
+        });
+    }
+
     private static AngleSharp.Dom.IElement HeroChoice(
         IRenderedComponent<RealmRosterHeader> component, string name) =>
         component.FindAll(".hero-choice").Single(button =>
@@ -354,6 +432,17 @@ public sealed class RealmRosterHeaderTests : BunitContext
                             true, true, null, "Crafter", "CrafterAcct", "Bags", null, null,
                             null, null, null, 0, null, "Recipe", "Known", [], [], [])])],
                     1, 1, 0, 0, "Test catalog"));
+            }
+            if (request.Method == HttpMethod.Get
+                && request.RequestUri!.AbsolutePath == "/api/characters")
+            {
+                return Json(new[]
+                {
+                    new CharacterOverviewSummary(1, "MARK", "Vynlan", 20, 1, 9, true,
+                        123450, 7384, 0, 12, "Elwynn Forest", 3, 2, null, null, null),
+                    new CharacterOverviewSummary(7, "MARK", "Offlinehero", 15, 1, 1, false,
+                        500, 1800, 0, 1, "Northshire Abbey", 0, 0, null, null, null)
+                });
             }
             if (request.Method != HttpMethod.Get
                 || request.RequestUri!.AbsolutePath != "/api/realm-roster")

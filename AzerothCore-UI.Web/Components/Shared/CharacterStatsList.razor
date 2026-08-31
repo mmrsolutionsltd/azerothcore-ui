@@ -1,0 +1,38 @@
+@using AzerothCore_UI.Web.Models
+
+<dl class="hero-stats-list">
+    <div class="hero-stat-row">
+        <dt>Location</dt>
+        <dd>@Character.LocationName</dd>
+    </div>
+    <div class="hero-stat-row">
+        <dt>Money</dt>
+        <dd><MoneyDisplay Copper="Character.Money" /></dd>
+    </div>
+    <div class="hero-stat-row">
+        <dt>Played</dt>
+        <dd>@CharacterDisplayNames.FormatPlayedTime(Character.TotalTime)</dd>
+    </div>
+    <div class="hero-stat-row">
+        <dt>Progress</dt>
+        <dd>@Character.ActiveQuestCount quests · @Character.ProfessionCount professions</dd>
+    </div>
+    @if (!string.IsNullOrWhiteSpace(Character.PetName))
+    {
+        <div class="hero-stat-row">
+            <dt>Pet</dt>
+            <dd>@Character.PetName</dd>
+        </div>
+    }
+    @if (Character.HomebindMap is not null)
+    {
+        <div class="hero-stat-row">
+            <dt>Hearthstone</dt>
+            <dd>Map @Character.HomebindMap, zone @Character.HomebindZone</dd>
+        </div>
+    }
+</dl>
+
+@code {
+    [Parameter, EditorRequired] public CharacterOverviewSummary Character { get; set; } = default!;
+}

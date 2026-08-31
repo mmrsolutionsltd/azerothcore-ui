@@ -1,8 +1,8 @@
 @using AzerothCore_UI.Web.Models
 
-<article class="online-hero-card selected class-@Hero.CharacterClass @(Hero.IsLeader ? "leader" : null) @(Hero.IsCompanion ? "companion" : null) @(IsActive ? "active" : null) @(IsDead ? "dead" : null)"
+<article class="hero-card class-@Hero.CharacterClass @(Hero.IsLeader ? "leader" : null) @(Hero.IsCompanion ? "companion" : null) @(IsActive ? "active" : null) @(IsDead ? "dead" : null) @(Hero.Online ? null : "offline") @(IsTarget ? "is-target" : null)"
          @oncontextmenu="OnSelectOnly" @oncontextmenu:preventDefault="true">
-    <button type="button" class="hero-card-main" title="Remove @Hero.Name from the shared targets"
+    <button type="button" class="hero-card-main" title="@TargetToggleTitle"
             @onclick="OnHeroClick">
         <span class="class-medallion">@CharacterDisplayNames.ClassGlyph(Hero.CharacterClass)</span>
         <span class="hero-identity">
@@ -10,21 +10,38 @@
             <small>Level @Hero.Level @CharacterDisplayNames.Class((byte)Hero.CharacterClass)</small>
         </span>
         <span class="hero-flags">
-            <b class="selected-flag">✓ SELECTED</b>
+            @if (IsTarget) { <b class="target-flag">✓ TARGET</b> }
             @if (IsActive) { <b class="active-flag">ACTIVE</b> }
             @if (Hero.IsLeader) { <b title="Online party leader">♛ LEADER</b> }
             else if (Hero.IsCompanion) { <b class="bot">COMPANION</b> }
             else if (Hero.IsPlayerBot) { <b class="bot">PLAYERBOT</b> }
             else if (HasParty) { <b>PARTY</b> }
-            <i title="Online"></i>
+            <i class="@(Hero.Online ? null : "offline-dot")" title="@(Hero.Online ? "Online" : "Offline")"></i>
         </span>
-        <span class="health-track @(Hero.MaximumHealth is null ? "snapshot" : null) @(IsLowHealth ? "low-health" : null)"
-              role="progressbar" aria-label="@($"{Hero.Name} health")"
-              aria-valuenow="@HealthWidth" aria-valuemin="0" aria-valuemax="100">
-            <span style="@HealthStyle"></span>
-            <em>@HealthText</em>
-        </span>
+        @if (Hero.Online)
+        {
+            <span class="health-track @(Hero.MaximumHealth is null ? "snapshot" : null) @(IsLowHealth ? "low-health" : null)"
+                  role="progressbar" aria-label="@($"{Hero.Name} health")"
+                  aria-valuenow="@HealthWidth" aria-valuemin="0" aria-valuemax="100">
+                <span style="@HealthStyle"></span>
+                <em>@HealthText</em>
+            </span>
+        }
+        else
+        {
+            <span class="health-track offline-track">
+                <em>OFFLINE</em>
+            </span>
+        }
     </button>
+
+    @if (Overview is not null)
+    {
+        <div class="hero-stats" @onclick="OnHeroClick" title="@TargetToggleTitle">
+            <CharacterStatsList Character="Overview" />
+        </div>
+    }
+
     <div class="hero-card-actions">
         <span>@Hero.Username</span>
         <button type="button" class="focus-hero"
@@ -46,15 +63,15 @@
         <AuthorizeView Policy="players.services">
             <Authorized>
                 <button type="button" class="revive-button"
-                        disabled="@(!IsDead || Reviving)"
-                        title="@(IsDead ? $"Revive {Hero.Name}" : $"{Hero.Name} is alive")"
+                        disabled="@(Reviving || (Hero.Online && !IsDead))"
+                        title="@ReviveTitle"
                         @onclick="OnRevive">
                     @(Reviving ? "Reviving…" : "Revive")
                 </button>
             </Authorized>
         </AuthorizeView>
-        <button type="button" class="remove-hero" title="Remove @Hero.Name from this hero row"
-                @onclick="OnRemove">×</button>
+        <button type="button" class="dismiss-hero" title="Remove @Hero.Name from this hero row"
+                @onclick="OnRemove">Dismiss</button>
     </div>
     @if (Companion is not null)
     {
@@ -68,7 +85,9 @@
 
 @code {
     [Parameter, EditorRequired] public RealmRosterCharacter Hero { get; set; } = default!;
+    [Parameter] public CharacterOverviewSummary? Overview { get; set; }
     [Parameter] public bool IsActive { get; set; }
+    [Parameter] public bool IsTarget { get; set; }
     [Parameter] public bool HasParty { get; set; }
     [Parameter] public bool UpgradesLoading { get; set; }
     [Parameter] public bool UpgradesOpen { get; set; }
@@ -103,4 +122,12 @@
     private string HealthText => Hero.MaximumHealth is > 0
         ? $"{Math.Round(Math.Clamp(Hero.CurrentHealth * 100m / Hero.MaximumHealth.Value, 0, 100))}%"
         : Hero.CurrentHealth == 0 ? "DEAD" : $"{Hero.CurrentHealth:N0} HP";
+
+    private string TargetToggleTitle => IsTarget
+        ? $"{Hero.Name} is a target for the player-action tools - click to exclude"
+        : $"{Hero.Name} is excluded from the player-action tools - click to include";
+
+    private string ReviveTitle => Hero.Online
+        ? (IsDead ? $"Revive {Hero.Name}" : $"{Hero.Name} is alive")
+        : $"Revive {Hero.Name} if needed (offline - live status unknown)";
 }

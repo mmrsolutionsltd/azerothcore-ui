@@ -65,4 +65,12 @@ public static class CharacterDisplayNames
         1 => "⚔", 2 => "✦", 3 => "➶", 4 => "†", 5 => "☼", 6 => "☠",
         7 => "ϟ", 8 => "✧", 9 => "◉", 11 => "☾", _ => "◆"
     };
+
+    public static string FormatPlayedTime(uint seconds)
+    {
+        var duration = TimeSpan.FromSeconds(seconds);
+        return duration.Days > 0
+            ? $"{duration.Days}d {duration.Hours}h"
+            : $"{duration.Hours}h {duration.Minutes}m";
+    }
 }

@@ -48,14 +48,6 @@ public partial class CharacterOverview
         }
     }
 
-    private static string FormatPlayedTime(uint seconds)
-    {
-        var duration = TimeSpan.FromSeconds(seconds);
-        return duration.Days > 0
-            ? $"{duration.Days}d {duration.Hours}h"
-            : $"{duration.Hours}h {duration.Minutes}m";
-    }
-
     private static string ClassGlyph(byte characterClass) => characterClass switch
     {
         1 => "⚔", 2 => "✦", 3 => "➶", 4 => "◆", 5 => "✧",

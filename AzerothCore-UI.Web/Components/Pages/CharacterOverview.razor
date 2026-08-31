@@ -82,26 +82,9 @@ else
                             Level @character.Level @CharacterDisplayNames.Race(character.Race)
                             @CharacterDisplayNames.Class(character.Class)
                         </p>
-                        <dl class="row small mb-3">
-                            <dt class="col-4">Location</dt>
-                            <dd class="col-8">@character.LocationName</dd>
-                            <dt class="col-4">Money</dt>
-                            <dd class="col-8"><MoneyDisplay Copper="character.Money" /></dd>
-                            <dt class="col-4">Played</dt>
-                            <dd class="col-8">@FormatPlayedTime(character.TotalTime)</dd>
-                            <dt class="col-4">Progress</dt>
-                            <dd class="col-8">@character.ActiveQuestCount quests · @character.ProfessionCount professions</dd>
-                            @if (!string.IsNullOrWhiteSpace(character.PetName))
-                            {
-                                <dt class="col-4">Pet</dt>
-                                <dd class="col-8">@character.PetName</dd>
-                            }
-                            @if (character.HomebindMap is not null)
-                            {
-                                <dt class="col-4">Hearthstone</dt>
-                                <dd class="col-8">Map @character.HomebindMap, zone @character.HomebindZone</dd>
-                            }
-                        </dl>
+                        <div class="mb-3">
+                            <CharacterStatsList Character="character" />
+                        </div>
 
                         <div class="d-flex flex-wrap gap-2">
                             <a class="btn btn-sm btn-primary" href="/characters/@character.Guid">Details</a>
