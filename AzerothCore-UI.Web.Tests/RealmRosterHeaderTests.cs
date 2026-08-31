@@ -27,13 +27,15 @@ public sealed class RealmRosterHeaderTests : BunitContext
         Services.AddScoped<SelectedCharacterStore>();
         var authorization = AddAuthorization();
         authorization.SetAuthorized("owner");
-        authorization.SetPolicies("players.characters", "players.services", "adventures.training");
+        authorization.SetPolicies(
+            "players.characters", "players.services", "adventures.training", "adventures.quests");
         authorization.SetRoles("Owner");
         authorization.SetClaims(
             new Claim(ClaimTypes.NameIdentifier, "owner"),
             new Claim(AdministrationPermissions.ClaimType, "players.characters"),
             new Claim(AdministrationPermissions.ClaimType, "players.services"),
-            new Claim(AdministrationPermissions.ClaimType, "adventures.training"));
+            new Claim(AdministrationPermissions.ClaimType, "adventures.training"),
+            new Claim(AdministrationPermissions.ClaimType, "adventures.quests"));
         JSInterop.Mode = JSRuntimeMode.Loose;
     }
 
@@ -467,6 +469,26 @@ public sealed class RealmRosterHeaderTests : BunitContext
     }
 
     [Fact]
+    public void CompanionsTabAlwaysReferencesTheResolvedLeaderNotWhicheverCardWasClicked()
+    {
+        var component = Render<RealmRosterHeader>();
+        component.WaitForElement(".hero-choice");
+        HeroChoice(component, "Vynlan").Click();
+        HeroChoice(component, "Jaina").Click();
+        component.WaitForElement(".companions-toggle");
+
+        component.FindAll(".companions-toggle").Single(button =>
+            button.ParentElement!.ParentElement!.TextContent.Contains("Jaina")).Click();
+
+        component.WaitForAssertion(() =>
+        {
+            Assert.DoesNotContain("No eligible online leader", component.Markup);
+            var heading = component.Find(".companion-session-heading");
+            Assert.Contains("Vynlan", heading.TextContent);
+        });
+    }
+
+    [Fact]
     public void TrainingTabEmbedsTheTrainerFinderAndFindTrainerFiltersToTheDiscipline()
     {
         var component = Render<RealmRosterHeader>();
@@ -666,6 +688,22 @@ public sealed class RealmRosterHeaderTests : BunitContext
                         MapId = 0, ZoneId = 12, AreaId = 0, SameMap = true, Distance = 42.5
                     }],
                     1, 30, 1, 1));
+            }
+            if (request.Method == HttpMethod.Get
+                && request.RequestUri!.AbsolutePath.StartsWith(
+                    "/api/server-administration/questing-companions/", StringComparison.Ordinal))
+            {
+                var leaderName = Uri.UnescapeDataString(request.RequestUri.AbsolutePath[
+                    "/api/server-administration/questing-companions/".Length..]);
+                return Json(new QuestingCompanionStatus(
+                    leaderName, [],
+                    [new QuestingCompanionCandidate
+                    {
+                        Name = "Kiesh", Username = "MARK2", AccountId = 2,
+                        Level = 20, CharacterClass = 9, Race = 10,
+                        Online = false, SameFaction = true, SameAccount = true
+                    }],
+                    [], 1));
             }
             if (request.Method == HttpMethod.Get
                 && request.RequestUri!.AbsolutePath == "/api/characters")

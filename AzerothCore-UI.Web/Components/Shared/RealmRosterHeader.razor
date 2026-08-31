@@ -91,10 +91,22 @@
                 }
                 else if (activePanelTab == "Companions")
                 {
-                    <CompanionSessionPanel Leader="SelectedHeroes[openIndex]"
-                                           SelectedHeroes="SelectedHeroes"
-                                           Status="companionStatus"
-                                           OnChanged="RefreshCompanionControlsAsync" />
+                    @if (CompanionLeaderHero is { } companionLeader)
+                    {
+                        <CompanionSessionPanel Leader="companionLeader"
+                                               SelectedHeroes="SelectedHeroes"
+                                               Status="companionStatus"
+                                               OnChanged="RefreshCompanionControlsAsync" />
+                    }
+                    else
+                    {
+                        <div class="companion-session-panel">
+                            <p class="text-muted mb-0">
+                                No eligible online leader in your selected heroes yet -
+                                add or focus an online, non-bot, non-companion hero first.
+                            </p>
+                        </div>
+                    }
                 }
                 else
                 {
@@ -495,13 +507,16 @@
         companionStatus?.ActiveCompanions.FirstOrDefault(companion =>
             companion.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
 
+    private RealmRosterCharacter? CompanionLeaderHero => SelectedHeroes.FirstOrDefault(
+        hero => hero.Name.Equals(companionLeaderName, StringComparison.OrdinalIgnoreCase));
+
     private async Task RefreshCompanionControlsAsync()
     {
         var leader = SelectedHeroes.FirstOrDefault(hero => hero.Online
                 && !hero.IsPlayerBot && hero.IsLeader)
             ?? SelectedHeroes.FirstOrDefault(hero => hero.Online
                 && !hero.IsPlayerBot && !hero.IsCompanion);
-        if (leader is null || !SelectedHeroes.Any(hero => hero.IsCompanion))
+        if (leader is null)
         {
             companionLeaderName = "";
             companionStatus = null;
