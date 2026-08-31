@@ -358,6 +358,30 @@ public sealed class RealmRosterHeaderTests : BunitContext
     }
 
     [Fact]
+    public void ActiveAndTargetAreIndependentVisuallyDistinctStates()
+    {
+        var component = Render<RealmRosterHeader>();
+        component.WaitForElement(".hero-choice");
+        HeroChoice(component, "Vynlan").Click();
+
+        component.WaitForAssertion(() =>
+        {
+            var card = component.Find(".hero-card");
+            Assert.Contains("active", card.ClassList);
+            Assert.Contains("is-target", card.ClassList);
+        });
+
+        component.Find(".hero-card-main").Click();
+
+        component.WaitForAssertion(() =>
+        {
+            var card = component.Find(".hero-card");
+            Assert.Contains("active", card.ClassList);
+            Assert.DoesNotContain("is-target", card.ClassList);
+        });
+    }
+
+    [Fact]
     public void TogglingTrainingFetchesDataOnceAndRendersThePanel()
     {
         var component = Render<RealmRosterHeader>();

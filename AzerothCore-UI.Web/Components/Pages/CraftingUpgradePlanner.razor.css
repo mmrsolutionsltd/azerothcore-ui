@@ -132,32 +132,18 @@
 .armory-heading span { color:#a89e8e; }
 .realm-account { font-size:.8rem; }
 
-.paper-doll {
-    position: relative;
-    z-index: 2;
-    display: grid;
-    grid-template-columns: minmax(220px, 1fr) minmax(280px, 1.12fr) minmax(220px, 1fr);
-    grid-template-areas: "left hero right" "weapons weapons weapons";
-    gap: 1rem;
-    padding: 1rem .65rem .5rem;
-}
-.slot-column { display:grid; gap:.48rem; align-content:start; }
-.left-slots { grid-area:left; }
-.right-slots { grid-area:right; }
-.weapon-slots { grid-area:weapons; display:grid; grid-template-columns:repeat(3,minmax(180px,310px)); justify-content:center; gap:.75rem; }
+.profession-row { position:relative; z-index:2; display:flex; flex-wrap:wrap; align-items:center; gap:.4rem; padding:.6rem .75rem; border-bottom:1px solid #4a3a24; background:rgba(0,0,0,.25); }
+.scroll-title { color:#8c7c61; font-size:.62rem; text-transform:uppercase; letter-spacing:.14em; }
+.profession-row button { display:grid; padding:.24rem .5rem; color:#cabd9e; line-height:1.15; border:1px solid #4f493b; border-radius:3px; background:#151515; }
+.profession-row button:hover { border-color:#c19245; }
+.profession-row button strong { font-size:.69rem; }
+.profession-row button span { color:#81796d; font-size:.59rem; }
 
-.hero-stage { grid-area:hero; position:relative; display:flex; min-height:445px; align-items:center; flex-direction:column; overflow:hidden; border:1px solid #3a3c3d; border-radius:50% 50% 12px 12px / 18% 18% 12px 12px; background:radial-gradient(ellipse at 50% 35%,rgba(55,100,143,.35),transparent 42%),linear-gradient(#0d1116,#15130f); box-shadow:inset 0 0 55px #000; }
-.hero-aura { position:absolute; top:42px; width:240px; height:330px; border:1px solid rgba(121,181,229,.18); border-radius:50%; box-shadow:0 0 55px rgba(69,139,198,.2),inset 0 0 48px rgba(68,132,186,.18); }
-.hero-sigil { position:relative; margin-top:88px; color:rgba(213,228,239,.68); font-size:7.5rem; filter:drop-shadow(0 0 17px rgba(75,148,209,.5)); }
-.hero-nameplate { position:relative; display:grid; margin-top:-.1rem; padding:.35rem 1.4rem; text-align:center; border-top:1px solid #6a5635; border-bottom:1px solid #6a5635; background:rgba(7,8,10,.78); }
-.hero-nameplate strong { color:#f3d389; font-family:Georgia,serif; font-size:1.1rem; }
-.hero-nameplate span { color:#928b80; font-size:.72rem; }
-.profession-scroll { position:relative; display:flex; flex-wrap:wrap; justify-content:center; gap:.35rem; width:100%; margin-top:auto; padding:.7rem; background:linear-gradient(transparent,rgba(0,0,0,.78)); }
-.scroll-title { width:100%; color:#8c7c61; text-align:center; font-size:.62rem; text-transform:uppercase; letter-spacing:.14em; }
-.profession-scroll button { display:grid; padding:.24rem .5rem; color:#cabd9e; line-height:1.15; border:1px solid #4f493b; border-radius:3px; background:#151515; }
-.profession-scroll button:hover { border-color:#c19245; }
-.profession-scroll button strong { font-size:.69rem; }
-.profession-scroll button span { color:#81796d; font-size:.59rem; }
+.armory-body { position:relative; z-index:2; display:grid; grid-template-columns:minmax(200px,280px) minmax(0,1fr); gap:1rem; padding:1rem .65rem .5rem; align-items:start; }
+.upgrade-slot-list { display:grid; gap:.48rem; align-content:start; }
+.armory-recommendations { min-width:0; }
+.armory-recommendations ::deep .upgrade-drawer { margin:0 !important; }
+.no-upgrades { padding:1.5rem 1rem; color:#817a6f; text-align:center; }
 
 .forge-placeholder { display:grid; place-items:center; padding:3rem 1rem; min-height:360px; color:#817a6f; text-align:center; }
 .forge-placeholder h3 { margin:.5rem 0; color:#c8b78f; font-family:Georgia,serif; }
@@ -165,21 +151,9 @@
 .forge-placeholder p { max-width:650px; }
 .data-footnote { padding:.75rem 1.5rem 1.2rem; color:#625e57; font-size:.66rem; text-align:center; }
 
-.class-1 .hero-aura { box-shadow:0 0 55px rgba(199,156,110,.25),inset 0 0 48px rgba(199,156,110,.18); }
-.class-2 .hero-aura { box-shadow:0 0 55px rgba(244,140,186,.25),inset 0 0 48px rgba(244,140,186,.18); }
-.class-3 .hero-aura { box-shadow:0 0 55px rgba(170,211,114,.25),inset 0 0 48px rgba(170,211,114,.18); }
-.class-4 .hero-aura { box-shadow:0 0 55px rgba(255,244,104,.25),inset 0 0 48px rgba(255,244,104,.18); }
-.class-5 .hero-aura { box-shadow:0 0 55px rgba(255,255,255,.25),inset 0 0 48px rgba(255,255,255,.18); }
-.class-6 .hero-aura { box-shadow:0 0 55px rgba(196,30,58,.3),inset 0 0 48px rgba(196,30,58,.2); }
-.class-7 .hero-aura { box-shadow:0 0 55px rgba(0,112,221,.3),inset 0 0 48px rgba(0,112,221,.2); }
-.class-8 .hero-aura { box-shadow:0 0 55px rgba(63,199,235,.3),inset 0 0 48px rgba(63,199,235,.2); }
-.class-9 .hero-aura { box-shadow:0 0 55px rgba(135,136,238,.3),inset 0 0 48px rgba(135,136,238,.2); }
-.class-11 .hero-aura { box-shadow:0 0 55px rgba(255,125,10,.3),inset 0 0 48px rgba(255,125,10,.2); }
-
 @media (max-width: 1050px) {
-    .paper-doll { grid-template-columns:1fr 1fr; grid-template-areas:"hero hero" "left right" "weapons weapons"; }
-    .hero-stage { min-height:330px; }
-    .hero-sigil { margin-top:55px; }
+    .armory-body { grid-template-columns:1fr; }
+    .upgrade-slot-list { grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); }
 }
 @media (max-width: 700px) {
     .forge-intro { align-items:stretch; flex-direction:column; }
@@ -187,13 +161,11 @@
     .summary-ribbon { grid-template-columns:1fr 1fr; }
     .summary-ribbon div:nth-child(2) { border-right:0; }
     .summary-ribbon div:nth-child(-n+2) { border-bottom:1px solid #3e3425; }
-    .paper-doll { grid-template-columns:1fr; grid-template-areas:"hero" "left" "right" "weapons"; }
-    .weapon-slots { grid-template-columns:1fr; }
     .horizon-controls>* { flex:1 1 170px; }
     .forge-button { margin-left:0; }
 }
 
 @media (min-width: 2000px) {
     .forge-shell { max-width:2200px; }
-    .paper-doll { grid-template-columns:minmax(290px,1fr) minmax(380px,1.15fr) minmax(290px,1fr); }
+    .armory-body { grid-template-columns:minmax(240px,320px) minmax(0,1fr); }
 }

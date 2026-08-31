@@ -79,67 +79,49 @@
                 <span class="realm-account">@plan.Target.Username · @(plan.Target.Online ? "Online" : "Offline")</span>
             </div>
 
-            <div class="paper-doll">
-                <div class="slot-column left-slots">
-                    @foreach (var slotId in LeftSlots)
+            @if (plan.Professions.Count > 0)
+            {
+                <div class="profession-row">
+                    <span class="scroll-title">The account's artisans</span>
+                    @foreach (var profession in plan.Professions)
                     {
-                        <GearSlotButton SlotId="slotId" Slot="SlotById(slotId)"
-                                        Selected="selectedSlotId == slotId"
-                                        OnSelected="() => SelectSlot(slotId)" />
+                        <button type="button" title="@profession.Username" @onclick="() => FilterToProfession(profession.ProfessionName)">
+                            <strong>@profession.ProfessionName</strong>
+                            <span>@profession.CharacterName · @profession.CurrentSkill/@profession.MaximumSkill</span>
+                        </button>
                     }
                 </div>
+            }
 
-                <div class="hero-stage">
-                    <div class="hero-aura"></div>
-                    <div class="hero-sigil">⚔</div>
-                    <div class="hero-nameplate">
-                        <strong>@ClassName(plan.Target.CharacterClass)</strong>
-                        <span>@RaceName(plan.Target.Race) of @plan.Target.Username</span>
-                    </div>
-                    <div class="profession-scroll">
-                        <span class="scroll-title">The account's artisans</span>
-                        @if (plan.Professions.Count == 0)
-                        {
-                            <small>No equipment professions found.</small>
-                        }
-                        else
-                        {
-                            @foreach (var profession in plan.Professions)
-                            {
-                                <button type="button" title="@profession.Username" @onclick="() => FilterToProfession(profession.ProfessionName)">
-                                    <strong>@profession.ProfessionName</strong>
-                                    <span>@profession.CharacterName · @profession.CurrentSkill/@profession.MaximumSkill</span>
-                                </button>
-                            }
-                        }
-                    </div>
-                </div>
-
-                <div class="slot-column right-slots">
-                    @foreach (var slotId in RightSlots)
+            <div class="armory-body">
+                <div class="upgrade-slot-list">
+                    @if (UpgradeableSlots.Count == 0)
                     {
-                        <GearSlotButton SlotId="slotId" Slot="SlotById(slotId)"
-                                        Selected="selectedSlotId == slotId"
-                                        OnSelected="() => SelectSlot(slotId)" />
+                        <p class="no-upgrades">No upgrade paths found for this character's current gear.</p>
+                    }
+                    else
+                    {
+                        @foreach (var slot in UpgradeableSlots)
+                        {
+                            <GearSlotButton SlotId="slot.Slot" Slot="slot"
+                                            Selected="selectedSlotId == slot.Slot"
+                                            OnSelected="() => SelectSlot(slot.Slot)" />
+                        }
                     }
                 </div>
-
-                <div class="weapon-slots">
-                    @foreach (var slotId in WeaponSlots)
+                <div class="armory-recommendations">
+                    @if (SelectedSlot is { } selectedSlot)
                     {
-                        <GearSlotButton SlotId="slotId" Slot="SlotById(slotId)"
-                                        Selected="selectedSlotId == slotId"
-                                        OnSelected="() => SelectSlot(slotId)" />
+                        <UpgradeDrawer Slot="selectedSlot" Filter="@recommendationFilter"
+                                       FilterChanged="filter => recommendationFilter = filter" />
+                    }
+                    else if (UpgradeableSlots.Count > 0)
+                    {
+                        <p class="no-upgrades">Choose a slot on the left to see upgrade recommendations.</p>
                     }
                 </div>
             </div>
         </section>
-
-        @if (SelectedSlot is { } selectedSlot)
-        {
-            <UpgradeDrawer Slot="selectedSlot" Filter="@recommendationFilter"
-                           FilterChanged="filter => recommendationFilter = filter" />
-        }
 
         <div class="data-footnote">Recipe intelligence: @plan.DataSource · Rankings are advisory and compare item level plus visible item stats.</div>
     }
@@ -154,10 +136,6 @@
 </div>
 
 @code {
-    private static readonly int[] LeftSlots = [0, 1, 2, 14, 4, 3, 18, 8];
-    private static readonly int[] RightSlots = [9, 5, 6, 7, 10, 11, 12, 13];
-    private static readonly int[] WeaponSlots = [15, 16, 17];
-
     private IReadOnlyList<CharacterOverviewSummary> characters = [];
     private CraftingUpgradePlan? plan;
     private string? selectedGuid;
@@ -170,6 +148,8 @@
     private string recommendationFilter = "All";
 
     private CraftingGearSlot? SelectedSlot => plan?.Slots.FirstOrDefault(slot => slot.Slot == selectedSlotId);
+    private IReadOnlyList<CraftingGearSlot> UpgradeableSlots =>
+        plan?.Slots.Where(slot => slot.Recommendations.Count > 0).ToArray() ?? [];
 
     protected override async Task OnInitializedAsync()
     {
@@ -195,12 +175,32 @@
         if (!string.IsNullOrWhiteSpace(value)) await LoadPlanAsync();
     }
 
+    // This fires from the header, off the normal Blazor event pipeline, so the
+    // component won't re-render on its own - StateHasChanged is required here even
+    // though the happy-path branch (SelectCharacterAsync/LoadPlanAsync) mutates state.
     private void OnSharedSelectionChanged(string name) => _ = InvokeAsync(async () =>
     {
         var selected = characters.FirstOrDefault(character => character.Name.Equals(
             name, StringComparison.OrdinalIgnoreCase));
-        if (selected is not null && selected.Guid.ToString() != selectedGuid)
-            await SelectCharacterAsync(selected.Guid.ToString());
+        if (selected is not null)
+        {
+            if (selected.Guid.ToString() != selectedGuid)
+                await SelectCharacterAsync(selected.Guid.ToString());
+            StateHasChanged();
+            return;
+        }
+
+        // The newly active hero isn't one of this account's own characters (e.g. a
+        // party member or bot from the header). Don't leave the previous character's
+        // plan showing as if it still applied - clear it and say why.
+        if (selectedGuid is not null)
+        {
+            selectedGuid = null;
+            plan = null;
+            selectedSlotId = null;
+            message = $"{name} is not available in the Artisan Gearing Room.";
+            StateHasChanged();
+        }
     });
 
     public void Dispose() =>
@@ -215,8 +215,7 @@
         {
             plan = await Api.GetCraftingUpgradePlanAsync(guid, maximumSkillGap,
                 futureLevelHorizon, includeSidegrades);
-            selectedSlotId = plan?.Slots.FirstOrDefault(slot => slot.Recommendations.Count > 0)?.Slot
-                ?? plan?.Slots.FirstOrDefault()?.Slot;
+            selectedSlotId = plan?.Slots.FirstOrDefault(slot => slot.Recommendations.Count > 0)?.Slot;
             recommendationFilter = "All";
         }
         catch (Exception ex)
@@ -226,8 +225,6 @@
         }
         finally { loading = false; }
     }
-
-    private CraftingGearSlot? SlotById(int slotId) => plan?.Slots.FirstOrDefault(slot => slot.Slot == slotId);
 
     private void SelectSlot(int slotId)
     {
