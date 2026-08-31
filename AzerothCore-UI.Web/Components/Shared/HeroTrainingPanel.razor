@@ -38,6 +38,9 @@
                 <button type="button" disabled="@(working || !Hero.Online)" @onclick="LearnAsync">
                     Learn profession
                 </button>
+                <button type="button" @onclick='() => FindTrainerAsync("profession", SelectedStarterName(starter))'>
+                    Find trainer
+                </button>
             </div>
         }
 
@@ -86,6 +89,10 @@
                                 Teach free
                             </button>
                         }
+                        <button type="button"
+                                @onclick="() => FindTrainerAsync(requirement.Category, requirement.Discipline)">
+                            Find trainer
+                        </button>
                     </li>
                 }
             </ul>
@@ -97,6 +104,10 @@
         {
             <p class="hero-training-status">No training currently available for @Hero.Name.</p>
         }
+
+        <div class="hero-training-finder">
+            <TrainerFinderTool @ref="trainerFinder" CharacterName="@Hero.Name" />
+        </div>
     }
 </div>
 
@@ -114,6 +125,7 @@
     private bool working;
     private bool success;
     private string? message;
+    private TrainerFinderTool? trainerFinder;
 
     protected override void OnParametersSet()
     {
@@ -121,6 +133,13 @@
             && !starter.AvailableProfessions.Any(profession => profession.SkillId == selectedSkillId))
             selectedSkillId = starter.AvailableProfessions[0].SkillId;
     }
+
+    private string SelectedStarterName(ProfessionStarterCharacter starter) =>
+        starter.AvailableProfessions.FirstOrDefault(profession =>
+            profession.SkillId == selectedSkillId)?.Name ?? "";
+
+    private Task FindTrainerAsync(string category, string discipline) =>
+        trainerFinder?.SetFilterAsync(category.ToLowerInvariant(), discipline) ?? Task.CompletedTask;
 
     private Task LearnAsync() => ExecuteAsync(async () =>
     {

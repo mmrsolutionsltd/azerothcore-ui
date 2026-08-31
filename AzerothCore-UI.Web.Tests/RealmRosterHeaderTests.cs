@@ -400,6 +400,29 @@ public sealed class RealmRosterHeaderTests : BunitContext
     }
 
     [Fact]
+    public void TrainingTabEmbedsTheTrainerFinderAndFindTrainerFiltersToTheDiscipline()
+    {
+        var component = Render<RealmRosterHeader>();
+        component.WaitForElement(".hero-choice");
+        HeroChoice(component, "Vynlan").Click();
+        component.WaitForElement(".training-toggle");
+        component.Find(".training-toggle").Click();
+
+        component.WaitForAssertion(() => Assert.Contains(
+            "Grumnus Steelshaper", component.Find(".hero-training-finder").TextContent));
+        var requestsBeforeClick = handler.TrainerSearchRequestCount;
+
+        component.FindAll(".hero-training-list button").Single(button =>
+            button.TextContent.Trim() == "Find trainer").Click();
+
+        component.WaitForAssertion(() =>
+        {
+            Assert.True(handler.TrainerSearchRequestCount > requestsBeforeClick);
+            Assert.Equal("Blacksmithing", handler.LastTrainerSearch);
+        });
+    }
+
+    [Fact]
     public void SwitchingToTheTrainingTabFromUpgradesFetchesTrainingData()
     {
         var component = Render<RealmRosterHeader>();
@@ -484,6 +507,8 @@ public sealed class RealmRosterHeaderTests : BunitContext
         public uint? VynlanMaximumHealth { get; set; }
         public int CraftingUpgradeRequestCount { get; private set; }
         public int TrainingRequestCount { get; private set; }
+        public int TrainerSearchRequestCount { get; private set; }
+        public string? LastTrainerSearch { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
@@ -553,6 +578,28 @@ public sealed class RealmRosterHeaderTests : BunitContext
             if (request.Method == HttpMethod.Post
                 && request.RequestUri!.AbsolutePath == "/api/training/professions/grant")
                 return Json(new AdministrationResult(true, "The training was granted."));
+            if (request.Method == HttpMethod.Get
+                && request.RequestUri!.AbsolutePath == "/api/server-administration/availability")
+                return Json(new ToolAvailability(true, true, true));
+            if (request.Method == HttpMethod.Get
+                && request.RequestUri!.AbsolutePath == "/api/server-administration/trainers")
+            {
+                TrainerSearchRequestCount++;
+                LastTrainerSearch = request.RequestUri.Query
+                    .TrimStart('?').Split('&')
+                    .Select(part => part.Split('=', 2))
+                    .FirstOrDefault(part => part[0] == "search") is { } match
+                        ? Uri.UnescapeDataString(match[1])
+                        : null;
+                return Json(new TrainerSearchResult(
+                    [new TrainerSpawn
+                    {
+                        SpawnId = 500, CreatureId = 5000, Name = "Grumnus Steelshaper",
+                        Subname = "Blacksmithing Trainer", Category = "profession",
+                        MapId = 0, ZoneId = 12, AreaId = 0, SameMap = true, Distance = 42.5
+                    }],
+                    1, 30, 1, 1));
+            }
             if (request.Method == HttpMethod.Get
                 && request.RequestUri!.AbsolutePath == "/api/characters")
             {

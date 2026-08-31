@@ -134,6 +134,22 @@ public partial class TrainerFinderTool : IDisposable
         message = null;
     }
 
+    /// <summary>Lets a host component (e.g. the hero card's Training tab) re-filter this
+    /// tool after it has already loaded, such as jumping straight to a discipline's
+    /// trainer from a "find trainer" action elsewhere on the page.</summary>
+    public Task SetFilterAsync(string newCategory, string newSearch)
+    {
+        category = newCategory is "class" or "profession" or "weapon" or "riding" or "stable"
+            ? newCategory
+            : "all";
+        search = newSearch;
+        selectedTrainer = null;
+        confirmed = false;
+        return string.IsNullOrWhiteSpace(CharacterName)
+            ? Task.CompletedTask
+            : LoadAsync(1);
+    }
+
     private async Task TeleportAsync()
     {
         if (!CanTeleportSelected || selectedTrainer is null)

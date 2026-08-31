@@ -20,3 +20,24 @@
 .hero-training-panel button.danger{color:#e58a86;border-color:#6e352f}
 .hero-training-panel button.danger:hover:not(:disabled){color:#ffb0a8;border-color:#a3413a}
 .hero-training-confirm{display:flex;align-items:center;gap:.25rem;color:#e5b566;font-size:.58rem}
+
+.hero-training-finder{margin-top:.5rem;padding-top:.4rem;border-top:1px solid rgba(89,71,45,.5)}
+.hero-training-finder ::deep .card{margin-bottom:.4rem!important;color:#d8ccba;border:1px solid #3e3425;border-radius:4px;background:#111317}
+.hero-training-finder ::deep .card-body{padding:.5rem}
+.hero-training-finder ::deep h2{color:#f0cf83;font-size:.72rem}
+.hero-training-finder ::deep .form-label{color:#958b7c;font-size:.58rem}
+.hero-training-finder ::deep .form-select,.hero-training-finder ::deep .form-control{padding:.15rem .3rem;font-size:.62rem;color:#d8ccba;border:1px solid #59472d;border-radius:3px;background:#1c1914}
+.hero-training-finder ::deep .table{margin-bottom:.4rem;color:#d8ccba;font-size:.62rem}
+.hero-training-finder ::deep .table>:not(caption)>*>*{background:transparent;color:inherit;border-color:#3e3425}
+.hero-training-finder ::deep .table-hover>tbody>tr:hover>*{background:#1c1914}
+.hero-training-finder ::deep .table-primary,.hero-training-finder ::deep .table-primary>*{background:#2f2513!important;color:#f0cf83}
+.hero-training-finder ::deep .text-muted{color:#958b7c!important}
+.hero-training-finder ::deep .btn{padding:.1rem .35rem;font-size:.6rem;border-radius:3px}
+.hero-training-finder ::deep .btn-outline-primary{color:#9fc9ff;border-color:#33526e}
+.hero-training-finder ::deep .btn-outline-secondary{color:#c8a55f;border-color:#59472d}
+.hero-training-finder ::deep .btn-success{color:#0f1a10;background:#5fbf72;border-color:#5fbf72}
+.hero-training-finder ::deep .alert{padding:.3rem .5rem;font-size:.6rem;border-radius:3px}
+.hero-training-finder ::deep .alert-success{color:#73da8e;background:#152a1a;border-color:#2f5a3a}
+.hero-training-finder ::deep .alert-danger{color:#ef7770;background:#2a1516;border-color:#5a2f30}
+.hero-training-finder ::deep .alert-warning,.hero-training-finder ::deep .alert-info,.hero-training-finder ::deep .alert-secondary{color:#c8a55f;background:#1c1914;border-color:#59472d}
+.hero-training-finder ::deep .form-check-label{color:#d8ccba;font-size:.62rem}
