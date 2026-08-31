@@ -55,6 +55,7 @@
                               ProtocolVersion="@(companionStatus?.ProtocolVersion ?? 0)"
                               CompanionCandidate="CompanionCandidateFor(hero.Name)"
                               AddingCompanion="addingCompanion.Contains(hero.Name)"
+                              LiveStatus="liveStatusByName.GetValueOrDefault(hero.Name)"
                               OnHeroClick="args => HandleSelectedHeroClickAsync(hero.Name, args)"
                               OnSelectOnly="() => MakeOnlyTargetAsync(hero.Name)"
                               OnActivate="() => ActivateAsync(hero.Name)"
@@ -174,6 +175,9 @@
     private bool trainingDataLoaded;
     private bool trainingLoading;
     private string? trainingError;
+    private Dictionary<string, LiveCharacterStatus> liveStatusByName =
+        new(StringComparer.OrdinalIgnoreCase);
+    private Task? liveStatusLoop;
 
     private IReadOnlyList<RealmRosterCharacter> AllHeroes =>
         snapshot?.AvailableHeroes
@@ -210,6 +214,7 @@
         SelectedCharacterStore.TargetsChanged += OnTargetsChanged;
         await RefreshAsync();
         refreshLoop = RefreshLoopAsync(cancellation.Token);
+        liveStatusLoop = LiveStatusLoopAsync(cancellation.Token);
     }
 
     private async Task RefreshAsync()
@@ -260,6 +265,40 @@
                 await InvokeAsync(async () => { await RefreshAsync(); StateHasChanged(); });
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+    }
+
+    // Health/death detection off the roster snapshot lags behind reality by
+    // however long characters.health takes to reach the DB (the save cycle -
+    // minutes, not seconds), which is why the Revive button was slow to
+    // enable. This polls a live in-memory read for just the selected heroes,
+    // much faster and much cheaper than the full realm roster query.
+    private async Task LiveStatusLoopAsync(CancellationToken token)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2.5));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(token))
+                await InvokeAsync(async () => { await RefreshLiveStatusAsync(); StateHasChanged(); });
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+    }
+
+    private async Task RefreshLiveStatusAsync()
+    {
+        if (selectedNames.Count == 0)
+        {
+            if (liveStatusByName.Count > 0)
+                liveStatusByName = new(StringComparer.OrdinalIgnoreCase);
+            return;
+        }
+
+        try
+        {
+            var statuses = await Api.GetLiveStatusAsync(selectedNames, cancellation.Token);
+            liveStatusByName = statuses.ToDictionary(
+                status => status.Name, StringComparer.OrdinalIgnoreCase);
+        }
+        catch when (!cancellation.IsCancellationRequested) { }
     }
 
     private async Task ToggleAsync(string name)
@@ -480,6 +519,7 @@
             targetNames = new(await SelectedCharacterStore.GetTargetsAsync(),
                 StringComparer.OrdinalIgnoreCase);
             await RefreshCompanionControlsAsync();
+            await RefreshLiveStatusAsync();
             StateHasChanged();
         });
 
@@ -580,6 +620,7 @@
         SelectedCharacterStore.TargetsChanged -= OnTargetsChanged;
         await cancellation.CancelAsync();
         if (refreshLoop is not null) await refreshLoop;
+        if (liveStatusLoop is not null) await liveStatusLoop;
         cancellation.Dispose();
     }
 }

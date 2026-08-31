@@ -3,6 +3,14 @@ namespace AzerothCore_UI.Api.Models;
 public sealed record ManagedProcessStatus(
     string Name, bool IsRunning, int? ProcessId, DateTime? StartedAt, long? WorkingSetBytes);
 
+/// <summary>Live in-memory character state read directly off the running
+/// worldserver via `.webadmin status`, bypassing the characters DB table
+/// (which only reflects PlayerSaveInterval-aged data). Offline characters
+/// simply aren't returned.</summary>
+public sealed record LiveCharacterStatus(
+    string Name, bool Alive, uint Health, uint MaxHealth,
+    ushort MapId, ushort ZoneId, ushort AreaId, float X, float Y, float Z);
+
 public sealed record ServerStatus(
     ManagedProcessStatus WorldServer,
     ManagedProcessStatus AuthServer,

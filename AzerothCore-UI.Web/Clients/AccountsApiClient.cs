@@ -260,6 +260,14 @@ public sealed class AccountsApiClient(HttpClient httpClient)
     public async Task<ToolAvailability?> GetToolAvailabilityAsync() =>
         await httpClient.GetFromJsonAsync<ToolAvailability>(
             "api/server-administration/availability");
+    public async Task<IReadOnlyList<LiveCharacterStatus>> GetLiveStatusAsync(
+        IEnumerable<string> names, CancellationToken cancellationToken = default)
+    {
+        var query = Uri.EscapeDataString(string.Join(',', names));
+        if (string.IsNullOrEmpty(query)) return [];
+        return await httpClient.GetFromJsonAsync<LiveCharacterStatus[]>(
+            $"api/server-administration/live-status?names={query}", cancellationToken) ?? [];
+    }
     public async Task<IReadOnlyList<AdministrationPlayer>> GetAdministrationPlayersAsync() =>
         await httpClient.GetFromJsonAsync<AdministrationPlayer[]>("api/server-administration/players") ?? [];
     public async Task<AdministrationItemSearchResult> GetAdministrationItemsAsync(

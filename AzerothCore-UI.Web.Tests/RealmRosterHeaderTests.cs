@@ -301,6 +301,28 @@ public sealed class RealmRosterHeaderTests : BunitContext
     }
 
     [Fact]
+    public void LiveStatusOverlayDrivesTheReviveBannerFasterThanTheDbSnapshot()
+    {
+        // Vynlan's roster-snapshot health says alive (1250 HP); the live
+        // status overlay says otherwise - it should win, proving the fresh
+        // in-memory read is actually used instead of the stale DB value.
+        handler.LiveStatusOverride =
+            [new LiveCharacterStatus("Vynlan", false, 0, 1250, 0, 0, 0, 0, 0, 0)];
+
+        var component = Render<RealmRosterHeader>();
+        component.WaitForElement(".hero-choice");
+        HeroChoice(component, "Vynlan").Click();
+
+        component.WaitForAssertion(() =>
+        {
+            Assert.True(handler.LiveStatusRequestCount > 0);
+            var banner = component.Find(".revive-banner");
+            Assert.Contains("dead", banner.ClassList);
+            Assert.False(banner.HasAttribute("disabled"));
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
     public void DeadOnlineHeroCanBeRevivedFromTheirCard()
     {
         var component = Render<RealmRosterHeader>();
@@ -621,6 +643,8 @@ public sealed class RealmRosterHeaderTests : BunitContext
         public int TrainerSearchRequestCount { get; private set; }
         public string? LastTrainerSearch { get; private set; }
         public List<(string LeaderName, string CompanionName)> StartedCompanions { get; } = [];
+        public IReadOnlyList<LiveCharacterStatus>? LiveStatusOverride { get; set; }
+        public int LiveStatusRequestCount { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
@@ -693,6 +717,12 @@ public sealed class RealmRosterHeaderTests : BunitContext
             if (request.Method == HttpMethod.Get
                 && request.RequestUri!.AbsolutePath == "/api/server-administration/availability")
                 return Json(new ToolAvailability(true, true, true));
+            if (request.Method == HttpMethod.Get
+                && request.RequestUri!.AbsolutePath == "/api/server-administration/live-status")
+            {
+                LiveStatusRequestCount++;
+                return Json(LiveStatusOverride ?? []);
+            }
             if (request.Method == HttpMethod.Get
                 && request.RequestUri!.AbsolutePath == "/api/server-administration/trainers")
             {

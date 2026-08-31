@@ -129,6 +129,7 @@
     [Parameter] public int ProtocolVersion { get; set; }
     [Parameter] public QuestingCompanionCandidate? CompanionCandidate { get; set; }
     [Parameter] public bool AddingCompanion { get; set; }
+    [Parameter] public LiveCharacterStatus? LiveStatus { get; set; }
     [Parameter] public EventCallback<MouseEventArgs> OnHeroClick { get; set; }
     [Parameter] public EventCallback OnSelectOnly { get; set; }
     [Parameter] public EventCallback OnActivate { get; set; }
@@ -140,12 +141,25 @@
     [Parameter] public EventCallback OnCompanionRefresh { get; set; }
     [Parameter] public EventCallback OnAddCompanion { get; set; }
 
-    private bool IsDead => Hero.Online && Hero.CurrentHealth == 0;
-    private bool IsLowHealth => Hero.MaximumHealth is > 0
-        && Hero.CurrentHealth * 100m / Hero.MaximumHealth.Value < 30m;
-    private decimal HealthWidth => Hero.MaximumHealth is > 0
-        ? Math.Clamp(Hero.CurrentHealth * 100m / Hero.MaximumHealth.Value, 0, 100)
-        : Hero.CurrentHealth > 0 ? 100 : 0;
+    // LiveStatus is a fresh, in-memory read from the running worldserver
+    // (health/alive only, polled briskly for selected heroes); the roster
+    // snapshot's own CurrentHealth/MaximumHealth come from the characters
+    // DB table, which only updates on the save cycle (minutes, not
+    // seconds) - too stale for "did this hero just die" detection. Prefer
+    // LiveStatus whenever it's available and fall back to the snapshot.
+    private uint EffectiveCurrentHealth => LiveStatus?.Health ?? Hero.CurrentHealth;
+    private uint? EffectiveMaximumHealth => LiveStatus is not null
+        ? LiveStatus.MaxHealth
+        : Hero.MaximumHealth;
+
+    private bool IsDead => LiveStatus is not null
+        ? !LiveStatus.Alive
+        : Hero.Online && Hero.CurrentHealth == 0;
+    private bool IsLowHealth => EffectiveMaximumHealth is > 0
+        && EffectiveCurrentHealth * 100m / EffectiveMaximumHealth.Value < 30m;
+    private decimal HealthWidth => EffectiveMaximumHealth is > 0
+        ? Math.Clamp(EffectiveCurrentHealth * 100m / EffectiveMaximumHealth.Value, 0, 100)
+        : EffectiveCurrentHealth > 0 ? 100 : 0;
     private string HealthStyle
     {
         get
@@ -156,9 +170,9 @@
             return $"width:{width}%;background-color:{colour}";
         }
     }
-    private string HealthText => Hero.MaximumHealth is > 0
-        ? $"{Math.Round(Math.Clamp(Hero.CurrentHealth * 100m / Hero.MaximumHealth.Value, 0, 100))}%"
-        : Hero.CurrentHealth == 0 ? "DEAD" : $"{Hero.CurrentHealth:N0} HP";
+    private string HealthText => EffectiveMaximumHealth is > 0
+        ? $"{Math.Round(Math.Clamp(EffectiveCurrentHealth * 100m / EffectiveMaximumHealth.Value, 0, 100))}%"
+        : EffectiveCurrentHealth == 0 ? "DEAD" : $"{EffectiveCurrentHealth:N0} HP";
 
     private string TargetToggleTitle => IsTarget
         ? $"{Hero.Name} is a target for the player-action tools - click to exclude, double-click to focus"

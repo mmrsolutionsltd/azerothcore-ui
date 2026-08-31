@@ -30,6 +30,36 @@ public sealed class ServerAdministrationControllerTests
     }
 
     [Fact]
+    public void ParseLiveStatusReadsAliveDeadHealthAndLocation()
+    {
+        var output = "WEBADMIN_STATUS\tVynlan\t1\t1250\t1500\t0\t12\t123\t-8813.50\t551.25\t94.10\n"
+            + "WEBADMIN_STATUS\tSarafel\t0\t0\t900\t1\t45\t67\t100.00\t200.00\t30.00\n";
+
+        var results = ServerAdministrationController.ParseLiveStatus(output);
+
+        Assert.Equal(2, results.Count);
+        Assert.Equal(
+            new LiveCharacterStatus("Vynlan", true, 1250, 1500, 0, 12, 123, -8813.50f, 551.25f, 94.10f),
+            results[0]);
+        Assert.Equal(
+            new LiveCharacterStatus("Sarafel", false, 0, 900, 1, 45, 67, 100.00f, 200.00f, 30.00f),
+            results[1]);
+    }
+
+    [Fact]
+    public void ParseLiveStatusSkipsMalformedOrUnrelatedLines()
+    {
+        var output = "Command completed.\n"
+            + "WEBADMIN_STATUS\tIncomplete\t1\t100\n"
+            + "WEBADMIN_STATUS\tVynlan\t1\t1250\t1500\t0\t12\t123\t-8813.50\t551.25\t94.10\n";
+
+        var results = ServerAdministrationController.ParseLiveStatus(output);
+
+        Assert.Single(results);
+        Assert.Equal("Vynlan", results[0].Name);
+    }
+
+    [Fact]
     public void QuestingCompanionLevelOrderingUsesSignedArithmetic()
     {
         var query = ServerAdministrationController.QuestingCompanionCandidateSql;

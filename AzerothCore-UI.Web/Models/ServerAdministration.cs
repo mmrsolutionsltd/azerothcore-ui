@@ -2,6 +2,9 @@ namespace AzerothCore_UI.Web.Models;
 
 public sealed record ManagedProcessStatus(string Name, bool IsRunning, int? ProcessId,
     DateTime? StartedAt, long? WorkingSetBytes);
+public sealed record LiveCharacterStatus(
+    string Name, bool Alive, uint Health, uint MaxHealth,
+    ushort MapId, ushort ZoneId, ushort AreaId, float X, float Y, float Z);
 public sealed record ServerStatus(ManagedProcessStatus WorldServer, ManagedProcessStatus AuthServer,
     bool SoapConfigured, bool SoapReachable, string? WorldStatus, IReadOnlyList<ServerLogEntry> RecentLogs,
     ServerPopulation Population, int PlayerLimit);

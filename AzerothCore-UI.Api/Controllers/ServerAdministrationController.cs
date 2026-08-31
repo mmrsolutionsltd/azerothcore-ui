@@ -1394,6 +1394,46 @@ public sealed class ServerAdministrationController(
     public Task<ActionResult<AdministrationResult>> FillPartyWithBots(PartyLeaderRequest request, CancellationToken cancellationToken) =>
         ExecutePartyCommand("fill", request.LeaderName, null, "Party auto-fill completed.", cancellationToken);
 
+    [HttpGet("live-status")]
+    public async Task<ActionResult<IReadOnlyList<LiveCharacterStatus>>> GetLiveStatus(
+        [FromQuery] string names, CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        var requested = names.Split(',',
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(AzerothCoreSoapClient.RequirePlayerName)
+            .Take(5)
+            .ToArray();
+        if (requested.Length == 0) return Ok(Array.Empty<LiveCharacterStatus>());
+
+        var output = await soapClient.ExecuteAsync(
+            $"webadmin status {string.Join(' ', requested)}", cancellationToken);
+        return Ok(ParseLiveStatus(output));
+    }
+
+    internal static IReadOnlyList<LiveCharacterStatus> ParseLiveStatus(string output)
+    {
+        var results = new List<LiveCharacterStatus>();
+        foreach (var line in output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var fields = line.Split('\t');
+            if (fields.Length >= 11 && fields[0] == "WEBADMIN_STATUS"
+                && uint.TryParse(fields[3], out var health)
+                && uint.TryParse(fields[4], out var maxHealth)
+                && ushort.TryParse(fields[5], out var mapId)
+                && ushort.TryParse(fields[6], out var zoneId)
+                && ushort.TryParse(fields[7], out var areaId)
+                && float.TryParse(fields[8], System.Globalization.CultureInfo.InvariantCulture, out var x)
+                && float.TryParse(fields[9], System.Globalization.CultureInfo.InvariantCulture, out var y)
+                && float.TryParse(fields[10], System.Globalization.CultureInfo.InvariantCulture, out var z))
+            {
+                results.Add(new LiveCharacterStatus(
+                    fields[1], fields[2] == "1", health, maxHealth, mapId, zoneId, areaId, x, y, z));
+            }
+        }
+        return results;
+    }
+
     [HttpGet("questing-companions/{leaderName}")]
     public async Task<ActionResult<QuestingCompanionStatus>> GetQuestingCompanions(
         string leaderName, CancellationToken cancellationToken)
