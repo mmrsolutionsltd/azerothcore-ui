@@ -54,8 +54,7 @@ public sealed class PlayerActionToolTests : BunitContext
                 "Movement speed",
                 "Revive character",
                 "Teleport",
-                "Give item",
-                "Give money",
+                "Give",
                 "Guild bank",
                 "Summon a useful NPC",
                 "Creature spawner"
@@ -76,7 +75,7 @@ public sealed class PlayerActionToolTests : BunitContext
             "Revive character",
             component.FindAll("h2").Select(heading => heading.TextContent.Trim())));
         Assert.Contains(
-            "Give item",
+            "Give",
             component.FindAll("h2").Select(heading => heading.TextContent.Trim()));
     }
 
@@ -181,12 +180,14 @@ public sealed class PlayerActionToolTests : BunitContext
     [Fact]
     public void MoneyActionRequiresAnAvailableServerAndATarget()
     {
-        var unavailable = Render<GiveMoneyTool>(parameters => parameters
+        var unavailable = Render<GiveTool>(parameters => parameters
             .Add(component => component.Targets, [OnlinePlayer])
             .Add(component => component.Available, false));
-        var noTargets = Render<GiveMoneyTool>(parameters => parameters
+        var noTargets = Render<GiveTool>(parameters => parameters
             .Add(component => component.Targets, [])
             .Add(component => component.Available, true));
+        SwitchToMoneyMode(unavailable);
+        SwitchToMoneyMode(noTargets);
 
         Assert.True(SendButton(unavailable).HasAttribute("disabled"));
         Assert.True(SendButton(noTargets).HasAttribute("disabled"));
@@ -195,9 +196,10 @@ public sealed class PlayerActionToolTests : BunitContext
     [Fact]
     public void MoneyActionIsEnabledForAnAvailableSelectedTarget()
     {
-        var component = Render<GiveMoneyTool>(parameters => parameters
+        var component = Render<GiveTool>(parameters => parameters
             .Add(tool => tool.Targets, [OnlinePlayer])
             .Add(tool => tool.Available, true));
+        SwitchToMoneyMode(component);
 
         Assert.False(SendButton(component).HasAttribute("disabled"));
     }
@@ -220,14 +222,15 @@ public sealed class PlayerActionToolTests : BunitContext
     [Fact]
     public void HeaderIsTitleOnlyAndResultAppearsInTheFooterAfterExecution()
     {
-        var component = Render<GiveMoneyTool>(parameters => parameters
+        var component = Render<GiveTool>(parameters => parameters
             .Add(tool => tool.Targets, [OnlinePlayer])
             .Add(tool => tool.Available, true));
 
-        Assert.Equal("Give money",
+        Assert.Equal("Give",
             component.Find(".player-action-tool-heading h2").TextContent.Trim());
         Assert.Empty(component.FindAll("[role='status']"));
 
+        SwitchToMoneyMode(component);
         SendButton(component).Click();
 
         component.WaitForAssertion(() =>
@@ -246,34 +249,37 @@ public sealed class PlayerActionToolTests : BunitContext
     {
         var component = Render<PlayerActionTools>(parameters => parameters
             .Add(tools => tools.Targets, [OnlinePlayer]));
-        component.WaitForElement("#money-gold");
+        component.WaitForElement("input.clickable-input");
 
-        component.Find("#money-gold").Change("12");
         component.Find("input.clickable-input").Click();
         component.WaitForElement("tr.picker-result-row").Click();
         component.WaitForAssertion(() => Assert.Contains(
             "Polished Breastplate (ID 2153)",
-            component.FindAll("input").Single(input =>
-                input.GetAttribute("value")?.Contains(
-                    "Polished Breastplate", StringComparison.Ordinal) == true)
-                .GetAttribute("value")));
+            component.Find("input.clickable-input").GetAttribute("value")));
+
+        component.FindAll("button").Single(button => button.TextContent.Trim() == "Money").Click();
+        component.WaitForElement("#money-gold").Change("12");
+
+        component.FindAll("button").Single(button => button.TextContent.Trim() == "Item").Click();
+        component.WaitForAssertion(() => Assert.Contains(
+            "Polished Breastplate (ID 2153)",
+            component.Find("input.clickable-input").GetAttribute("value")));
 
         component.Render(parameters => parameters
             .Add(tools => tools.Targets, [OnlinePlayer, SecondOnlinePlayer]));
 
-        Assert.Equal("12", component.Find("#money-gold").GetAttribute("value"));
         Assert.Contains(
             "Polished Breastplate (ID 2153)",
-            component.FindAll("input").Single(input =>
-                input.GetAttribute("value")?.Contains(
-                    "Polished Breastplate", StringComparison.Ordinal) == true)
-                .GetAttribute("value"));
+            component.Find("input.clickable-input").GetAttribute("value"));
+
+        component.FindAll("button").Single(button => button.TextContent.Trim() == "Money").Click();
+        Assert.Equal("12", component.Find("#money-gold").GetAttribute("value"));
     }
 
     [Fact]
     public void ItemPickerShowsRecentChoicesAndSelectsTheCurrentSearchTextOnReopen()
     {
-        var component = Render<GiveItemTool>(parameters => parameters
+        var component = Render<GiveTool>(parameters => parameters
             .Add(tool => tool.Targets, [OnlinePlayer])
             .Add(tool => tool.Available, true));
 
@@ -464,8 +470,12 @@ public sealed class PlayerActionToolTests : BunitContext
             InspectButton(component).HasAttribute("disabled"));
     }
 
+    private static void SwitchToMoneyMode(IRenderedComponent<GiveTool> component) =>
+        component.FindAll("button").Single(button =>
+            button.TextContent.Trim() == "Money").Click();
+
     private static AngleSharp.Dom.IElement SendButton(
-        IRenderedComponent<GiveMoneyTool> component) =>
+        IRenderedComponent<GiveTool> component) =>
         component.FindAll("button").Single(button =>
             button.TextContent.Trim() == "Send");
 

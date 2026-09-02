@@ -18,7 +18,7 @@
     flex-direction: column;
     min-height: 100%;
     min-width: 0;
-    padding: .8rem;
+    padding: .55rem .8rem;
     border: 1px solid rgba(212, 175, 55, .34);
     border-bottom: 2px solid rgba(208, 162, 78, .5);
     border-radius: .7rem;
@@ -58,8 +58,8 @@
 }
 
 ::deep .player-action-tool .player-action-tool-heading {
-    padding-bottom: .5rem;
-    margin-bottom: .6rem !important;
+    padding-bottom: .35rem;
+    margin-bottom: .4rem !important;
     border-bottom: 1px solid rgba(87, 70, 46, .55);
 }
 
@@ -100,12 +100,20 @@
 
 ::deep .player-action-tool .player-action-tool-footer {
     margin-top: auto !important;
-    padding-top: .5rem;
+    padding-top: .35rem;
     border-top: 1px solid rgba(87, 70, 46, .55);
 }
 
 ::deep .player-action-tool .player-action-tool-actions {
     row-gap: .3rem;
+}
+
+::deep .player-action-tool .mb-2 {
+    margin-bottom: .35rem !important;
+}
+
+::deep .player-action-tool .mb-3 {
+    margin-bottom: .5rem !important;
 }
 
 ::deep .player-action-tool small,

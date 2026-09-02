@@ -91,6 +91,19 @@ a, .btn-link {
 .content .form-control::placeholder { color: #756f67; }
 .content .form-control:disabled,
 .content .form-select:disabled { color: #857d71; background-color: #101216; }
+
+.form-control,
+.form-select {
+    padding: .3rem .25rem;
+}
+
+input[type="number"] { color-scheme: dark; }
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+    filter: sepia(1) saturate(4) hue-rotate(340deg) brightness(.9);
+    opacity: .85;
+}
 .content .form-text,
 .content .text-muted { color: #91887b !important; }
 .content .border { border-color: #57462e !important; }
