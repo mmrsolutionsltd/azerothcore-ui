@@ -105,7 +105,8 @@ public sealed class ServerAdministrationController(
             FROM acore_characters.characters characterData
             INNER JOIN acore_auth.account account ON account.id = characterData.account
             WHERE characterData.name <> ''
-              AND (@AllAccounts OR characterData.account IN @AllowedAccounts)
+              AND (@AllAccounts OR characterData.account IN @AllowedAccounts
+                   OR account.username LIKE CONCAT(@BotPrefix, '%'))
             ORDER BY characterData.online DESC,
                      CASE WHEN account.username LIKE CONCAT(@BotPrefix, '%') THEN 1 ELSE 0 END,
                      characterData.name

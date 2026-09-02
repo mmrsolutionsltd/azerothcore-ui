@@ -176,7 +176,7 @@
 	private bool isLoadingPlayers;
 	private bool playersLoaded;
 	private bool showOffline;
-	private bool showBots;
+	private bool showBots = true;
 	private string? playerLoadError;
 	private readonly string playerFilterId = $"movement-anchor-{Guid.NewGuid():N}";
 	private IReadOnlyList<AdministrationPlayer> AvailableAnchors => players

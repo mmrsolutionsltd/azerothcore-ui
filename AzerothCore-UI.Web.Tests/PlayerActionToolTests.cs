@@ -301,7 +301,7 @@ public sealed class PlayerActionToolTests : BunitContext
     }
 
     [Fact]
-    public void TeleportPlayerModeFiltersDefaultToOnlinePlayers()
+    public void TeleportPlayerModeDefaultsToOnlinePlayersAndCompanionsThenIncludesOfflineOnRequest()
     {
         var component = Render<TeleportTool>(parameters => parameters
             .Add(tool => tool.Targets, [OnlinePlayer])
@@ -310,11 +310,7 @@ public sealed class PlayerActionToolTests : BunitContext
         component.FindAll("button").Single(button =>
             button.TextContent.Trim() == "Player").Click();
         component.WaitForElement("#movement-anchor");
-        Assert.Equal(
-            ["", "Anduin"],
-            AnchorValues(component));
-
-        component.Find("input[id$='-bots']").Change(true);
+        Assert.True(component.Find("input[id$='-bots']").HasAttribute("checked"));
         Assert.Equal(
             ["", "Anduin", "Gennik"],
             AnchorValues(component));
