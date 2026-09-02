@@ -20,10 +20,10 @@ public sealed class ShellNavigationTests : BunitContext
 
         var tabs = Render<RealmCommandTabs>();
 
-        Assert.Equal(3, tabs.FindAll(".command-tab").Count);
-        Assert.Contains("Gearing Room", tabs.Find(".command-tab.active").TextContent);
-        Assert.Equal("crafting-upgrades",
-            tabs.FindAll(".command-tab")[0].GetAttribute("href"));
+        Assert.Equal(16, tabs.FindAll(".command-tab").Count);
+        var activeTab = tabs.Find(".command-tab.active");
+        Assert.Equal("Gearing room", activeTab.TextContent.Trim());
+        Assert.Equal("crafting-upgrades", activeTab.GetAttribute("href"));
     }
 
     [Fact]
@@ -35,7 +35,7 @@ public sealed class ShellNavigationTests : BunitContext
 
         var tabs = Render<RealmCommandTabs>();
 
-        Assert.Single(tabs.FindAll(".command-tab"));
+        Assert.Equal(7, tabs.FindAll(".command-tab").Count);
         Assert.Contains("Adventures", tabs.Markup);
     }
 }

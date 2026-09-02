@@ -2,29 +2,38 @@
     <AuthorizeView Policy="players.characters">
         <Authorized>
             <div class="command-tab-group">
-            <NavLink href="crafting-upgrades" class="command-tab">
-                <span class="tab-rune">⚒</span>
-                <span><strong>Gearing Room</strong><small>Forge better equipment</small></span>
-            </NavLink>
-            <div class="command-tab-links"><NavLink href="characters">Characters</NavLink><NavLink href="crafting-upgrades">Gearing room</NavLink><NavLink href="trainers">Trainer finder</NavLink><NavLink href="training">Profession training</NavLink><NavLink href="weapon-training">Weapon training</NavLink></div></div>
+                <span class="command-tab-group-label">Gearing Room</span>
+                <NavLink href="characters" class="command-tab">Characters</NavLink>
+                <NavLink href="crafting-upgrades" class="command-tab">Gearing room</NavLink>
+                <NavLink href="trainers" class="command-tab">Trainer finder</NavLink>
+                <NavLink href="training" class="command-tab">Profession training</NavLink>
+                <NavLink href="weapon-training" class="command-tab">Weapon training</NavLink>
+            </div>
         </Authorized>
     </AuthorizeView>
     <AuthorizeView Policy="adventures.quests">
         <Authorized>
-            <div class="command-tab-group"><NavLink href="questing-companions" class="command-tab">
-                <span class="tab-rune">✥</span>
-                <span><strong>Adventures</strong><small>Quests and companions</small></span>
-            </NavLink>
-            <div class="command-tab-links"><NavLink href="quest-helper">Quest helper</NavLink><NavLink href="questing-companions">Questing companions</NavLink><NavLink href="companion-commands">Companion commands</NavLink><NavLink href="companion-diagnostics">Companion diagnostics</NavLink><NavLink href="dungeon-library">Dungeon library</NavLink><NavLink href="dungeon-assistant">Dungeon assistant</NavLink><NavLink href="client-addons">Client addons</NavLink></div></div>
+            <div class="command-tab-group">
+                <span class="command-tab-group-label">Adventures</span>
+                <NavLink href="quest-helper" class="command-tab">Quest helper</NavLink>
+                <NavLink href="questing-companions" class="command-tab">Questing companions</NavLink>
+                <NavLink href="companion-commands" class="command-tab">Companion commands</NavLink>
+                <NavLink href="companion-diagnostics" class="command-tab">Companion diagnostics</NavLink>
+                <NavLink href="dungeon-library" class="command-tab">Dungeon library</NavLink>
+                <NavLink href="dungeon-assistant" class="command-tab">Dungeon assistant</NavLink>
+                <NavLink href="client-addons" class="command-tab">Client addons</NavLink>
+            </div>
         </Authorized>
     </AuthorizeView>
     <AuthorizeView Policy="players.services">
         <Authorized>
-            <div class="command-tab-group"><NavLink href="character-services" class="command-tab">
-                <span class="tab-rune">✦</span>
-                <span><strong>Character Services</strong><small>Restore and reshape</small></span>
-            </NavLink>
-            <div class="command-tab-links"><NavLink href="accounts">Accounts</NavLink><NavLink href="character-services">Character services</NavLink><NavLink href="starter-presets">Starter presets</NavLink><NavLink href="collectibles">Collectibles</NavLink></div></div>
+            <div class="command-tab-group">
+                <span class="command-tab-group-label">Character Services</span>
+                <NavLink href="accounts" class="command-tab">Accounts</NavLink>
+                <NavLink href="character-services" class="command-tab">Character services</NavLink>
+                <NavLink href="starter-presets" class="command-tab">Starter presets</NavLink>
+                <NavLink href="collectibles" class="command-tab">Collectibles</NavLink>
+            </div>
         </Authorized>
     </AuthorizeView>
 </nav>
