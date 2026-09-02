@@ -322,6 +322,25 @@ public sealed class PlayerActionToolTests : BunitContext
     }
 
     [Fact]
+    public void ChooseNpcOpensTheNpcPickerEvenWithoutSelectedTargets()
+    {
+        var component = Render<TeleportTool>(parameters => parameters
+            .Add(tool => tool.Targets, [])
+            .Add(tool => tool.Available, true));
+
+        component.FindAll("button").Single(button =>
+            button.TextContent.Trim() == "NPC").Click();
+        var npcInput = component.Find("input[aria-label='Choose NPC']");
+        Assert.False(npcInput.HasAttribute("disabled"));
+
+        npcInput.Click();
+        component.WaitForElement("#npc-teleport-picker-title");
+        Assert.Contains(
+            "Select at least one character before searching for an NPC.",
+            component.Markup);
+    }
+
+    [Fact]
     public void TeleportPopupPickersOpenFromClickableInputs()
     {
         var component = Render<TeleportTool>(parameters => parameters

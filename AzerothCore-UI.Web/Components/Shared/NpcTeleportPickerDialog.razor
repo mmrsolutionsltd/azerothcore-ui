@@ -36,6 +36,12 @@
                     {
                         <p><em>Searching NPCs…</em></p>
                     }
+                    else if (string.IsNullOrWhiteSpace(AnchorPlayerName))
+                    {
+                        <div class="alert alert-secondary">
+                            Select at least one character before searching for an NPC.
+                        </div>
+                    }
                     else if (search.Trim().Length < 2)
                     {
                         <div class="alert alert-secondary">Enter at least two characters.</div>

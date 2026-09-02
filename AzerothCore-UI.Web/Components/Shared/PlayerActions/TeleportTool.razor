@@ -38,7 +38,6 @@
 		{
 			<input class="form-control clickable-item mb-2"
 				   value="@(selectedNpc is null ? "No NPC selected" : $"{selectedNpc.Name} — {MapName(selectedNpc.MapId)}")"
-				   disabled="@(Targets.Count == 0)"
 				   @onclick="() => showNpcPicker = true"
 				   readonly role="button" aria-label="Choose NPC" />
 			@if (selectedNpc is not null)
