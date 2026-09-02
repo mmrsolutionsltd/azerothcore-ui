@@ -8,19 +8,15 @@
 
 <PageTitle>Artisan gearing room</PageTitle>
 
-<div class="forge-shell">
-    <div class="forge-intro">
-        <div>
-            <div class="eyebrow">ACCOUNT-WIDE CRAFTING INTELLIGENCE</div>
-            <h2>Artisan Gearing Room</h2>
-            <p>Find gear your characters already own, can craft now, or can work towards—without skipping the adventure.</p>
-        </div>
-        <div class="source-rune" title="The planner reads your live AzerothCore characters, items and profession recipes.">
-            <span>READ-ONLY</span>
-            <small>Nothing is crafted automatically</small>
-        </div>
-    </div>
+<PageHeader Eyebrow="ACCOUNT-WIDE CRAFTING INTELLIGENCE"
+            Title="Artisan Gearing Room"
+            Description="Find gear your characters already own, can craft now, or can work towards—without skipping the adventure."
+            BadgeText="READ-ONLY"
+            BadgeSubtext="Nothing is crafted automatically"
+            BadgeTitle="The planner reads your live AzerothCore characters, items and profession recipes."
+            Tone="PageHeaderBadgeTone.Safe" />
 
+<div class="forge-shell">
     @if (!string.IsNullOrWhiteSpace(message))
     {
         <div class="forge-alert">@message</div>

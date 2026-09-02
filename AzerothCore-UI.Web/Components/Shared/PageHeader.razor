@@ -1,0 +1,34 @@
+<div class="page-header-shell">
+    <div class="page-header-intro">
+        <div>
+            <div class="page-header-eyebrow">@Eyebrow</div>
+            <h2>@Title</h2>
+            @if (!string.IsNullOrWhiteSpace(Description))
+            {
+                <p>@Description</p>
+            }
+            @ChildContent
+        </div>
+        @if (!string.IsNullOrWhiteSpace(BadgeText))
+        {
+            <div class="page-header-badge tone-@Tone.ToString().ToLowerInvariant()" title="@BadgeTitle">
+                <span>@BadgeText</span>
+                @if (!string.IsNullOrWhiteSpace(BadgeSubtext))
+                {
+                    <small>@BadgeSubtext</small>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Eyebrow { get; set; } = "";
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter] public string? Description { get; set; }
+    [Parameter] public string? BadgeText { get; set; }
+    [Parameter] public string? BadgeSubtext { get; set; }
+    [Parameter] public string? BadgeTitle { get; set; }
+    [Parameter] public PageHeaderBadgeTone Tone { get; set; } = PageHeaderBadgeTone.Neutral;
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

@@ -5,16 +5,14 @@
 
 <PageTitle>Characters</PageTitle>
 
-<div class="character-hall">
-<div class="hall-hero">
-    <div><span>REALM ROSTER</span><h2>Hall of Heroes</h2><p>Every real character, their progress, professions and place in the world.</p></div>
-    <div class="hall-seal">⚔<small>@characters.Count HEROES</small></div>
-</div>
+<PageHeader Eyebrow="REALM ROSTER"
+            Title="Hall of Heroes"
+            Description="Every real character, their progress, professions and place in the world."
+            BadgeText="@($"{characters.Count} HEROES")"
+            Tone="PageHeaderBadgeTone.Safe" />
 
-<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3 hall-intro">
-    <div>
-        <p class="text-muted mb-0">A quick overview of real player characters and their current progress.</p>
-    </div>
+<div class="character-hall">
+<div class="d-flex justify-content-end mb-3 hall-intro">
     <button class="btn btn-outline-primary" @onclick="LoadAsync" disabled="@isLoading">Refresh</button>
 </div>
 

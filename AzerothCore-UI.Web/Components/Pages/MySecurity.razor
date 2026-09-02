@@ -4,7 +4,9 @@
 @inject AuthenticationStateProvider AuthenticationStateProvider
 
 <PageTitle>My security</PageTitle>
-<p class="text-muted">Change your website administration password. This signs out all existing sessions.</p>
+<PageHeader Eyebrow="ACCOUNT"
+            Title="My Security"
+            Description="Change your website administration password. This signs out all existing sessions." />
 
 @if (!string.IsNullOrEmpty(message))
 {

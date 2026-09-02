@@ -4,10 +4,13 @@
 @inject AzerothCore_UI.Web.Services.DungeonWishlistStore WishlistStore
 
 <PageTitle>Dungeon library</PageTitle>
-<p class="text-muted">
-    Browse routes, boss tactics and the exact loot configured on this server.
-    WoW characters do not need to be online.
-</p>
+
+<PageHeader Eyebrow="DUNGEON KNOWLEDGE"
+            Title="Dungeon Library"
+            Description="Browse routes, boss tactics and the exact loot configured on this server. WoW characters do not need to be online."
+            BadgeText="READ-ONLY"
+            BadgeSubtext="No character needs to be online"
+            Tone="PageHeaderBadgeTone.Safe" />
 
 @if (!string.IsNullOrWhiteSpace(message))
 {

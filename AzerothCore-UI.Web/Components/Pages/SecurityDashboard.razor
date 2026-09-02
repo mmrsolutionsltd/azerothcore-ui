@@ -5,9 +5,11 @@
 @using SecurityDashboardModel = AzerothCore_UI.Web.Models.SecurityDashboard
 
 <PageTitle>Security dashboard</PageTitle>
-<p class="text-muted">
-    Website access, account state, suspicious public probes, and TLS health.
-</p>
+<PageHeader Eyebrow="SECURITY"
+            Title="Security Dashboard"
+            Description="Website access, account state, suspicious public probes, and TLS health."
+            BadgeText="READ-ONLY"
+            Tone="PageHeaderBadgeTone.Safe" />
 
 @if (!string.IsNullOrWhiteSpace(message))
 {

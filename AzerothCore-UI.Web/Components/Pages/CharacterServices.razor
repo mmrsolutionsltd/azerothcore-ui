@@ -4,7 +4,13 @@
 @inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
 
 <PageTitle>Character services</PageTitle>
-<p class="text-muted">Apply safe AzerothCore character maintenance and at-login services.</p>
+
+<PageHeader Eyebrow="CHARACTER SERVICES"
+            Title="Character Services"
+            Description="Apply AzerothCore character maintenance and at-login services, including level changes and account transfers."
+            BadgeText="WRITE ACCESS"
+            BadgeSubtext="Each command is audited"
+            Tone="PageHeaderBadgeTone.Danger" />
 
 @if (isLoading) { <p><em>Loading characters...</em></p> }
 else

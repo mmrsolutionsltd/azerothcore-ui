@@ -5,6 +5,12 @@
 
 <PageTitle>@(account?.Username ?? "Account details")</PageTitle>
 
+<PageHeader Eyebrow="CHARACTER SERVICES"
+            Title="Account Details"
+            Description="View a family account's login details and the characters attached to it."
+            BadgeText="READ-ONLY"
+            Tone="PageHeaderBadgeTone.Safe" />
+
 <p><a href="accounts">&larr; Back to accounts</a></p>
 
 @if (isLoading)

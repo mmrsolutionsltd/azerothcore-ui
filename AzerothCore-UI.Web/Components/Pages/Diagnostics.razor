@@ -5,10 +5,14 @@
 
 <PageTitle>Server health and diagnostics</PageTitle>
 
-<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
-    <div>
-        <p class="text-muted mb-0">Read-only checks across processes, databases, builds, modules, configuration, backups, logs, client files and mod-arac.</p>
-    </div>
+<PageHeader Eyebrow="REALM OPERATIONS"
+            Title="Diagnostics"
+            Description="Read-only checks across processes, databases, builds, modules, configuration, backups, logs, client files and mod-arac."
+            BadgeText="READ-ONLY"
+            BadgeSubtext="No configuration or data is changed"
+            Tone="PageHeaderBadgeTone.Safe" />
+
+<div class="d-flex justify-content-end mb-3">
     <button class="btn btn-outline-primary" disabled="@isLoading" @onclick="LoadAsync">Run checks again</button>
 </div>
 

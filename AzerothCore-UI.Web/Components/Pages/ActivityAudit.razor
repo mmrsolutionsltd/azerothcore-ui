@@ -3,10 +3,12 @@
 @inject AccountsApiClient Api
 
 <PageTitle>Activity audit</PageTitle>
-<p class="text-muted">
-    Search website security events, gameplay administration, server changes, failures,
-    and denied attempts.
-</p>
+<PageHeader Eyebrow="SECURITY"
+            Title="Activity Audit"
+            Description="Search website security events, gameplay administration, server changes, failures, and denied attempts."
+            BadgeText="READ-ONLY"
+            BadgeSubtext="Search only, nothing is changed"
+            Tone="PageHeaderBadgeTone.Safe" />
 
 @if (!string.IsNullOrWhiteSpace(errorMessage))
 {

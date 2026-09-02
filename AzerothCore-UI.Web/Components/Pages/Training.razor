@@ -5,16 +5,19 @@
 
 <PageTitle>Available training</PageTitle>
 
+<PageHeader Eyebrow="GEARING ROOM"
+            Title="Profession Training"
+            Description="Class abilities and profession training currently available to characters on player accounts."
+            BadgeText="GRANTS TRAINING"
+            BadgeSubtext="Applies immediately to online characters"
+            Tone="PageHeaderBadgeTone.Caution" />
+
 <div class="d-flex flex-wrap justify-content-end align-items-center gap-2">
     <button class="btn btn-outline-secondary" disabled="@(isLoading || activeTraining is not null)"
             @onclick="RefreshTrainingAsync">
         @(activeTraining == "refresh" ? "Refreshing…" : "Refresh characters")
     </button>
 </div>
-<p class="text-muted">
-    Class abilities and profession training currently available to characters on player accounts.
-    Profession training can be granted free while the character is online.
-</p>
 
 @if (actionMessage is not null)
 {

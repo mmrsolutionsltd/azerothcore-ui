@@ -4,7 +4,12 @@
 @inject AzerothCore_UI.Web.Clients.AccountsApiClient AccountsClient
 
 <PageTitle>Module settings</PageTitle>
-<p class="text-muted">Family-server controls for the optional modules installed with AzerothCore.</p>
+<PageHeader Eyebrow="REALM OPERATIONS"
+            Title="Module Settings"
+            Description="Family-server controls for the optional modules installed with AzerothCore."
+            BadgeText="TAKES EFFECT ON RESTART"
+            BadgeSubtext="A backup is created before each changed file"
+            Tone="PageHeaderBadgeTone.Caution" />
 
 @if (loading) { <p><em>Loading module configuration...</em></p> }
 else

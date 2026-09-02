@@ -5,9 +5,12 @@
 
 <PageTitle>Database backups</PageTitle>
 
-<p class="text-muted">
-    Verified backups of the auth, characters, and world databases. The newest 20 backups are retained.
-</p>
+<PageHeader Eyebrow="REALM OPERATIONS"
+            Title="Database Backups"
+            Description="Verified backups of the auth, characters, and world databases. The newest 20 backups are retained."
+            BadgeText="DATA-CRITICAL"
+            BadgeSubtext="Restoring overwrites the live databases"
+            Tone="PageHeaderBadgeTone.Danger" />
 
 @if (isLoading)
 {

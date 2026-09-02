@@ -6,12 +6,15 @@
 @inject AzerothCore_UI.Web.Services.SelectedCharacterStore SelectedCharacterStore
 
 <PageTitle>Questing companions</PageTitle>
+
+<PageHeader Eyebrow="HOUSEHOLD PARTY COMMAND"
+            Title="Questing Companion Hall"
+            Description="Lead the adventure normally while trusted heroes follow, fight, gather and share the journey."
+            BadgeText="PARTIES REMEMBERED"
+            BadgeSubtext="Independent groups for every household player"
+            Tone="PageHeaderBadgeTone.Caution" />
+
 <div class="companion-sanctum">
-<div class="companion-hero">
-    <div><span class="eyebrow">HOUSEHOLD PARTY COMMAND</span><h2>Questing Companion Hall</h2>
-        <p>Lead the adventure normally while trusted heroes follow, fight, gather and share the journey.</p></div>
-    <div class="companion-rune"><span>PARTIES REMEMBERED</span><small>Independent groups for every household player</small></div>
-</div>
 
 @if (!string.IsNullOrWhiteSpace(message))
 {

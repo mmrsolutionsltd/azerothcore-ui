@@ -4,7 +4,12 @@
 @inject AuthenticationStateProvider AuthenticationStateProvider
 
 <PageTitle>Access management</PageTitle>
-<p class="text-muted">Manage website users, capability roles, and the game accounts each user may affect.</p>
+<PageHeader Eyebrow="SECURITY"
+            Title="Access Management"
+            Description="Manage website users, capability roles, and the game accounts each user may affect."
+            BadgeText="ACCESS CONTROL"
+            BadgeSubtext="Changes apply immediately"
+            Tone="PageHeaderBadgeTone.Danger" />
 
 @if (!string.IsNullOrEmpty(message))
 {

@@ -7,16 +7,17 @@
 
 <PageTitle>Companion diagnostics</PageTitle>
 
-<div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
-    <p class="text-muted mb-0">
-        Live activity, blockers and recent automation results for the selected leader's companions.
-    </p>
-    <div class="d-flex align-items-center gap-2">
-        <span class="small text-muted">Auto-refreshes every 5 seconds</span>
-        <button class="btn btn-sm btn-outline-primary" type="button"
-                disabled="@(loading || string.IsNullOrWhiteSpace(leaderName))"
-                @onclick="() => RefreshAsync()">Refresh now</button>
-    </div>
+<PageHeader Eyebrow="COMPANION HEALTH"
+            Title="Companion Diagnostics"
+            Description="Live activity, blockers and recent automation results for the selected leader's companions."
+            BadgeText="AUTO-REFRESH"
+            BadgeSubtext="Every 5 seconds"
+            Tone="PageHeaderBadgeTone.Safe" />
+
+<div class="d-flex justify-content-end mb-3">
+    <button class="btn btn-sm btn-outline-primary" type="button"
+            disabled="@(loading || string.IsNullOrWhiteSpace(leaderName))"
+            @onclick="() => RefreshAsync()">Refresh now</button>
 </div>
 
 @if (!string.IsNullOrWhiteSpace(message))

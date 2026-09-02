@@ -5,7 +5,13 @@
 
 <PageTitle>Accounts</PageTitle>
 
-<p class="text-muted">Search and select an account to view its characters.</p>
+<PageHeader Eyebrow="CHARACTER SERVICES"
+            Title="Accounts"
+            Description="Search and select an account to view its characters, or create a new game login."
+            BadgeText="WRITE ACCESS"
+            BadgeSubtext="Account creation applies immediately"
+            Tone="PageHeaderBadgeTone.Danger" />
+
 <AuthorizeView Policy="players.actions">
     <Authorized>
         <details class="card mb-4">

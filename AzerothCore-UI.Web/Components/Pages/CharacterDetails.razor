@@ -24,17 +24,11 @@ else if (character is not null)
         </ol>
     </nav>
 
-    <div class="d-flex justify-content-between align-items-start mb-3">
-        <div>
-            <p class="text-muted mb-0">
-                Level @character.Level @CharacterDisplayNames.Race(character.Race)
-                @CharacterDisplayNames.Class(character.Class) · GUID @character.Guid
-            </p>
-        </div>
-        <span class="badge @(character.Online ? "text-bg-success" : "text-bg-secondary")">
-            @(character.Online ? "Online" : "Offline")
-        </span>
-    </div>
+    <PageHeader Eyebrow="CHARACTER DETAILS"
+                Title="@character.Name"
+                Description="@($"Level {character.Level} {CharacterDisplayNames.Race(character.Race)} {CharacterDisplayNames.Class(character.Class)} · GUID {character.Guid}")"
+                BadgeText="@(character.Online ? "ONLINE" : "OFFLINE")"
+                Tone="@(character.Online ? PageHeaderBadgeTone.Safe : PageHeaderBadgeTone.Neutral)" />
 
     <div class="row g-3 mb-4">
         <div class="col-sm-4">
