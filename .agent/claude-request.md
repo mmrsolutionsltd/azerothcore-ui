@@ -14,3 +14,29 @@ Changes made (already implemented, tests passing, not yet deployed):
 3. Vertical compactness pass on every Player Actions tool card (PlayerActionTools.razor.css): outer card padding split to .55rem .8rem (vertical reduced, horizontal unchanged), heading padding-bottom/margin-bottom and footer padding-top all trimmed (~30% less), and a scoped override shrinks every tool's internal Bootstrap mb-2/mb-3 spacing so the many stacked rows inside each tool (item picker + quantity, coin inputs, teleport controls, etc.) sit closer together.
 Verification: dotnet build clean; PlayerActionToolTests.cs updated for the merge (heading list now has one "Give" entry instead of "Give item"/"Give money", mode-switching helper added, the target-preservation test now toggles Item/Money mode instead of rendering two separate components) - 19/19 in that file, 91/91 across the whole Web test project. Spinner/padding rendering spot-checked in a real Chrome tab against an isolated Bootstrap page using the exact same CSS values (not the live app, which needs the API/DB stack). Not yet deployed to azerothmedia.
 Expected result: A look over the approach (component merge shape, the site-wide input padding/spinner rule placement outside .content, the mb-2/mb-3 override scope) - flag anything that looks like it'll collide with something you're aware of elsewhere in the site, otherwise no action needed.
+# Request: outdoor companion groups larger than five
+
+Please review and implement support for companion groups larger than five members **only for ordinary outdoor PvE**.
+
+## Requirements
+
+- Keep dungeon, LFG, raid, battleground, arena and battlefield groups on their existing rules. In particular, dungeon/LFG parties must remain capped at five.
+- Allow a normal outdoor party led by a real online player to contain more than five PlayerBots/companions, subject to a configurable safe maximum (do not hard-code an unbounded group). Recommend a sensible default and make the limit configurable where appropriate.
+- Preserve existing eligibility checks: distinct accounts, level range, faction/availability rules, leader-online requirement, and protection against special groups.
+- Update the web-admin companion start/regroup/group-building paths and any UI validation or text that currently assumes five.
+- Make the UI clearly show the outdoor-only nature of the larger group option and prevent selecting it for dungeon launches.
+- Ensure party inspection/readiness parsing handles the larger member list without truncation or accidental five-member assumptions.
+- Do not change database schemas unless strictly necessary. Do not alter dungeon behaviour.
+
+## Review protocol
+
+Before editing, inspect the current source and write your own implementation plan. Compare it with this request and with the existing architecture; call out risks (AzerothCore core group limits, client UI limits, PlayerBots assumptions, combat/loot behaviour). Then implement the smallest safe change.
+
+Add/update focused unit tests for the eligibility/group-size rules and parser/UI validation. Build only the affected projects/modules; do not perform a full server rebuild unless required, and do not start/stop services.
+
+When complete, report:
+
+1. Your proposed plan and any differences from this brief.
+2. Files changed and exact behaviour.
+3. Test/build results and any remaining server-core limitation.
+4. Whether a worldserver rebuild/install is required and the safest deployment steps.
