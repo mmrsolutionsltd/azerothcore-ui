@@ -2,6 +2,7 @@
 @implements IAsyncDisposable
 @inject AzerothCore_UI.Web.Clients.AccountsApiClient Api
 @inject AzerothCore_UI.Web.Services.SelectedCharacterStore SelectedCharacterStore
+@inject AzerothCore_UI.Web.Services.RosterPreferenceStore Preferences
 @inject NavigationManager Navigation
 
 <section class="hero-roster" aria-label="Selected heroes and realm roster">
@@ -17,6 +18,11 @@
                 <input type="checkbox" checked="@showBots"
                        @onchange="ToggleBotsAsync" />
                 <span>Bots</span>
+            </label>
+            <label title="Automatically revive selected companions and PlayerBots when the live status poll reports them dead. Real player characters are never auto-revived.">
+                <input type="checkbox" checked="@autoRevive"
+                       @onchange="ToggleAutoReviveAsync" />
+                <span>Auto-revive companions</span>
             </label>
             <button type="button" title="Select up to five visible online characters"
                     @onclick="SelectOnlineAsync">Online</button>
@@ -178,6 +184,10 @@
     private Dictionary<string, LiveCharacterStatus> liveStatusByName =
         new(StringComparer.OrdinalIgnoreCase);
     private Task? liveStatusLoop;
+    private bool autoRevive;
+    private readonly Dictionary<string, DateTime> autoReviveCooldownUntil =
+        new(StringComparer.OrdinalIgnoreCase);
+    private static readonly TimeSpan AutoReviveCooldown = TimeSpan.FromSeconds(8);
 
     private IReadOnlyList<RealmRosterCharacter> AllHeroes =>
         snapshot?.AvailableHeroes
@@ -212,6 +222,7 @@
         SelectedCharacterStore.SelectionChanged += OnActiveSelectionChanged;
         SelectedCharacterStore.SelectedCharactersChanged += OnSelectedCharactersChanged;
         SelectedCharacterStore.TargetsChanged += OnTargetsChanged;
+        autoRevive = await Preferences.GetBoolAsync(AzerothCore_UI.Web.Services.RosterPreferenceKeys.AutoReviveCompanions);
         await RefreshAsync();
         refreshLoop = RefreshLoopAsync(cancellation.Token);
         liveStatusLoop = LiveStatusLoopAsync(cancellation.Token);
@@ -298,7 +309,59 @@
             liveStatusByName = statuses.ToDictionary(
                 status => status.Name, StringComparer.OrdinalIgnoreCase);
         }
-        catch when (!cancellation.IsCancellationRequested) { }
+        catch when (!cancellation.IsCancellationRequested) { return; }
+
+        await AutoReviveDeadCompanionsAsync();
+    }
+
+    private async Task ToggleAutoReviveAsync(ChangeEventArgs args)
+    {
+        autoRevive = args.Value as bool? == true;
+        await Preferences.SetBoolAsync(AzerothCore_UI.Web.Services.RosterPreferenceKeys.AutoReviveCompanions, autoRevive);
+        if (autoRevive) await AutoReviveDeadCompanionsAsync();
+    }
+
+    // Companions/PlayerBots only - real player characters are never auto-revived,
+    // matching the manual Revive button's scope but gated behind the opt-in switch.
+    // "Unknown" (offline, no live-status entry yet) is deliberately not treated as
+    // dead. A per-hero cooldown stops the 2.5s poll from re-issuing a revive while
+    // an earlier request is still working its way through the server.
+    private async Task AutoReviveDeadCompanionsAsync()
+    {
+        if (!autoRevive) return;
+        var now = DateTime.UtcNow;
+        var candidates = SelectedHeroes
+            .Where(hero => hero.IsPlayerBot || hero.IsCompanion)
+            .Where(hero => liveStatusByName.TryGetValue(hero.Name, out var status) && !status.Alive)
+            .Where(hero => !reviving.Contains(hero.Name))
+            .Where(hero => !autoReviveCooldownUntil.TryGetValue(hero.Name, out var until)
+                || now >= until)
+            .Select(hero => hero.Name)
+            .ToArray();
+        foreach (var name in candidates)
+            await AutoReviveOneAsync(name);
+    }
+
+    private async Task AutoReviveOneAsync(string name)
+    {
+        if (!reviving.Add(name)) return;
+        autoReviveCooldownUntil[name] = DateTime.UtcNow + AutoReviveCooldown;
+        try
+        {
+            var result = await Api.ApplyCharacterServiceAsync(
+                new CharacterServiceRequest(name, "revive", null, true));
+            if (result?.Success == true)
+            {
+                operationSucceeded = true;
+                message = $"Auto-revived {name}.";
+                await RefreshAsync();
+            }
+        }
+        catch when (!cancellation.IsCancellationRequested)
+        {
+            // Keep the polling loop alive; the cooldown lets a later tick retry.
+        }
+        finally { reviving.Remove(name); }
     }
 
     private async Task ToggleAsync(string name)

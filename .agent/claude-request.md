@@ -40,3 +40,27 @@ When complete, report:
 2. Files changed and exact behaviour.
 3. Test/build results and any remaining server-core limitation.
 4. Whether a worldserver rebuild/install is required and the safest deployment steps.
+# Follow-up: telemetry-driven companion auto-revive
+
+Please implement an opt-in **Auto-revive companions** feature in the shared hero roster header.
+
+## Design
+
+- Reuse the existing 2.5-second live-status telemetry poll (`GetLiveStatusAsync`) and the existing `ReviveAsync` path (`ApplyCharacterServiceAsync` with service `revive`). Do not create a second revive API or direct SQL path.
+- Add a clearly labelled switch, off by default, persisted using the existing browser/settings pattern if practical.
+- Automatically revive selected heroes that are both companions/bots and reported dead. Do not auto-revive real player characters unless there is an explicit separate opt-in (prefer not to add one yet).
+- De-duplicate requests per character and add a sensible cooldown/back-off so a dead character cannot be spammed while the server is processing the revive.
+- Avoid reviving offline characters where live status is unknown; keep the existing manual button behaviour unchanged.
+- Refresh telemetry/roster after a successful revive and show a small, non-intrusive status message.
+- Handle API failures without breaking the polling loop.
+
+## Review and tests
+
+Before editing, inspect the current header/telemetry implementation and state store, write your own plan, and compare it with this brief. Add focused tests for companion-only filtering, de-duplication/cooldown, and failure handling. Build the affected Web project.
+
+## Recent changes from Codex
+
+- Fixed `UtilityNpcTool.razor`: summon is now enabled for exactly one online target whether it is a real player or PlayerBot; offline targets remain disabled. Web build passed with 0 warnings/errors.
+- Updated `client-addons/AzerothCompanion/CasterAuto.lua`: hostile target changes (including Tab targeting) automatically start the configured caster filler spell when caster auto is enabled; button/right-click controls remain available.
+- Investigated tank preset failures for Chinozil and Warblelf under leader Markabre. The server rejected `dungeon-tank` because their current specialization is not tank-compatible. Talent commands were queued, but inspection did not show acknowledgement; do not assume this is fixed.
+- No database changes, service restarts, or server rebuilds were performed for those items.

@@ -25,6 +25,7 @@ public sealed class RealmRosterHeaderTests : BunitContext
             BaseAddress = new Uri("http://localhost")
         }));
         Services.AddScoped<SelectedCharacterStore>();
+        Services.AddScoped<RosterPreferenceStore>();
         var authorization = AddAuthorization();
         authorization.SetAuthorized("owner");
         authorization.SetPolicies(
@@ -321,6 +322,90 @@ public sealed class RealmRosterHeaderTests : BunitContext
             Assert.False(banner.HasAttribute("disabled"));
         }, TimeSpan.FromSeconds(5));
     }
+
+    [Fact]
+    public void AutoReviveOnlyRevivesDeadCompanionsAndPlayerBotsNotRealPlayers()
+    {
+        // Vynlan is the real, human-controlled leader; Kiesh is a companion.
+        // Both are reported dead - only the companion should ever be revived.
+        handler.LiveStatusOverride =
+        [
+            new LiveCharacterStatus("Vynlan", false, 0, 1250, 0, 0, 0, 0, 0, 0),
+            new LiveCharacterStatus("Kiesh", false, 0, 900, 0, 0, 0, 0, 0, 0)
+        ];
+
+        var component = Render<RealmRosterHeader>();
+        component.WaitForElement(".hero-choice");
+        HeroChoice(component, "Vynlan").Click();
+        component.WaitForElement(".hero-choice");
+        HeroChoice(component, "Kiesh").Click();
+        component.WaitForElement(".revive-banner");
+
+        AutoReviveToggle(component).Change(true);
+
+        component.WaitForAssertion(() =>
+        {
+            Assert.Contains("Kiesh", handler.RevivedCharacters);
+            Assert.DoesNotContain("Vynlan", handler.RevivedCharacters);
+        }, TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public void AutoReviveDoesNotRepeatWithinTheCooldownWindow()
+    {
+        handler.LiveStatusOverride =
+            [new LiveCharacterStatus("Kiesh", false, 0, 900, 0, 0, 0, 0, 0, 0)];
+
+        var component = Render<RealmRosterHeader>();
+        component.WaitForElement(".hero-choice");
+        HeroChoice(component, "Kiesh").Click();
+        component.WaitForElement(".revive-banner");
+
+        AutoReviveToggle(component).Change(true);
+        component.WaitForAssertion(() =>
+            Assert.Contains("Kiesh", handler.RevivedCharacters),
+            TimeSpan.FromSeconds(5));
+
+        // The 2.5s live-status poll ticks several more times while Kiesh is
+        // still (deliberately) reported dead; the per-hero cooldown must stop
+        // those extra ticks from re-issuing the revive request.
+        Thread.Sleep(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, handler.RevivedCharacters.Count(name => name == "Kiesh"));
+    }
+
+    [Fact]
+    public void AutoReviveSwallowsApiFailuresWithoutBreakingThePollingLoop()
+    {
+        handler.LiveStatusOverride =
+            [new LiveCharacterStatus("Kiesh", false, 0, 900, 0, 0, 0, 0, 0, 0)];
+        handler.ThrowOnReviveRequests = true;
+
+        var component = Render<RealmRosterHeader>();
+        component.WaitForElement(".hero-choice");
+        HeroChoice(component, "Kiesh").Click();
+        component.WaitForElement(".revive-banner");
+
+        AutoReviveToggle(component).Change(true);
+
+        var requestsAfterFirstTick = 0;
+        component.WaitForAssertion(() =>
+        {
+            Assert.True(handler.LiveStatusRequestCount > 0);
+            requestsAfterFirstTick = handler.LiveStatusRequestCount;
+        }, TimeSpan.FromSeconds(5));
+
+        component.WaitForAssertion(() =>
+            Assert.True(handler.LiveStatusRequestCount > requestsAfterFirstTick),
+            TimeSpan.FromSeconds(5));
+        Assert.Empty(handler.RevivedCharacters);
+    }
+
+    private static AngleSharp.Dom.IElement AutoReviveToggle(
+        IRenderedComponent<RealmRosterHeader> component) =>
+        component.FindAll("label")
+            .Single(label => label.TextContent.Contains(
+                "Auto-revive companions", StringComparison.Ordinal))
+            .QuerySelector("input")!;
 
     [Fact]
     public void DeadOnlineHeroCanBeRevivedFromTheirCard()
@@ -637,6 +722,9 @@ public sealed class RealmRosterHeaderTests : BunitContext
     private sealed class RosterHandler : HttpMessageHandler
     {
         public string? RevivedCharacter { get; private set; }
+        public List<string> RevivedCharacters { get; } = [];
+        public bool FailReviveRequests { get; set; }
+        public bool ThrowOnReviveRequests { get; set; }
         public uint? VynlanMaximumHealth { get; set; }
         public int CraftingUpgradeRequestCount { get; private set; }
         public int TrainingRequestCount { get; private set; }
@@ -655,8 +743,14 @@ public sealed class RealmRosterHeaderTests : BunitContext
             {
                 var body = await request.Content!.ReadFromJsonAsync<CharacterServiceRequest>(
                     cancellationToken: cancellationToken);
+                if (ThrowOnReviveRequests)
+                    throw new HttpRequestException("The worldserver connection was reset.");
                 RevivedCharacter = body?.PlayerName;
-                return Json(new AdministrationResult(true, "Character revived."));
+                if (body?.PlayerName is not null)
+                    RevivedCharacters.Add(body.PlayerName);
+                return Json(new AdministrationResult(
+                    !FailReviveRequests, FailReviveRequests
+                        ? "The character could not be revived." : "Character revived."));
             }
             if (request.Method == HttpMethod.Get
                 && request.RequestUri!.AbsolutePath.StartsWith(

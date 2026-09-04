@@ -24,6 +24,7 @@ public sealed class QuestingCompanionsTests : BunitContext
             BaseAddress = new Uri("http://localhost")
         }));
         Services.AddScoped<SelectedCharacterStore>();
+        Services.AddScoped<RosterPreferenceStore>();
         var authorization = AddAuthorization();
         authorization.SetAuthorized("owner");
         authorization.SetPolicies("adventures.quests");

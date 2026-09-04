@@ -52,6 +52,7 @@ builder.Services.AddTransient<AzerothCore_UI.Web.Services.AdministrationActorHan
 builder.Services.AddScoped<AzerothCore_UI.Web.Services.SelectedCharacterStore>();
 builder.Services.AddScoped<AzerothCore_UI.Web.Services.DungeonWishlistStore>();
 builder.Services.AddScoped<AzerothCore_UI.Web.Services.RecentPickerSelectionStore>();
+builder.Services.AddScoped<AzerothCore_UI.Web.Services.RosterPreferenceStore>();
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
