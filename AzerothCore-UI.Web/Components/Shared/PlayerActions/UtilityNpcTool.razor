@@ -21,17 +21,12 @@ else
                     <option value="@npc.CreatureId">@npc.Service — @npc.Name</option>
                 }
             </select>
-            @if (SelectedNpc is not null)
-            {
-                <div class="small text-muted mt-1">@SelectedNpc.Description</div>
-            }
         </div>
         <div class="col-4">
-            <label class="form-label" for="utility-npc-despawn">Despawn after</label>
+            <label class="form-label" for="utility-npc-despawn">Despawn</label>
             <div class="input-group">
                 <input id="utility-npc-despawn" class="form-control" type="number"
                        min="1" max="30" @bind="despawnMinutes" />
-                <span class="input-group-text">minutes</span>
             </div>
         </div>
     </div>
@@ -53,7 +48,9 @@ else
     private string? loadError;
     private UtilityNpc? SelectedNpc => npcs.FirstOrDefault(npc => npc.CreatureId == selectedNpcId);
     private bool CanSummon =>
-        CanExecute && Targets.Count == 1 && Targets[0] is { IsPlayerBot: false, Online: true }
+        // Utility NPCs are spawned at a live player's position.  PlayerBots
+        // are valid live targets too; only offline heroes must be rejected.
+        CanExecute && Targets.Count == 1 && Targets[0].Online
         && SelectedNpc is not null && despawnMinutes is >= 1 and <= 30;
 
     protected override async Task OnParametersSetAsync()

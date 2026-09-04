@@ -213,6 +213,12 @@ eventFrame:SetScript("OnEvent", function(_, event)
         UpdateButton()
     elseif event == "PLAYER_TARGET_CHANGED" then
         UpdateButton()
+        -- Start automatically when Tab (or another targeting action) selects a
+        -- hostile target.  The explicit button remains available to stop or
+        -- restart the behaviour, while avoiding duplicate toggle requests.
+        if addonEnabled and selectedFiller and IsHostileTarget() and not autoRunning then
+            SendChatMessage(".casterauto start " .. selectedFiller.spellId, "SAY")
+        end
     end
 end)
 
