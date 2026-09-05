@@ -78,3 +78,19 @@ Requirements:
 - Add focused API/UI tests and build affected projects. Do not execute any live item grants while developing.
 
 Before editing, inspect existing item search, shared header selection and menu/page patterns, then document your plan and any schema limitations. Avoid duplicate picker or ad-hoc SQL outside the existing data-access conventions.
+# Request: hero-first shell and two-row roster
+
+Redesign the main Blazor shell so the hero roster is the primary UI and all tools/pages are secondary.
+
+Requirements:
+- Increase shared hero selection capacity to 10 characters, displayed as two rows of five at normal desktop widths. Preserve leader-first ordering, active hero state, target selection, account scoping, online/offline/bot filters, and existing click/right-click/double-click semantics.
+- Keep responsive behaviour sensible on laptops/tablets/mobile; do not force a 10-column layout at narrow widths.
+- Move the existing page/tool tabs out of the main content area and place them in the left navigation/menu beneath the menu items. Avoid duplicate navigation entries and preserve permission visibility.
+- Make the selected hero roster visually dominant. Other pages (Player Actions, Questing Companions, Character Services, Artisan Gearing, Mounts and future pages) should render as secondary content using a reusable slide/swoop-in panel or drawer pattern, preferably with accessible focus management, close/back behaviour, deep-linkable routes where practical, and no loss of state when switching panels.
+- Do not introduce a separate character picker. All character-dependent pages must continue consuming the shared header/roster selection and active hero state.
+- Preserve existing max limits for operations that are intentionally capped (e.g. dungeon parties remain five); the roster capacity increase must not silently expand unrelated batch operations without explicit validation.
+- Keep the WoW-inspired visual language, eliminate redundant whitespace, and ensure the layout works at 1080p/2K/4K.
+
+Before editing, inspect the current shell, `RealmRosterHeader`, `SelectedCharacterStore`, navigation and page routing. Write and compare an implementation plan, call out any architectural trade-offs (especially shared selection capacity versus action limits), then implement reusable components rather than page-specific hacks.
+
+Add/update focused tests for 10-character selection/order, responsive/visibility assumptions where testable, active hero persistence and panel navigation/state preservation. Build and test affected projects; do not deploy or start/stop services.

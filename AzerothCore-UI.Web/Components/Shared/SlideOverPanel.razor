@@ -1,0 +1,44 @@
+@inject IJSRuntime Javascript
+
+<section class="tool-drawer" role="region" aria-label="Tool panel" @onkeydown="HandleKeyDownAsync">
+    <div class="tool-drawer-chrome">
+        <button type="button" class="tool-drawer-close" @ref="closeButtonRef" @onclick="CloseAsync"
+                title="Back to the hero roster (Esc)">
+            <span aria-hidden="true">‹</span> Back to roster
+        </button>
+    </div>
+    <div class="tool-drawer-body">
+        @ChildContent
+    </div>
+</section>
+
+@code {
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private ElementReference closeButtonRef;
+    private bool focused;
+
+    // Focuses the panel's own close button exactly once per mount (the panel only
+    // mounts/unmounts at the home <-> tool boundary - see MainLayout - so this runs
+    // once when a tool panel first swoops in, not on every route change within it).
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (focused) return;
+        focused = true;
+        try
+        {
+            await Javascript.InvokeVoidAsync("azerothCoreUi.focusElement", closeButtonRef);
+        }
+        catch (Exception exception) when (
+            exception is InvalidOperationException or JSDisconnectedException
+                or TaskCanceledException)
+        {
+        }
+    }
+
+    private Task HandleKeyDownAsync(KeyboardEventArgs args) =>
+        args.Key == "Escape" ? CloseAsync() : Task.CompletedTask;
+
+    private Task CloseAsync() => OnClose.InvokeAsync();
+}

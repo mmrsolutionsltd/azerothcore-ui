@@ -9,7 +9,7 @@ public sealed class SelectedCharacterStore(
     IJSRuntime javascript,
     AuthenticationStateProvider authenticationStateProvider)
 {
-    public const int MaximumCharacters = 5;
+    public const int MaximumCharacters = 10;
 
     private readonly List<string> selectedCharacters = [];
     private readonly HashSet<string> excludedTargets = new(StringComparer.OrdinalIgnoreCase);

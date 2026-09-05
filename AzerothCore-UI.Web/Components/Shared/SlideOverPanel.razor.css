@@ -1,0 +1,51 @@
+.tool-drawer {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    animation: tool-drawer-swoop-in .22s ease-out;
+}
+
+@keyframes tool-drawer-swoop-in {
+    from {
+        opacity: 0;
+        transform: translateY(-.6rem);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.tool-drawer-chrome {
+    display: flex;
+    padding: 0 1rem;
+}
+
+.tool-drawer-close {
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+    margin: .4rem 0 .2rem;
+    padding: .22rem .6rem;
+    color: #c8a55f;
+    font-size: .72rem;
+    font-weight: 700;
+    border: 1px solid #59472d;
+    border-radius: 4px;
+    background: #1c1914;
+    cursor: pointer;
+}
+
+.tool-drawer-close:hover {
+    color: #ffe2a1;
+    border-color: #b18442;
+}
+
+.tool-drawer-close:focus-visible {
+    outline: 2px solid #d8ad54;
+    outline-offset: 2px;
+}
+
+.tool-drawer-body {
+    min-width: 0;
+}

@@ -10,3 +10,11 @@ window.azerothCoreUi.focusAndSelect = element => {
         element.select();
     });
 };
+
+window.azerothCoreUi.focusElement = element => {
+    if (!element) {
+        return;
+    }
+
+    window.requestAnimationFrame(() => element.focus());
+};

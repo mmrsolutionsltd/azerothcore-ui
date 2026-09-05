@@ -1,4 +1,6 @@
-﻿@inherits LayoutComponentBase
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject NavigationManager Navigation
 
 <div class="page">
     <main>
@@ -9,14 +11,22 @@
                     <Authorized><RealmRosterHeader /></Authorized>
                 </AuthorizeView>
             </div>
-            <AuthorizeView>
-                <Authorized><RealmCommandTabs /></Authorized>
-            </AuthorizeView>
         </header>
 
-        <article class="content px-4">
-            @Body
-        </article>
+        @if (IsHomeRoute)
+        {
+            <article class="content px-4">
+                @Body
+            </article>
+        }
+        else
+        {
+            <SlideOverPanel OnClose="@(() => Navigation.NavigateTo(""))">
+                <article class="content px-4">
+                    @Body
+                </article>
+            </SlideOverPanel>
+        }
     </main>
 
     <AuthorizeView>
@@ -29,3 +39,15 @@
     <a href="." class="reload">Reload</a>
     <span class="dismiss">🗙</span>
 </div>
+
+@code {
+    private bool IsHomeRoute => Navigation.ToBaseRelativePath(Navigation.Uri)
+        .Split('?', '#')[0].Trim('/').Length == 0;
+
+    protected override void OnInitialized() => Navigation.LocationChanged += OnLocationChanged;
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs args) =>
+        _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Navigation.LocationChanged -= OnLocationChanged;
+}
