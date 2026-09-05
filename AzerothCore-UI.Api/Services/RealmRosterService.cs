@@ -30,7 +30,7 @@ public sealed class RealmRosterService(
             LEFT JOIN acore_characters.character_stats stats ON stats.guid=c.guid
             WHERE (@IncludeBots OR a.username NOT LIKE CONCAT(@BotPrefix, '%'))
               AND UPPER(a.username)<>'AHBOT'
-              AND (@AllAccounts OR c.account IN @AllowedAccounts)
+              AND (@AllAccounts OR c.account IN @AllowedAccounts OR c.online<>0)
             ORDER BY a.username, c.name;
             """, new
         {
