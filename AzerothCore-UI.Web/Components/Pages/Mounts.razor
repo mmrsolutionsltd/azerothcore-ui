@@ -1,0 +1,158 @@
+@page "/mounts"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "players.actions")]
+@using AzerothCore_UI.Web.Models
+@inject AzerothCore_UI.Web.Clients.AccountsApiClient Api
+@inject AzerothCore_UI.Web.Services.SelectedCharacterStore SelectedCharacterStore
+
+<PageTitle>Mounts</PageTitle>
+
+<PageHeader Eyebrow="CHARACTER SERVICES"
+            Title="Give Mounts"
+            Description="Browse the realm's mount catalogue and hand one to every selected hero at once."
+            BadgeText="GRANTS ITEMS"
+            BadgeSubtext="Delivery is immediate"
+            Tone="PageHeaderBadgeTone.Caution" />
+
+@if (message is not null)
+{
+    <div class="alert @(succeeded ? "alert-success" : "alert-danger")">@message</div>
+}
+
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="row g-2">
+            <div class="col-lg-4">
+                <input class="form-control" placeholder="Search mount name..."
+                       value="@search" @oninput="SearchChangedAsync" />
+            </div>
+            <div class="col-6 col-lg-2">
+                <input class="form-control" type="number" min="1" placeholder="Min level"
+                       @bind="minimumLevel" @bind:event="oninput" @bind:after="ReloadAsync" />
+            </div>
+            <div class="col-6 col-lg-2">
+                <input class="form-control" type="number" min="1" placeholder="Max level"
+                       @bind="maximumLevel" @bind:event="oninput" @bind:after="ReloadAsync" />
+            </div>
+            <div class="col-6 col-lg-2">
+                <select class="form-select" @bind="minimumSkillRank" @bind:after="ReloadAsync">
+                    <option value="">Any riding skill</option>
+                    <option value="75">Apprentice Riding+</option>
+                    <option value="150">Journeyman Riding+</option>
+                    <option value="225">Expert Riding+</option>
+                    <option value="300">Artisan Riding</option>
+                </select>
+            </div>
+            <div class="col-6 col-lg-2">
+                <select class="form-select" @bind="faction" @bind:after="ReloadAsync">
+                    <option value="">Any faction</option>
+                    <option value="Alliance">Alliance</option>
+                    <option value="Horde">Horde</option>
+                </select>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (isLoadingPage)
+{
+    <p><em>Loading the mount catalogue...</em></p>
+}
+else
+{
+    <div class="row g-4">
+        <div class="col-xl-9">
+            <div class="card">
+                <div class="card-body">
+                    @if (isSearching)
+                    {
+                        <p><em>Searching mounts...</em></p>
+                    }
+                    else if (results.Mounts.Count == 0)
+                    {
+                        <div class="alert alert-secondary">No matching mounts were found.</div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover align-middle">
+                                <thead>
+                                    <tr>
+                                        <th></th><th>Name</th><th>Level</th><th>Riding skill</th>
+                                        <th>Faction</th><th>Classes</th><th>Source</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var mount in results.Mounts)
+                                    {
+                                        <tr class="@(selected?.ItemId == mount.ItemId ? "table-primary" : null)">
+                                            <td>
+                                                <button class="btn btn-sm btn-outline-primary"
+                                                        @onclick="() => SelectMount(mount)">
+                                                    Select
+                                                </button>
+                                            </td>
+                                            <td class="fw-semibold">@mount.Name</td>
+                                            <td>@mount.RequiredLevel</td>
+                                            <td>@RidingSkillLabel(mount.RequiredSkillRank)</td>
+                                            <td>@(mount.Faction ?? "Both")</td>
+                                            <td>@ClassRestrictionLabel(mount.AllowableClass)</td>
+                                            <td class="small text-muted">@SourceLabel(mount)</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="d-flex justify-content-between">
+                            <span>@results.TotalCount results</span>
+                            <div>
+                                <button class="btn btn-sm btn-outline-secondary me-2"
+                                        disabled="@(results.Page <= 1)" @onclick="() => LoadAsync(results.Page - 1)">
+                                    Previous
+                                </button>
+                                <span class="me-2">Page @results.Page of @Math.Max(1, results.TotalPages)</span>
+                                <button class="btn btn-sm btn-outline-secondary"
+                                        disabled="@(results.Page >= results.TotalPages)" @onclick="() => LoadAsync(results.Page + 1)">
+                                    Next
+                                </button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-3">
+            <div class="card">
+                <div class="card-body">
+                    <h2 class="h5">Give selected mount</h2>
+                    @if (selected is null)
+                    {
+                        <p class="text-muted">Select a mount from the catalogue.</p>
+                    }
+                    else
+                    {
+                        <p>
+                            <strong>@selected.Name</strong><br />
+                            <span class="small text-muted">
+                                Requires level @selected.RequiredLevel and @RidingSkillLabel(selected.RequiredSkillRank).
+                            </span>
+                        </p>
+                    }
+                    <p class="small text-muted">
+                        @(targetNames.Count == 0
+                            ? "No heroes are currently selected in the header."
+                            : $"Will be given to {targetNames.Count} selected hero{(targetNames.Count == 1 ? "" : "es")}.")
+                    </p>
+                    <p class="small text-muted">
+                        The recipient may still need to train the matching riding skill before this mount can be summoned.
+                    </p>
+                    <button class="btn btn-primary" type="button"
+                            disabled="@(isGiving || selected is null || targetNames.Count == 0)"
+                            @onclick="GiveAsync">
+                        Give to selected heroes
+                    </button>
+                    <PlayerActionFeedback Results="giveResults" />
+                </div>
+            </div>
+        </div>
+    </div>
+}

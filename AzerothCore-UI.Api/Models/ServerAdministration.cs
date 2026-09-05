@@ -444,6 +444,12 @@ public sealed record CharacterCollectibleItem(uint ItemId, string Name, string T
     byte RequiredLevel, byte Quality, bool Known, bool MeetsLevelRequirement);
 public sealed record CharacterCollectibleSearchResult(IReadOnlyList<CharacterCollectibleItem> Items, int Page,
     int PageSize, int TotalCount, int TotalPages, int KnownCount, int MissingCount);
+public sealed record AdministrationMount(
+    uint ItemId, string Name, byte Quality, byte RequiredLevel, int RequiredSkillRank,
+    long AllowableClass, long AllowableRace, string? Faction,
+    string? SourceVendor, string? SourceTrainer);
+public sealed record AdministrationMountSearchResult(
+    IReadOnlyList<AdministrationMount> Mounts, int Page, int PageSize, int TotalCount, int TotalPages);
 public sealed record WeaponTrainingStatus(string Key, string Name, bool Learned, int CurrentSkill, int MaximumSkill);
 public sealed record GrantWeaponTrainingRequest(string PlayerName, string WeaponKey, bool Confirmed);
 public sealed record GuildBankStatus(

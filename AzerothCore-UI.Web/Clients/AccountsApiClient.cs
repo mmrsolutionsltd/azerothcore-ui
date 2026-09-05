@@ -343,6 +343,20 @@ public sealed class AccountsApiClient(HttpClient httpClient)
         return await GetAdministrationAsync<CharacterCollectibleSearchResult>(uri)
             ?? new CharacterCollectibleSearchResult([], page, 30, 0, 0, 0, 0);
     }
+    public async Task<AdministrationMountSearchResult> GetMountsAsync(
+        string? search, int? minimumLevel, int? maximumLevel, int? minimumSkillRank,
+        string? faction, int page, CancellationToken cancellationToken = default)
+    {
+        var uri = $"api/server-administration/mounts?search={Uri.EscapeDataString(search ?? "")}" +
+                  $"&page={page}&pageSize=30" +
+                  (minimumLevel is null ? "" : $"&minimumLevel={minimumLevel}") +
+                  (maximumLevel is null ? "" : $"&maximumLevel={maximumLevel}") +
+                  (minimumSkillRank is null ? "" : $"&minimumSkillRank={minimumSkillRank}") +
+                  (faction is null ? "" : $"&faction={Uri.EscapeDataString(faction)}");
+        return await GetAdministrationAsync<AdministrationMountSearchResult>(uri, cancellationToken)
+            ?? new AdministrationMountSearchResult([], page, 30, 0, 0);
+    }
+
     public async Task<PlayerBotSettings?> GetPlayerBotSettingsAsync() =>
         await httpClient.GetFromJsonAsync<PlayerBotSettings>("api/server-administration/settings/playerbots");
     public async Task<PlayerBotSettings?> UpdatePlayerBotSettingsAsync(PlayerBotSettings settings)

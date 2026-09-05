@@ -20,7 +20,7 @@ public sealed class ShellNavigationTests : BunitContext
 
         var tabs = Render<RealmCommandTabs>();
 
-        Assert.Equal(16, tabs.FindAll(".command-tab").Count);
+        Assert.Equal(17, tabs.FindAll(".command-tab").Count);
         var activeTab = tabs.Find(".command-tab.active");
         Assert.Equal("Gearing room", activeTab.TextContent.Trim());
         Assert.Equal("crafting-upgrades", activeTab.GetAttribute("href"));

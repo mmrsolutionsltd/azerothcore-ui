@@ -64,3 +64,17 @@ Before editing, inspect the current header/telemetry implementation and state st
 - Updated `client-addons/AzerothCompanion/CasterAuto.lua`: hostile target changes (including Tab targeting) automatically start the configured caster filler spell when caster auto is enabled; button/right-click controls remain available.
 - Investigated tank preset failures for Chinozil and Warblelf under leader Markabre. The server rejected `dungeon-tank` because their current specialization is not tank-compatible. Talent commands were queued, but inspection did not show acknowledgement; do not assume this is fixed.
 - No database changes, service restarts, or server rebuilds were performed for those items.
+# Request: Mount catalogue and give-to-heroes action
+
+Implement a production-ready Mounts page using the existing shared hero header selection.
+
+Requirements:
+- Add an API endpoint backed by the live `acore_world` database that lists available WotLK 3.3.5a mounts by joining mount spells/items and item templates. Include mount/item ID, name, required level, riding skill, faction/race/class restrictions where available, and source/vendor/trainer information where determinable.
+- Keep the catalogue read-only and scoped to the authenticated user's permitted data.
+- Add a Blazor page/menu entry with the shared hero roster header; do not create another character picker.
+- Add compact filters (search, minimum/maximum level, riding skill, faction/source if available).
+- Allow selecting one mount item and giving it to all selected heroes using the existing `GiveItemAsync`/validated batch path. Show per-hero results and preserve the existing audit trail and permission checks.
+- Disable the give action when no mount/item is selected or no heroes are selected; explain that the item may still require riding training.
+- Add focused API/UI tests and build affected projects. Do not execute any live item grants while developing.
+
+Before editing, inspect existing item search, shared header selection and menu/page patterns, then document your plan and any schema limitations. Avoid duplicate picker or ad-hoc SQL outside the existing data-access conventions.

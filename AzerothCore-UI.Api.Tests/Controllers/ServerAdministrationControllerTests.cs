@@ -59,6 +59,19 @@ public sealed class ServerAdministrationControllerTests
         Assert.Equal("Vynlan", results[0].Name);
     }
 
+    [Theory]
+    [InlineData(-1, null)]
+    [InlineData(0, null)]
+    [InlineData(690, "Horde")]
+    [InlineData(1101, "Alliance")]
+    [InlineData(1791, null)]
+    public void MountFactionOnlyReportsAOneSidedAllowableRaceMask(
+        long allowableRace, string? expectedFaction)
+    {
+        Assert.Equal(expectedFaction,
+            ServerAdministrationController.MountFaction(allowableRace));
+    }
+
     [Fact]
     public void QuestingCompanionLevelOrderingUsesSignedArithmetic()
     {
