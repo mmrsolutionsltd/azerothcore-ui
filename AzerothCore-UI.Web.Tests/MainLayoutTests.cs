@@ -32,35 +32,35 @@ public sealed class MainLayoutTests : BunitContext
     }
 
     [Fact]
-    public void HomeRouteRendersBodyDirectlyWithoutTheToolDrawer()
+    public void HomeRouteRendersBodyDirectlyWithoutTheToolSheet()
     {
         Services.GetRequiredService<NavigationManager>().NavigateTo("http://localhost/");
 
         var layout = RenderLayout("<p>Home content</p>");
 
-        Assert.Empty(layout.FindAll(".tool-drawer"));
+        Assert.Empty(layout.FindAll(".tool-sheet"));
         Assert.Contains("Home content", layout.Markup);
     }
 
     [Fact]
-    public void NonHomeRouteWrapsTheBodyInTheToolDrawer()
+    public void NonHomeRouteWrapsTheBodyInTheToolSheet()
     {
         Services.GetRequiredService<NavigationManager>().NavigateTo("http://localhost/mounts");
 
         var layout = RenderLayout("<p>Mounts page content</p>");
 
-        Assert.Single(layout.FindAll(".tool-drawer"));
-        Assert.Contains("Mounts page content", layout.Find(".tool-drawer").TextContent);
+        Assert.Single(layout.FindAll(".tool-sheet"));
+        Assert.Contains("Mounts page content", layout.Find(".tool-sheet").TextContent);
     }
 
     [Fact]
-    public void ClosingTheDrawerNavigatesBackToTheHomeRoute()
+    public void ClosingTheSheetNavigatesBackToTheHomeRoute()
     {
         var navigation = Services.GetRequiredService<NavigationManager>();
         navigation.NavigateTo("http://localhost/mounts");
 
         var layout = RenderLayout("<p>Mounts page content</p>");
-        layout.Find(".tool-drawer-close").Click();
+        layout.Find(".tool-sheet-close").Click();
 
         Assert.Equal("http://localhost/", navigation.Uri);
     }

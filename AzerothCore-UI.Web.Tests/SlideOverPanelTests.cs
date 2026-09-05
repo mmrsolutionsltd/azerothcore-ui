@@ -17,7 +17,7 @@ public sealed class SlideOverPanelTests : BunitContext
             .Add(panel => panel.OnClose, () => closed = true)
             .AddChildContent("<p>Tool content</p>"));
 
-        component.Find(".tool-drawer-close").Click();
+        component.Find(".tool-sheet-close").Click();
 
         Assert.True(closed);
     }
@@ -30,7 +30,7 @@ public sealed class SlideOverPanelTests : BunitContext
             .Add(panel => panel.OnClose, () => closed = true)
             .AddChildContent("<p>Tool content</p>"));
 
-        component.Find(".tool-drawer").KeyDown(new KeyboardEventArgs { Key = "Escape" });
+        component.Find(".tool-sheet").KeyDown(new KeyboardEventArgs { Key = "Escape" });
 
         Assert.True(closed);
     }
@@ -43,7 +43,7 @@ public sealed class SlideOverPanelTests : BunitContext
             .Add(panel => panel.OnClose, () => closed = true)
             .AddChildContent("<p>Tool content</p>"));
 
-        component.Find(".tool-drawer").KeyDown(new KeyboardEventArgs { Key = "Enter" });
+        component.Find(".tool-sheet").KeyDown(new KeyboardEventArgs { Key = "Enter" });
 
         Assert.False(closed);
     }
@@ -56,5 +56,31 @@ public sealed class SlideOverPanelTests : BunitContext
             .AddChildContent("<p>Tool content</p>"));
 
         Assert.Contains("Tool content", component.Markup);
+    }
+
+    [Fact]
+    public void RendersAsATrueOverlayWithABackdropRatherThanInlineContent()
+    {
+        var component = Render<SlideOverPanel>(parameters => parameters
+            .Add(panel => panel.OnClose, () => { })
+            .AddChildContent("<p>Tool content</p>"));
+
+        Assert.Single(component.FindAll(".tool-sheet-backdrop"));
+        var sheet = component.Find(".tool-sheet");
+        Assert.Equal("dialog", sheet.GetAttribute("role"));
+        Assert.Equal("true", sheet.GetAttribute("aria-modal"));
+    }
+
+    [Fact]
+    public void ClickingTheBackdropInvokesOnClose()
+    {
+        var closed = false;
+        var component = Render<SlideOverPanel>(parameters => parameters
+            .Add(panel => panel.OnClose, () => closed = true)
+            .AddChildContent("<p>Tool content</p>"));
+
+        component.Find(".tool-sheet-backdrop").Click();
+
+        Assert.True(closed);
     }
 }

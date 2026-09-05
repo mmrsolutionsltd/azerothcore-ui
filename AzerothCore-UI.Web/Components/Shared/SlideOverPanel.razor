@@ -1,13 +1,15 @@
 @inject IJSRuntime Javascript
 
-<section class="tool-drawer" role="region" aria-label="Tool panel" @onkeydown="HandleKeyDownAsync">
-    <div class="tool-drawer-chrome">
-        <button type="button" class="tool-drawer-close" @ref="closeButtonRef" @onclick="CloseAsync"
+<div class="tool-sheet-backdrop" @onclick="CloseAsync"></div>
+<section class="tool-sheet" role="dialog" aria-modal="true" aria-label="Tool panel"
+         @onkeydown="HandleKeyDownAsync">
+    <div class="tool-sheet-header">
+        <button type="button" class="tool-sheet-close" @ref="closeButtonRef" @onclick="CloseAsync"
                 title="Back to the hero roster (Esc)">
             <span aria-hidden="true">‹</span> Back to roster
         </button>
     </div>
-    <div class="tool-drawer-body">
+    <div class="tool-sheet-body">
         @ChildContent
     </div>
 </section>
@@ -19,9 +21,9 @@
     private ElementReference closeButtonRef;
     private bool focused;
 
-    // Focuses the panel's own close button exactly once per mount (the panel only
+    // Focuses the sheet's own close button exactly once per mount (the sheet only
     // mounts/unmounts at the home <-> tool boundary - see MainLayout - so this runs
-    // once when a tool panel first swoops in, not on every route change within it).
+    // once when a tool sheet first opens, not on every route change while it's open).
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (focused) return;

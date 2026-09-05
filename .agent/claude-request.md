@@ -94,3 +94,15 @@ Requirements:
 Before editing, inspect the current shell, `RealmRosterHeader`, `SelectedCharacterStore`, navigation and page routing. Write and compare an implementation plan, call out any architectural trade-offs (especially shared selection capacity versus action limits), then implement reusable components rather than page-specific hacks.
 
 Add/update focused tests for 10-character selection/order, responsive/visibility assumptions where testable, active hero persistence and panel navigation/state preservation. Build and test affected projects; do not deploy or start/stop services.
+# Follow-up: fix hero-first secondary page layout
+
+Correction: the hero roster may use up to **three rows** when 15 heroes are selected. Do not compress 10–15 heroes into one horizontal scrolling row.
+
+Required outcome:
+- The hero roster is a bounded, stable grid: five cards per row at desktop widths, wrapping naturally to a maximum of three rows for 15 heroes. No single-row horizontal scrolling roster.
+- Secondary page content (Player Actions, Questing Companions, Character Services, Artisan Gearing, Mounts, etc.) must **never** render as ordinary content underneath the roster. Use a **modal/sheet overlay only** (not a side drawer): it should open over the hero-first shell, close cleanly when finished, include a visible title and close/back control, provide an internally scrollable content area, and implement accessible focus handling.
+- Opening a page must not create a fake third roster row or push the main page below the hero area; the page surface overlays or slides beside the roster.
+- Preserve deep links/routes, active hero/target state, page state while switching, permissions and responsive behaviour. On narrow screens the drawer may become a full-screen sheet.
+- Avoid fixed heights that clip tools; only the secondary surface should scroll internally.
+
+Inspect the current shell/CSS and the previous hero-first change before editing. Explain the layout cause and implement reusable shell/drawer CSS/components, not per-page overrides. Add/update UI tests or render checks where practical and build the Web project. Do not deploy yet.
