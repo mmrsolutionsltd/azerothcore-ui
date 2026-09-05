@@ -9,50 +9,50 @@ namespace AzerothCore_UI.Web.Tests;
 public sealed class SelectedCharacterStoreTests
 {
     [Fact]
-    public void MaximumCharactersIsTen()
+    public void MaximumCharactersIsFifteen()
     {
-        Assert.Equal(10, SelectedCharacterStore.MaximumCharacters);
+        Assert.Equal(15, SelectedCharacterStore.MaximumCharacters);
     }
 
     [Fact]
-    public async Task AddAsyncAcceptsUpToTenAndThenRefusesAnEleventh()
+    public async Task AddAsyncAcceptsUpToFifteenAndThenRefusesASixteenth()
     {
         var store = NewStore();
-        for (var index = 1; index <= 10; ++index)
+        for (var index = 1; index <= 15; ++index)
             Assert.True(await store.AddAsync($"Hero{index}"));
 
-        Assert.False(await store.AddAsync("Hero11"));
+        Assert.False(await store.AddAsync("Hero16"));
 
         var selected = await store.GetSelectedAsync();
-        Assert.Equal(10, selected.Count);
-        Assert.DoesNotContain("Hero11", selected);
+        Assert.Equal(15, selected.Count);
+        Assert.DoesNotContain("Hero16", selected);
     }
 
     [Fact]
-    public async Task SetSelectedAsyncTruncatesToTheFirstTenNamesAndPreservesOrder()
+    public async Task SetSelectedAsyncTruncatesToTheFirstFifteenNamesAndPreservesOrder()
     {
         var store = NewStore();
-        var names = Enumerable.Range(1, 15).Select(index => $"Hero{index}").ToArray();
+        var names = Enumerable.Range(1, 20).Select(index => $"Hero{index}").ToArray();
 
         await store.SetSelectedAsync(names, "Hero1");
 
         var selected = await store.GetSelectedAsync();
-        Assert.Equal(names.Take(10), selected);
+        Assert.Equal(names.Take(15), selected);
     }
 
     [Fact]
-    public async Task SetAsyncEvictsTheOldestSelectionOnceTenAreAlreadySelected()
+    public async Task SetAsyncEvictsTheOldestSelectionOnceFifteenAreAlreadySelected()
     {
         var store = NewStore();
-        for (var index = 1; index <= 10; ++index)
+        for (var index = 1; index <= 15; ++index)
             await store.AddAsync($"Hero{index}");
 
-        await store.SetAsync("Hero11");
+        await store.SetAsync("Hero16");
 
         var selected = await store.GetSelectedAsync();
-        Assert.Equal(10, selected.Count);
+        Assert.Equal(15, selected.Count);
         Assert.DoesNotContain("Hero1", selected);
-        Assert.Contains("Hero11", selected);
+        Assert.Contains("Hero16", selected);
     }
 
     private static SelectedCharacterStore NewStore() => new(

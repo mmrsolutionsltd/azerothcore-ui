@@ -24,7 +24,7 @@
                        @onchange="ToggleAutoReviveAsync" />
                 <span>Auto-revive companions</span>
             </label>
-            <button type="button" title="Select up to ten visible online characters"
+            <button type="button" title="Select up to fifteen visible online characters"
                     @onclick="SelectOnlineAsync">Online</button>
             <button type="button" title="Clear the shared hero selection"
                     disabled="@(selectedNames.Count == 0)" @onclick="ClearAsync">Clear</button>

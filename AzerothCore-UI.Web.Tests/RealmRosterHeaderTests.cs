@@ -133,7 +133,7 @@ public sealed class RealmRosterHeaderTests : BunitContext
     }
 
     [Fact]
-    public void DoubleClickGestureSelectsTheFirstTenVisibleOnlineTargets()
+    public void DoubleClickGestureSelectsTheFirstFifteenVisibleOnlineTargets()
     {
         var component = Render<RealmRosterHeader>();
         component.WaitForElement(".hero-choice");
@@ -143,10 +143,10 @@ public sealed class RealmRosterHeaderTests : BunitContext
 
         component.WaitForAssertion(() =>
         {
-            Assert.Equal(10, component.FindAll(".hero-card").Count);
-            Assert.Contains("10/10 selected", component.Markup);
+            Assert.Equal(15, component.FindAll(".hero-card").Count);
+            Assert.Contains("15/15 selected", component.Markup);
             Assert.DoesNotContain(component.FindAll(".hero-card"),
-                card => card.TextContent.Contains("Zara", StringComparison.Ordinal));
+                card => card.TextContent.Contains("Onyx", StringComparison.Ordinal));
         });
     }
 
@@ -163,7 +163,7 @@ public sealed class RealmRosterHeaderTests : BunitContext
         {
             Assert.Single(component.FindAll(".hero-card"));
             Assert.Contains("Sarafel", component.Find(".hero-card").TextContent);
-            Assert.Contains("1/10 selected", component.Markup);
+            Assert.Contains("1/15 selected", component.Markup);
         });
     }
 
@@ -245,7 +245,7 @@ public sealed class RealmRosterHeaderTests : BunitContext
     }
 
     [Fact]
-    public void HeroRowStopsAtTenCharacters()
+    public void HeroRowStopsAtFifteenCharacters()
     {
         var component = Render<RealmRosterHeader>();
         component.WaitForElement(".hero-choice");
@@ -253,15 +253,16 @@ public sealed class RealmRosterHeaderTests : BunitContext
         foreach (var name in new[]
         {
             "Vynlan", "Kiesh", "Sarafel", "Sarabeara", "Jaina",
-            "Anduin", "Elara", "Doran", "Mira", "Talon"
+            "Anduin", "Elara", "Doran", "Mira", "Talon",
+            "Zara", "Roric", "Ilyana", "Baelor", "Ferra"
         })
             HeroChoice(component, name).Click();
 
         component.WaitForAssertion(() =>
         {
-            Assert.Equal(10, component.FindAll(".hero-card").Count);
-            Assert.Contains("10/10 selected", component.Markup);
-            Assert.True(HeroChoice(component, "Zara").HasAttribute("disabled"));
+            Assert.Equal(15, component.FindAll(".hero-card").Count);
+            Assert.Contains("15/15 selected", component.Markup);
+            Assert.True(HeroChoice(component, "Onyx").HasAttribute("disabled"));
         });
     }
 
@@ -303,7 +304,7 @@ public sealed class RealmRosterHeaderTests : BunitContext
         component.WaitForAssertion(() =>
         {
             Assert.Empty(component.FindAll(".hero-card"));
-            Assert.Contains("0/10 selected", component.Markup);
+            Assert.Contains("0/15 selected", component.Markup);
         });
     }
 
@@ -897,7 +898,9 @@ public sealed class RealmRosterHeaderTests : BunitContext
              Player(5, "Jaina", "MARK3"), Player(6, "Anduin", "MARK4"),
              Player(9, "Elara", "MARK5"), Player(10, "Doran", "MARK6"),
              Player(11, "Mira", "MARK7"), Player(12, "Talon", "MARK8"),
-             Player(13, "Zara", "MARK9"),
+             Player(13, "Zara", "MARK9"), Player(14, "Roric", "MARK10"),
+             Player(15, "Ilyana", "MARK11"), Player(16, "Baelor", "MARK12"),
+             Player(17, "Ferra", "MARK13"), Player(18, "Onyx", "MARK14"),
              Player(7, "Offlinehero", "MARK", online: false)];
             if (request.RequestUri.Query.Contains(
                     "includeBots=true", StringComparison.OrdinalIgnoreCase))
