@@ -180,11 +180,10 @@
 	private readonly string playerFilterId = $"movement-anchor-{Guid.NewGuid():N}";
 	private IReadOnlyList<AdministrationPlayer> AvailableAnchors => players
 		.Where(player => (player.Online || showOffline)
-			&& (!player.IsPlayerBot || showBots)
+			&& (!player.IsPlayerBot || player.IsCompanion)
 			&& Targets.All(target => !target.Name.Equals(
 				player.Name, StringComparison.OrdinalIgnoreCase)))
-		.OrderByDescending(player => player.Online)
-		.ThenBy(player => player.IsPlayerBot)
+		.OrderBy(player => player.IsPlayerBot && !player.IsCompanion)
 		.ThenBy(player => player.Name)
 		.ToArray();
 

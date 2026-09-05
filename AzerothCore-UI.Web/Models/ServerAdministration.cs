@@ -74,6 +74,7 @@ public sealed class AdministrationPlayer
     public bool Online { get; set; }
     public string Classification { get; set; } = "";
     public bool IsPlayerBot => Classification.Equals("PlayerBot", StringComparison.OrdinalIgnoreCase);
+    public bool IsCompanion => Classification.Equals("Companion", StringComparison.OrdinalIgnoreCase);
     public int PickerOrder => (Online ? 0 : 2) + (IsPlayerBot ? 1 : 0);
     public string PickerLabel => $"[{(Online ? "ONLINE" : "OFFLINE")}] [{(IsPlayerBot ? "BOT" : "PLAYER")}] Account: {Username}";
 }
