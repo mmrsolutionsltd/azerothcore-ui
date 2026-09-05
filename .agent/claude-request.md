@@ -106,3 +106,18 @@ Required outcome:
 - Avoid fixed heights that clip tools; only the secondary surface should scroll internally.
 
 Inspect the current shell/CSS and the previous hero-first change before editing. Explain the layout cause and implement reusable shell/drawer CSS/components, not per-page overrides. Add/update UI tests or render checks where practical and build the Web project. Do not deploy yet.
+# Request: publish UnBot and YssBossLoot addon downloads
+
+Add downloadable ZIP packages for the locally installed WoW addons:
+
+- `C:\TheraWoW wotlk\Interface\AddOns\UnBot`
+- `C:\TheraWoW wotlk\Interface\AddOns\YssBossLoot` (confirm/display this as YssBossLoot; user referred to it as YssLoot)
+
+Requirements:
+- Copy/package the complete addon directories into the repository's client-addon release assets using the existing safe packaging conventions. Preserve top-level ZIP folders exactly as `UnBot/` and `YssBossLoot/`; include all addon files, nested folders and TOC files.
+- Add authenticated download endpoints and cards/links to the existing Client Addons page alongside AzerothCompanion. Use the current permission policy and no public unauthenticated downloads.
+- Do not modify addon contents. If either source directory is missing, report it clearly rather than creating a partial archive.
+- Avoid runtime dependence on the developer's absolute `C:\TheraWoW wotlk` path in production; package assets at publish time or add a documented staging step.
+- Add packaging validation/tests where practical and build the Web project. Do not deploy yet.
+
+Before editing, inspect `ClientAddonPackageBuilder`, `Program.cs`, ClientAddons.razor and existing deployment scripts. Document the plan and any source/staging limitation.

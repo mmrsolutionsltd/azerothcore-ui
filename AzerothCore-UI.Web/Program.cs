@@ -291,24 +291,32 @@ app.MapPost("/admin/logout", async (HttpContext context, IAntiforgery antiforger
     return Results.Redirect("/");
 }).RequireAuthorization();
 
-app.MapGet("/downloads/azeroth-companion.zip", (HttpContext context) =>
+IResult DownloadClientAddon(HttpContext context, string addonName, string downloadFileName)
 {
     try
     {
-        var directory =
-            AzerothCore_UI.Web.Services.ClientAddonPackageBuilder.ResolveAddonDirectory();
-        var package = AzerothCore_UI.Web.Services.ClientAddonPackageBuilder.Build(directory);
+        var directory = AzerothCore_UI.Web.Services.ClientAddonPackageBuilder.ResolveAddonDirectory(addonName);
+        var package = AzerothCore_UI.Web.Services.ClientAddonPackageBuilder.Build(addonName, directory);
         context.Response.Headers.CacheControl = "no-store";
-        return Results.File(
-            package,
-            "application/zip",
-            "AzerothCompanion.zip");
+        return Results.File(package, "application/zip", downloadFileName);
     }
     catch (IOException)
     {
         return Results.NotFound();
     }
-}).RequireAuthorization("adventures.quests");
+}
+
+app.MapGet("/downloads/azeroth-companion.zip", (HttpContext context) =>
+    DownloadClientAddon(context, "AzerothCompanion", "AzerothCompanion.zip"))
+    .RequireAuthorization("adventures.quests");
+
+app.MapGet("/downloads/unbot.zip", (HttpContext context) =>
+    DownloadClientAddon(context, "UnBot", "UnBot.zip"))
+    .RequireAuthorization("adventures.quests");
+
+app.MapGet("/downloads/yssbossloot.zip", (HttpContext context) =>
+    DownloadClientAddon(context, "YssBossLoot", "YssBossLoot.zip"))
+    .RequireAuthorization("adventures.quests");
 
 app.MapStaticAssets();
 app.MapRazorComponents<App>()

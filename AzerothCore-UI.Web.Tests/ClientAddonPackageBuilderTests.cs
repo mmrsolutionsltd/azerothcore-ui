@@ -10,8 +10,8 @@ public sealed class ClientAddonPackageBuilderTests
     [Fact]
     public void BundledAddonIntegratesWithCarboniteAndKeepsQuestFallback()
     {
-        var directory = ClientAddonPackageBuilder.ResolveAddonDirectory();
-        var info = ClientAddonPackageBuilder.GetPackageInfo(directory);
+        var directory = ClientAddonPackageBuilder.ResolveAddonDirectory("AzerothCompanion");
+        var info = ClientAddonPackageBuilder.GetPackageInfo("AzerothCompanion", directory);
         var script = File.ReadAllText(
             Path.Combine(directory, "AzerothCompanion.lua"));
 
@@ -42,31 +42,27 @@ public sealed class ClientAddonPackageBuilderTests
     }
 
     [Fact]
-    public void PackageContainsVersionedAddonFolderAndOnlyAllowlistedFiles()
+    public void PackageContainsTheVersionedAddonFolderIncludingNestedFiles()
     {
         var directory = CreateAddonDirectory();
         try
         {
-            File.WriteAllText(Path.Combine(directory, "do-not-package.txt"), "secret");
-
-            var info = ClientAddonPackageBuilder.GetPackageInfo(directory);
-            var package = ClientAddonPackageBuilder.Build(directory);
+            var info = ClientAddonPackageBuilder.GetPackageInfo("TestAddon", directory);
+            var package = ClientAddonPackageBuilder.Build("TestAddon", directory);
 
             Assert.Equal("0.1.0", info.Version);
-            File.WriteAllText(Path.Combine(directory, "CasterAuto.lua"),
-                "print('caster auto')");
-
-            Assert.Equal(4, info.FileCount);
+            Assert.Equal(5, info.FileCount);
             using var archive = new ZipArchive(new MemoryStream(package));
             Assert.Equal(
                 [
-                    "AzerothCompanion/AzerothCompanion.lua",
-                    "AzerothCompanion/AzerothCompanion.toc",
-                    "AzerothCompanion/CasterAuto.lua",
-                    "AzerothCompanion/README.md"
+                    "TestAddon/README.md",
+                    "TestAddon/TestAddon.lua",
+                    "TestAddon/TestAddon.toc",
+                    "TestAddon/widgets/Sub.lua",
+                    "TestAddon/widgets/binary.blp"
                 ],
                 archive.Entries.Select(entry => entry.FullName)
-                    .OrderBy(name => name).ToArray());
+                    .OrderBy(name => name, StringComparer.Ordinal).ToArray());
         }
         finally
         {
@@ -75,20 +71,23 @@ public sealed class ClientAddonPackageBuilderTests
     }
 
     [Fact]
-    public void PackageRejectsAnIncompleteAddon()
+    public void PackagePreservesBinaryFileContentByteForByte()
     {
-        var directory = Path.Combine(
-            Path.GetTempPath(), $"azeroth-addon-test-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(directory);
+        var directory = CreateAddonDirectory();
         try
         {
-            File.WriteAllText(
-                Path.Combine(directory, "AzerothCompanion.toc"),
-                "## Version: 0.1.0",
-                Encoding.UTF8);
+            var expectedBytes = File.ReadAllBytes(
+                Path.Combine(directory, "widgets", "binary.blp"));
+            var package = ClientAddonPackageBuilder.Build("TestAddon", directory);
 
-            Assert.Throws<FileNotFoundException>(() =>
-                ClientAddonPackageBuilder.Build(directory));
+            using var archive = new ZipArchive(new MemoryStream(package));
+            var entry = archive.GetEntry("TestAddon/widgets/binary.blp");
+            Assert.NotNull(entry);
+            using var entryStream = entry!.Open();
+            using var buffer = new MemoryStream();
+            entryStream.CopyTo(buffer);
+
+            Assert.Equal(expectedBytes, buffer.ToArray());
         }
         finally
         {
@@ -96,27 +95,65 @@ public sealed class ClientAddonPackageBuilderTests
         }
     }
 
+    [Fact]
+    public void PackageRejectsAnAddonMissingATocFile()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(), $"azeroth-addon-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(directory, "TestAddon.lua"),
+                "print('test')",
+                Encoding.UTF8);
+
+            Assert.Throws<FileNotFoundException>(() =>
+                ClientAddonPackageBuilder.Build("TestAddon", directory));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void PackageReportsAMissingAddonDirectoryClearlyInsteadOfAPartialArchive()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(), $"azeroth-addon-test-missing-{Guid.NewGuid():N}");
+
+        Assert.Throws<DirectoryNotFoundException>(() =>
+            ClientAddonPackageBuilder.Build("TestAddon", directory));
+        Assert.Throws<DirectoryNotFoundException>(() =>
+            ClientAddonPackageBuilder.GetPackageInfo("TestAddon", directory));
+    }
+
     private static string CreateAddonDirectory()
     {
         var directory = Path.Combine(
             Path.GetTempPath(), $"azeroth-addon-test-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
+        Directory.CreateDirectory(Path.Combine(directory, "widgets"));
         File.WriteAllText(
-            Path.Combine(directory, "AzerothCompanion.toc"),
+            Path.Combine(directory, "TestAddon.toc"),
             "## Interface: 30300\n## Version: 0.1.0",
             Encoding.UTF8);
         File.WriteAllText(
-            Path.Combine(directory, "AzerothCompanion.lua"),
-            "print('test')",
-            Encoding.UTF8);
-        File.WriteAllText(
-            Path.Combine(directory, "CasterAuto.lua"),
+            Path.Combine(directory, "TestAddon.lua"),
             "print('test')",
             Encoding.UTF8);
         File.WriteAllText(
             Path.Combine(directory, "README.md"),
             "# Test addon",
             Encoding.UTF8);
+        File.WriteAllText(
+            Path.Combine(directory, "widgets", "Sub.lua"),
+            "print('nested')",
+            Encoding.UTF8);
+        File.WriteAllBytes(
+            Path.Combine(directory, "widgets", "binary.blp"),
+            [0x00, 0x42, 0xFF, 0x10, 0x7A, 0x00, 0x01]);
         return directory;
     }
 }

@@ -8,69 +8,143 @@
             Title="Client Addons"
             Description="Download the matching in-game companion panel for a Wrath of the Lich King 3.3.5a client." />
 
-@if (packageInfo is null)
-{
-    <div class="alert alert-danger">
-        The addon package is not present in this website release.
-    </div>
-}
-else
-{
-    <div class="row g-3">
-        <div class="col-12 col-xl-7">
-            <div class="card h-100">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <strong>Azeroth Companion</strong>
-                    <span class="badge text-bg-secondary">v@packageInfo.Version</span>
-                </div>
-                <div class="card-body">
-                    <p>
-                        Shows companion bag capacity, loot and party state, gathering
-                        status, shared quest progress, and companion-only class or
-                        profession quests inside WoW. It also provides configurable
-                        right-click caster auto-attacks for spellcaster characters.
-                    </p>
+<div class="row g-3">
+    <div class="col-12 col-xl-7">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <strong>Azeroth Companion</strong>
+                @if (companionInfo is not null)
+                {
+                    <span class="badge text-bg-secondary">v@companionInfo.Version</span>
+                }
+            </div>
+            <div class="card-body">
+                <p>
+                    Shows companion bag capacity, loot and party state, gathering
+                    status, shared quest progress, and companion-only class or
+                    profession quests inside WoW. It also provides configurable
+                    right-click caster auto-attacks for spellcaster characters.
+                </p>
+                @if (companionInfo is not null)
+                {
                     <a class="btn btn-primary" href="/downloads/azeroth-companion.zip">
                         Download addon ZIP
                     </a>
-                </div>
-            </div>
-        </div>
-        <div class="col-12 col-xl-5">
-            <div class="card h-100">
-                <div class="card-header"><strong>Installation</strong></div>
-                <div class="card-body">
-                    <ol class="mb-0">
-                        <li>Close WoW or log out to the character screen.</li>
-                        <li>Extract the ZIP into <code>Interface\AddOns</code>.</li>
-                        <li>Confirm the resulting folder is <code>Interface\AddOns\AzerothCompanion</code>.</li>
-                        <li>Start WoW and use <code>/accomp</code> to toggle the panel.</li>
-                        <li>Use <code>/cauto</code> to inspect or change the caster auto-attack spell.</li>
-                    </ol>
-                </div>
+                }
+                else
+                {
+                    <div class="alert alert-danger mb-0">
+                        The addon package is not present in this website release.
+                    </div>
+                }
             </div>
         </div>
     </div>
-}
+    <div class="col-12 col-xl-5">
+        <div class="card h-100">
+            <div class="card-header"><strong>Installation</strong></div>
+            <div class="card-body">
+                <ol class="mb-0">
+                    <li>Close WoW or log out to the character screen.</li>
+                    <li>Extract the ZIP into <code>Interface\AddOns</code>.</li>
+                    <li>Confirm the resulting folder is <code>Interface\AddOns\AzerothCompanion</code>.</li>
+                    <li>Start WoW and use <code>/accomp</code> to toggle the panel.</li>
+                    <li>Use <code>/cauto</code> to inspect or change the caster auto-attack spell.</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mt-1">
+    <div class="col-12 col-xl-6">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <strong>UnBot</strong>
+                @if (unBotInfo is not null)
+                {
+                    <span class="badge text-bg-secondary">v@unBotInfo.Version</span>
+                }
+            </div>
+            <div class="card-body">
+                <p>
+                    Bot control panel for the server's UnWOW random and account bots
+                    (quest rewards, strategy tips, online status, NPC targeting).
+                </p>
+                @if (unBotInfo is not null)
+                {
+                    <a class="btn btn-primary" href="/downloads/unbot.zip">
+                        Download addon ZIP
+                    </a>
+                }
+                else
+                {
+                    <div class="alert alert-danger mb-0">
+                        The addon package is not present in this website release.
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+    <div class="col-12 col-xl-6">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <strong>YssBossLoot</strong>
+                @if (yssBossLootInfo is not null)
+                {
+                    <span class="badge text-bg-secondary">v@yssBossLootInfo.Version</span>
+                }
+            </div>
+            <div class="card-body">
+                <p>
+                    Displays instance boss and trash loot tables while inside a dungeon
+                    or raid, so you can check drop odds before you pull.
+                </p>
+                @if (yssBossLootInfo is not null)
+                {
+                    <a class="btn btn-primary" href="/downloads/yssbossloot.zip">
+                        Download addon ZIP
+                    </a>
+                }
+                else
+                {
+                    <div class="alert alert-danger mb-0">
+                        The addon package is not present in this website release.
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
 
 <div class="alert alert-warning mt-3 mb-0">
     The latest mod-web-admin source must be built and installed for protocol-version
-    reporting and non-GM access. The addon will identify a missing or outdated bridge.
+    reporting and non-GM access. The Azeroth Companion addon will identify a missing
+    or outdated bridge.
 </div>
 
 @code {
-    private ClientAddonPackageInfo? packageInfo;
+    private ClientAddonPackageInfo? companionInfo;
+    private ClientAddonPackageInfo? unBotInfo;
+    private ClientAddonPackageInfo? yssBossLootInfo;
 
     protected override void OnInitialized()
     {
+        companionInfo = TryGetPackageInfo("AzerothCompanion");
+        unBotInfo = TryGetPackageInfo("UnBot");
+        yssBossLootInfo = TryGetPackageInfo("YssBossLoot");
+    }
+
+    private static ClientAddonPackageInfo? TryGetPackageInfo(string addonName)
+    {
         try
         {
-            packageInfo = ClientAddonPackageBuilder.GetPackageInfo(
-                ClientAddonPackageBuilder.ResolveAddonDirectory());
+            return ClientAddonPackageBuilder.GetPackageInfo(
+                addonName, ClientAddonPackageBuilder.ResolveAddonDirectory(addonName));
         }
         catch (IOException)
         {
-            packageInfo = null;
+            return null;
         }
     }
 }
