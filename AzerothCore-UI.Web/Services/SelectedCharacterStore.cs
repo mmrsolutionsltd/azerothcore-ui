@@ -15,6 +15,7 @@ public sealed class SelectedCharacterStore(
     private readonly HashSet<string> excludedTargets = new(StringComparer.OrdinalIgnoreCase);
     private string? current;
     private bool loaded;
+    private Task<bool>? loadTask;
 
     public event Action<string>? SelectionChanged;
     public event Action<IReadOnlyList<string>>? SelectedCharactersChanged;
@@ -138,10 +139,29 @@ public sealed class SelectedCharacterStore(
         if (currentChanged && current is not null) SelectionChanged?.Invoke(current);
     }
 
+    // A plain "loaded" bool set before the load actually succeeds would permanently
+    // strand a circuit with an empty selection if the very first call happens during
+    // Blazor Server's static prerender pass (before JS interop/localStorage is
+    // available) - the catch below would swallow that failure, but the flag would
+    // already claim the load was done, so the real persisted selection would never
+    // be read for the rest of that circuit's life. Caching the in-flight Task instead
+    // (and resetting it only after observing a failed outcome) lets every concurrent
+    // caller await the same single load attempt without duplicating localStorage
+    // reads, while still allowing a later, genuinely-interactive call to retry after
+    // a prerender failure. The reset must happen here, after awaiting - not inside
+    // LoadAsync itself - because a synchronously-throwing interop call (as happens in
+    // real prerendering, and in tests) makes LoadAsync run to completion before the
+    // `loadTask ??= LoadAsync()` assignment below even finishes, so a reset inside
+    // LoadAsync would be clobbered by that same assignment immediately afterward.
     private async ValueTask EnsureLoadedAsync()
     {
         if (loaded) return;
-        loaded = true;
+        var task = loadTask ??= LoadAsync();
+        if (!await task) loadTask = null;
+    }
+
+    private async Task<bool> LoadAsync()
+    {
         try
         {
             var key = await KeyAsync();
@@ -188,12 +208,17 @@ public sealed class SelectedCharacterStore(
                     // Ignore malformed pre-release browser state.
                 }
             }
+            loaded = true;
+            return true;
         }
         catch (Exception exception) when (
             exception is InvalidOperationException or JSDisconnectedException
                 or TaskCanceledException)
         {
-            // Browser storage is unavailable while prerendering/disconnecting.
+            // Browser storage is unavailable while prerendering/disconnecting - leave
+            // `loaded` false; the caller resets the cached task so a later call
+            // retries once the real interactive circuit (and its JS interop) is up.
+            return false;
         }
     }
 
