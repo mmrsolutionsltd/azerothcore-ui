@@ -82,4 +82,5 @@ public static class RecentPickerKeys
     public const string Creatures = "creatures";
     public const string CompanionCommands = "companion-commands";
     public const string CompanionCommandExamples = "companion-command-examples";
+    public const string Factions = "factions";
 }

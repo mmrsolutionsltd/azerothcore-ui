@@ -216,20 +216,7 @@ public sealed class PlayerActionToolTests : BunitContext
     }
 
     [Fact]
-    public void SearchingForAFactionPopulatesTheResultList()
-    {
-        var component = Render<GiveReputationTool>(parameters => parameters
-            .Add(tool => tool.Targets, [OnlinePlayer])
-            .Add(tool => tool.Available, true));
-
-        component.Find("input.form-control-sm").Input("Stormwind");
-
-        component.WaitForAssertion(() => Assert.Contains(
-            "Stormwind", component.Find(".reputation-faction-results").TextContent));
-    }
-
-    [Fact]
-    public void FactionIdCannotBeTypedDirectlyOnlySelectedFromSearchResults()
+    public void FactionIdCannotBeTypedDirectlyOnlySelectedFromThePickerDialog()
     {
         var component = Render<GiveReputationTool>(parameters => parameters
             .Add(tool => tool.Targets, [OnlinePlayer])
@@ -237,20 +224,42 @@ public sealed class PlayerActionToolTests : BunitContext
 
         Assert.Empty(component.FindAll("input[type=number][placeholder='Faction ID']"));
         Assert.Single(component.FindAll("input[type=number][placeholder='Amount']"));
+        Assert.Empty(component.FindAll(".modal.d-block"));
     }
 
     [Fact]
-    public void SelectingAFactionThenGrantingReputationSendsTheChosenFactionAndAmount()
+    public void ClickingTheFactionFieldOpensASearchModalMatchingTheItemPicker()
     {
         var component = Render<GiveReputationTool>(parameters => parameters
             .Add(tool => tool.Targets, [OnlinePlayer])
             .Add(tool => tool.Available, true));
 
-        component.Find("input.form-control-sm").Input("Stormwind");
-        component.WaitForAssertion(() => Assert.Single(component.FindAll(".reputation-faction-results li")));
-        component.Find(".reputation-faction-results li").Click();
+        component.Find("input.clickable-input").Click();
 
-        component.WaitForAssertion(() => Assert.Contains("Stormwind", component.Markup));
+        component.WaitForAssertion(() =>
+        {
+            Assert.Single(component.FindAll(".modal.d-block"));
+            Assert.Single(component.FindAll("#reputation-search"));
+        });
+
+        component.Find("#reputation-search").Input("Stormwind");
+        component.WaitForAssertion(() => Assert.Contains(
+            "Stormwind", component.Find(".modal-body").TextContent));
+    }
+
+    [Fact]
+    public void SelectingAFactionInTheModalThenGrantingReputationSendsTheChosenFactionAndAmount()
+    {
+        var component = Render<GiveReputationTool>(parameters => parameters
+            .Add(tool => tool.Targets, [OnlinePlayer])
+            .Add(tool => tool.Available, true));
+
+        component.Find("input.clickable-input").Click();
+        component.WaitForElement("#reputation-search").Input("Stormwind");
+        component.WaitForElement("tr.picker-result-row").Click();
+
+        component.WaitForAssertion(() => Assert.Contains(
+            "Stormwind", component.Find("input.clickable-input").GetAttribute("value")));
         component.Find("input[type=number][placeholder='Amount']").Change("500");
 
         component.WaitForAssertion(() => Assert.False(GrantButton(component).HasAttribute("disabled")));

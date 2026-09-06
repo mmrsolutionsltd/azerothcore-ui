@@ -1,43 +1,11 @@
 @inherits PlayerActionToolBase
-@implements IDisposable
 
 <PlayerActionToolHeader Title="Give Reputation" Icon="🏵" />
-@if (selectedFaction is null)
-{
-	<div class="mb-2">
-		<input class="form-control form-control-sm" placeholder="Search faction name..."
-			   value="@search" @oninput="SearchChangedAsync" />
-	</div>
-	@if (isSearching)
-	{
-		<p class="small text-muted">Searching factions...</p>
-	}
-	else if (search.Length > 0 && factions.Count == 0)
-	{
-		<p class="small text-muted">No matching factions were found.</p>
-	}
-	else if (factions.Count > 0)
-	{
-		<ul class="list-group list-group-flush small mb-2 reputation-faction-results">
-			@foreach (var faction in factions)
-			{
-				<li class="list-group-item list-group-item-action" role="button" @onclick="() => SelectFaction(faction)">
-					@faction.Name <span class="text-muted">(ID @faction.FactionId)</span>
-				</li>
-			}
-		</ul>
-	}
-}
-else
-{
-	<div class="d-flex align-items-center gap-2 mb-2">
-		<span class="flex-grow-1">
-			<strong>@selectedFaction.Name</strong>
-			<span class="text-muted small">(ID @selectedFaction.FactionId)</span>
-		</span>
-		<button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ClearFaction">Change</button>
-	</div>
-}
+<div class="mb-2">
+	<input class="form-control clickable-input"
+		   value="@(selectedFaction is null ? "No faction selected" : $"{selectedFaction.Name} (ID {selectedFaction.FactionId})")"
+		   @onclick="OpenPicker" readonly />
+</div>
 <div class="mb-1">
 	<input class="form-control" type="number" placeholder="Amount" @bind="amount" />
 </div>
@@ -50,51 +18,21 @@ else
 	</button>
 </PlayerActionToolFooter>
 
+<ReputationFactionPickerDialog IsOpen="@showPicker" InitialSearchText="@selectedFaction?.Name"
+                                FactionSelected="SelectFaction" Closed="ClosePicker" />
+
 @code {
-	private string search = "";
-	private IReadOnlyList<ReputationFaction> factions = [];
+	private bool showPicker;
 	private ReputationFaction? selectedFaction;
 	private int amount;
-	private bool isSearching;
-	private CancellationTokenSource? debounce;
 
-	private async Task SearchChangedAsync(ChangeEventArgs args)
-	{
-		search = args.Value?.ToString() ?? "";
-		debounce?.Cancel();
-		debounce?.Dispose();
-		debounce = new();
-		try { await Task.Delay(250, debounce.Token); await SearchAsync(); }
-		catch (OperationCanceledException) { }
-	}
-
-	private async Task SearchAsync()
-	{
-		if (search.Length == 0) { factions = []; return; }
-		isSearching = true;
-		try
-		{
-			var result = await AccountsClient.GetReputationFactionsAsync(search);
-			factions = result.Factions;
-		}
-		finally
-		{
-			isSearching = false;
-		}
-	}
+	private void OpenPicker() => showPicker = true;
+	private void ClosePicker() => showPicker = false;
 
 	private void SelectFaction(ReputationFaction faction)
 	{
 		selectedFaction = faction;
-		factions = [];
-		search = "";
-	}
-
-	private void ClearFaction()
-	{
-		selectedFaction = null;
-		search = "";
-		factions = [];
+		showPicker = false;
 	}
 
 	private async Task<AdministrationResult?> GrantOneAsync(string player)
@@ -105,10 +43,4 @@ else
 	}
 
 	private Task GrantAsync() => RunBatchAsync("Grant reputation", GrantOneAsync);
-
-	public void Dispose()
-	{
-		debounce?.Cancel();
-		debounce?.Dispose();
-	}
 }
