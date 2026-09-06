@@ -411,6 +411,17 @@ public sealed class AccountsApiClient(HttpClient httpClient)
     public Task<AdministrationResult?> GiveItemAsync(GiveItemRequest request) => PostAsync("api/server-administration/items/give", request);
     public Task<AdministrationResult?> MailItemAsync(MailItemRequest request) => PostAsync("api/server-administration/items/mail", request);
     public Task<AdministrationResult?> GiveMoneyAsync(GiveMoneyRequest request) => PostAsync("api/server-administration/money/give", request);
+    public async Task<ReputationFactionSearchResult> GetReputationFactionsAsync(
+        string? search, int page = 1, CancellationToken cancellationToken = default)
+    {
+        var uri = $"api/server-administration/reputation/factions?search={Uri.EscapeDataString(search ?? "")}" +
+                  $"&page={page}&pageSize=30";
+        return await GetAdministrationAsync<ReputationFactionSearchResult>(uri, cancellationToken)
+            ?? new ReputationFactionSearchResult([], page, 30, 0, 0);
+    }
+    public Task<ReputationGrantResult?> GiveReputationAsync(GiveReputationRequest request) =>
+        PostResultAsync<GiveReputationRequest, ReputationGrantResult>(
+            "api/server-administration/reputation/grant", request);
     public Task<AdministrationResult?> TeleportAsync(TeleportPlayerRequest request) => PostAsync("api/server-administration/players/teleport", request);
     public Task<AdministrationResult?> TeleportToNpcAsync(TeleportPlayerToNpcRequest request) =>
         PostAsync("api/server-administration/players/teleport-to-npc", request);

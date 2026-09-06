@@ -191,6 +191,11 @@ public sealed record GiveItemRequest(
     string PlayerName, uint ItemId, int Quantity, bool CrossFactionOverride = false);
 public sealed record MailItemRequest(string PlayerName, uint ItemId, int Quantity, string Subject, string Message);
 public sealed record GiveMoneyRequest(string PlayerName, int Gold, int Silver, int Copper);
+public sealed record GiveReputationRequest(string PlayerName, uint FactionId, int Amount);
+public sealed record ReputationFaction(uint FactionId, string Name);
+public sealed record ReputationFactionSearchResult(
+    IReadOnlyList<ReputationFaction> Factions, int Page, int PageSize, int TotalCount, int TotalPages);
+public sealed record ReputationGrantResult(bool Success, string Message, int Before, int After, int Delta);
 public sealed record TeleportPlayerRequest(string PlayerName, string Location);
 public sealed record TeleportPlayerToNpcRequest(
     string PlayerName, uint SpawnId, bool Confirmed);

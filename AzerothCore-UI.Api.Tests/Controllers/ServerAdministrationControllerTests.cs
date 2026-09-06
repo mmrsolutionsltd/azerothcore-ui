@@ -161,6 +161,40 @@ public sealed class ServerAdministrationControllerTests
     }
 
     [Fact]
+    public void ParseReputationGrantReadsBeforeAfterAndDelta()
+    {
+        var output = "WEBADMIN_REPUTATION\tKiesh\t69\t1000\t1500\t500\n";
+
+        var result = ServerAdministrationController.ParseReputationGrant(output, "Kiesh");
+
+        Assert.True(result.Success);
+        Assert.Equal(1000, result.Before);
+        Assert.Equal(1500, result.After);
+        Assert.Equal(500, result.Delta);
+        Assert.Contains("+500", result.Message);
+    }
+
+    [Fact]
+    public void ParseReputationGrantReportsANegativeDeltaCorrectly()
+    {
+        var output = "WEBADMIN_REPUTATION\tKiesh\t69\t1000\t500\t-500\n";
+
+        var result = ServerAdministrationController.ParseReputationGrant(output, "Kiesh");
+
+        Assert.Equal(-500, result.Delta);
+        Assert.Contains("-500", result.Message);
+    }
+
+    [Fact]
+    public void ParseReputationGrantThrowsWhenTheModuleDoesNotReportAResult()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            ServerAdministrationController.ParseReputationGrant("Command 'reputation' does not exist", "Kiesh"));
+
+        Assert.Contains("Rebuild and install", exception.Message);
+    }
+
+    [Fact]
     public void QuestingCompanionLevelOrderingUsesSignedArithmetic()
     {
         var query = ServerAdministrationController.QuestingCompanionCandidateSql;

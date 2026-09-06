@@ -7,7 +7,23 @@ webadmin move <movingPlayer> <anchorPlayer>
 webadmin speed <onlinePlayer> <0.5-10>
 webadmin weapon inspect <onlinePlayer>
 webadmin weapon learn <onlinePlayer> <weaponKey>
+webadmin reputation grant <onlinePlayer> <factionId> <amount>
 ```
+
+`webadmin reputation grant` applies an incremental reputation change to a named,
+online character's standing with the given DBC faction id, using AzerothCore's own
+`ReputationMgr::ModifyReputation`. This keeps standing clamps, spillover to related
+factions, and at-war/hostility flag updates entirely server-owned instead of
+reimplementing them in this module or writing `character_reputation` directly.
+`amount` may be negative. The command is rejected for an offline character, an
+unknown faction id, a faction that does not track a per-player reputation standing
+(`FactionEntry::reputationListID < 0`), a zero amount, or a target with equal or
+higher security than the caller. On success it reports the standing before, after,
+and the applied delta as `WEBADMIN_REPUTATION\t<player>\t<factionId>\t<before>\t<after>\t<delta>`.
+There is deliberately no equivalent for an offline character - the stock
+`.modify reputation` GM command cannot be used headlessly (it acts on the GM's
+in-game "selected" target rather than taking a player name), and this module does
+not fall back to a direct database write.
 
 Both characters must be online. The command rejects battleground/arena destinations,
 cross-instance movement, transports, self-movement, and characters already teleporting.

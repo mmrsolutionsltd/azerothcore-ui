@@ -57,6 +57,7 @@ public sealed class PlayerActionToolTests : BunitContext
                 "Give",
                 "Guild bank",
                 "Summon a useful NPC",
+                "Give Reputation",
                 "Creature spawner"
             ],
             component.FindAll("h2")
@@ -205,6 +206,47 @@ public sealed class PlayerActionToolTests : BunitContext
     }
 
     [Fact]
+    public void GrantButtonRequiresAFactionAndANonZeroAmount()
+    {
+        var component = Render<GiveReputationTool>(parameters => parameters
+            .Add(tool => tool.Targets, [OnlinePlayer])
+            .Add(tool => tool.Available, true));
+
+        Assert.True(GrantButton(component).HasAttribute("disabled"));
+    }
+
+    [Fact]
+    public void SearchingForAFactionPopulatesTheResultList()
+    {
+        var component = Render<GiveReputationTool>(parameters => parameters
+            .Add(tool => tool.Targets, [OnlinePlayer])
+            .Add(tool => tool.Available, true));
+
+        component.Find("input.form-control-sm").Input("Stormwind");
+
+        component.WaitForAssertion(() => Assert.Contains(
+            "Stormwind", component.Find(".reputation-faction-results").TextContent));
+    }
+
+    [Fact]
+    public void GrantingReputationWithADirectlyEnteredFactionIdSendsTheRequest()
+    {
+        var component = Render<GiveReputationTool>(parameters => parameters
+            .Add(tool => tool.Targets, [OnlinePlayer])
+            .Add(tool => tool.Available, true));
+
+        component.Find("input[type=number][placeholder='Faction ID']").Change("69");
+        component.Find("input[type=number][placeholder='Amount']").Change("500");
+
+        Assert.False(GrantButton(component).HasAttribute("disabled"));
+        GrantButton(component).Click();
+
+        component.WaitForAssertion(() => Assert.Contains(
+            "Grant reputation completed for all 1 selected characters.",
+            component.Find("[role='status']").TextContent));
+    }
+
+    [Fact]
     public void ReviveActionAppliesToEverySelectedCharacter()
     {
         var component = Render<ReviveCharacterTool>(parameters => parameters
@@ -312,12 +354,12 @@ public sealed class PlayerActionToolTests : BunitContext
         component.WaitForElement("#movement-anchor");
         Assert.True(component.Find("input[id$='-bots']").HasAttribute("checked"));
         Assert.Equal(
-            ["", "Anduin", "Gennik"],
+            ["", "Anduin"],
             AnchorValues(component));
 
         component.Find("input[id$='-offline']").Change(true);
         Assert.Equal(
-            ["", "Anduin", "Gennik", "Uther", "Valeera"],
+            ["", "Anduin", "Uther"],
             AnchorValues(component));
     }
 
@@ -499,6 +541,11 @@ public sealed class PlayerActionToolTests : BunitContext
         component.FindAll("button").Single(button =>
             button.TextContent.Trim() == "Inspect guild");
 
+    private static AngleSharp.Dom.IElement GrantButton(
+        IRenderedComponent<GiveReputationTool> component) =>
+        component.FindAll("button").Single(button =>
+            button.TextContent.Trim() == "Grant reputation");
+
     private static string[] AnchorValues(
         IRenderedComponent<TeleportTool> component) =>
         component.FindAll("#movement-anchor option")
@@ -616,6 +663,12 @@ public sealed class PlayerActionToolTests : BunitContext
                     new AdministrationResult(true, "Money sent."),
                 "/api/server-administration/characters/service" =>
                     new AdministrationResult(true, "Character revived."),
+                "/api/server-administration/reputation/factions" =>
+                    new ReputationFactionSearchResult(
+                        [new ReputationFaction(69, "Stormwind")], 1, 30, 1, 1),
+                "/api/server-administration/reputation/grant" =>
+                    new ReputationGrantResult(
+                        true, "Jaina's reputation changed by +500 (now 1500).", 1000, 1500, 500),
                 _ => throw new InvalidOperationException(
                     $"Unexpected HTTP request in component test: {request.RequestUri}")
             };

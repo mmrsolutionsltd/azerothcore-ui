@@ -1091,6 +1091,79 @@ public sealed class ServerAdministrationController(
         return Ok(new AdministrationResult(true, "Money was sent to the character by in-game mail.", output));
     }
 
+    // Not yet callable in production: this requires the "webadmin reputation grant"
+    // command added to server-modules/mod-web-admin, which has not been built or
+    // installed on the worldserver yet. See that module's README for the exact
+    // command and rejection cases. Left in place, untested against a live SOAP
+    // endpoint, pending that build and an explicit deploy approval.
+    [HttpGet("reputation/factions")]
+    public async Task<ActionResult<ReputationFactionSearchResult>> GetReputationFactions(
+        [FromQuery] string? search, [FromQuery] int page = 1, [FromQuery] int pageSize = 30,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 10, 100);
+        var normalizedSearch = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
+        var searchId = uint.TryParse(normalizedSearch, out var parsedId) ? parsedId : (uint?)null;
+        const string sql = """
+            SELECT ID AS FactionId, NULLIF(Name_Lang_enUS, '') AS Name
+            FROM acore_world.faction_dbc
+            WHERE ReputationIndex >= 0
+              AND (@Search IS NULL OR Name_Lang_enUS LIKE CONCAT('%', @Search, '%') OR ID = @SearchId)
+            ORDER BY Name_Lang_enUS, ID;
+            """;
+        await using var connection = connectionFactory.CreateConnection();
+        var rows = (await connection.QueryAsync<ReputationFactionRow>(new CommandDefinition(sql, new
+        {
+            Search = normalizedSearch, SearchId = searchId
+        }, cancellationToken: cancellationToken))).AsList();
+        var factions = rows.Select(row => new ReputationFaction(
+            row.FactionId, string.IsNullOrWhiteSpace(row.Name) ? $"Faction #{row.FactionId}" : row.Name)).ToArray();
+        var total = factions.Length;
+        var page1 = factions.Skip((page - 1) * pageSize).Take(pageSize).ToArray();
+        return Ok(new ReputationFactionSearchResult(page1, page, pageSize, total,
+            total == 0 ? 0 : (int)Math.Ceiling(total / (double)pageSize)));
+    }
+
+    [HttpPost("reputation/grant")]
+    public async Task<ActionResult<ReputationGrantResult>> GiveReputation(
+        GiveReputationRequest request, CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        var player = AzerothCoreSoapClient.RequirePlayerName(request.PlayerName);
+        if (request.FactionId == 0)
+            return BadRequest(new AdministrationResult(false, "A faction id is required."));
+        if (request.Amount == 0 || request.Amount is < -42000 or > 42000)
+            return BadRequest(new AdministrationResult(false,
+                "The reputation amount must be non-zero and within AzerothCore's -42000 to 42000 standing range."));
+        var output = await soapClient.ExecuteAsync(
+            $"webadmin reputation grant {player} {request.FactionId} {request.Amount}", cancellationToken);
+        var result = ParseReputationGrant(output, player);
+        Audit("GiveReputation", player,
+            $"Faction={request.FactionId};Amount={request.Amount};Before={result.Before};After={result.After}");
+        return Ok(result);
+    }
+
+    internal static ReputationGrantResult ParseReputationGrant(string output, string player)
+    {
+        var fields = output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.Split('\t'))
+            .FirstOrDefault(values => values.Length >= 6 && values[0] == "WEBADMIN_REPUTATION");
+        if (fields is null || !int.TryParse(fields[3], out var before)
+            || !int.TryParse(fields[4], out var after) || !int.TryParse(fields[5], out var delta))
+            throw new InvalidOperationException(
+                "The worldserver returned no reputation data. Rebuild and install the latest mod-web-admin module.");
+        return new ReputationGrantResult(true,
+            $"{player}'s reputation changed by {delta:+#;-#;0} (now {after}).", before, after, delta);
+    }
+
+    private sealed class ReputationFactionRow
+    {
+        public uint FactionId { get; init; }
+        public string? Name { get; init; }
+    }
+
     [HttpPost("players/teleport")]
     public async Task<ActionResult<AdministrationResult>> Teleport(
         TeleportPlayerRequest request, CancellationToken cancellationToken)

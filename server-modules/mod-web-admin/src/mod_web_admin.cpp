@@ -39,6 +39,7 @@
 #include "Random.h"
 #include "RandomItemMgr.h"
 #include "RandomPlayerbotMgr.h"
+#include "ReputationMgr.h"
 #include "ScriptMgr.h"
 #include "SpellInfo.h"
 #include "SpellMgr.h"
@@ -2452,6 +2453,10 @@ public:
         {
             { "teleport", HandleNpcTeleportCommand, SEC_ADMINISTRATOR, Console::Yes }
         };
+        static ChatCommandTable reputationCommands =
+        {
+            { "grant", HandleReputationGrantCommand, SEC_ADMINISTRATOR, Console::Yes }
+        };
         static ChatCommandTable guildCommands =
         {
             { "inspect", HandleGuildInspectCommand, SEC_ADMINISTRATOR, Console::Yes },
@@ -2489,7 +2494,8 @@ public:
             { "creature", creatureCommands },
             { "weapon", weaponCommands },
             { "quest", questCommands },
-            { "npc", npcCommands }
+            { "npc", npcCommands },
+            { "reputation", reputationCommands }
             ,{ "guild", guildCommands },
             { "companion", companionCommands }
         };
@@ -3863,6 +3869,59 @@ private:
             return false;
         }
         handler->PSendSysMessage("Teleported {} to {}.", player->GetName(), creatureTemplate->Name);
+        return true;
+    }
+
+    // Grants an incremental reputation change to a named online character using
+    // AzerothCore's own ReputationMgr, so standing clamps, spillover to related
+    // factions, and at-war/hostility flag updates all stay server-owned rather than
+    // being reimplemented here. Deliberately online-only (matching every other
+    // player-targeted webadmin command in this file): ReputationMgr operates on a
+    // loaded Player object, and there is no equivalent native path for an offline
+    // character short of writing character_reputation directly, which this command
+    // exists specifically to avoid.
+    static bool HandleReputationGrantCommand(ChatHandler* handler, char const* args)
+    {
+        std::istringstream input(args ? args : "");
+        std::string playerName, unexpected;
+        uint32 factionId = 0;
+        int32 amount = 0;
+        if (!(input >> playerName >> factionId >> amount) || (input >> unexpected))
+        {
+            handler->SendErrorMessage(
+                "Usage: webadmin reputation grant <onlinePlayer> <factionId> <amount>");
+            return false;
+        }
+        if (amount == 0)
+        {
+            handler->SendErrorMessage("The reputation amount must not be zero.");
+            return false;
+        }
+        Player* player = RequireOnlinePlayer(handler, playerName, "Player");
+        if (!player || handler->HasLowerSecurity(player)) return false;
+        FactionEntry const* factionEntry = sFactionStore.LookupEntry(factionId);
+        if (!factionEntry)
+        {
+            handler->SendErrorMessage("Unknown faction id {}.", factionId);
+            return false;
+        }
+        if (factionEntry->reputationListID < 0)
+        {
+            handler->SendErrorMessage(
+                "{} does not track a per-player reputation standing.",
+                factionEntry->name[LOCALE_enUS]);
+            return false;
+        }
+        int32 before = player->GetReputationMgr().GetReputation(factionEntry);
+        if (!player->GetReputationMgr().ModifyReputation(factionEntry, amount))
+        {
+            handler->SendErrorMessage(
+                "AzerothCore rejected the reputation change for {}.", player->GetName());
+            return false;
+        }
+        int32 after = player->GetReputationMgr().GetReputation(factionEntry);
+        handler->PSendSysMessage("WEBADMIN_REPUTATION\t{}\t{}\t{}\t{}\t{}",
+            player->GetName(), factionId, before, after, after - before);
         return true;
     }
 
