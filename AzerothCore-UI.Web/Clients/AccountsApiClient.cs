@@ -345,14 +345,17 @@ public sealed class AccountsApiClient(HttpClient httpClient)
     }
     public async Task<AdministrationMountSearchResult> GetMountsAsync(
         string? search, int? minimumLevel, int? maximumLevel, int? minimumSkillRank,
-        string? faction, int page, CancellationToken cancellationToken = default)
+        string? faction, int page, IEnumerable<string>? characterNames = null,
+        CancellationToken cancellationToken = default)
     {
+        var namesParameter = characterNames is null ? "" : string.Join(',', characterNames);
         var uri = $"api/server-administration/mounts?search={Uri.EscapeDataString(search ?? "")}" +
                   $"&page={page}&pageSize=30" +
                   (minimumLevel is null ? "" : $"&minimumLevel={minimumLevel}") +
                   (maximumLevel is null ? "" : $"&maximumLevel={maximumLevel}") +
                   (minimumSkillRank is null ? "" : $"&minimumSkillRank={minimumSkillRank}") +
-                  (faction is null ? "" : $"&faction={Uri.EscapeDataString(faction)}");
+                  (faction is null ? "" : $"&faction={Uri.EscapeDataString(faction)}") +
+                  (namesParameter.Length == 0 ? "" : $"&characterNames={Uri.EscapeDataString(namesParameter)}");
         return await GetAdministrationAsync<AdministrationMountSearchResult>(uri, cancellationToken)
             ?? new AdministrationMountSearchResult([], page, 30, 0, 0);
     }

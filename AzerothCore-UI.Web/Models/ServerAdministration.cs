@@ -150,7 +150,8 @@ public sealed class TrainerSpawn
 public sealed record TrainerSearchResult(
     IReadOnlyList<TrainerSpawn> Trainers, int Page, int PageSize, int TotalCount, int TotalPages);
 public sealed record ServerLogEntry(string Source, string Message);
-public sealed record GiveItemRequest(string PlayerName, uint ItemId, int Quantity);
+public sealed record GiveItemRequest(
+    string PlayerName, uint ItemId, int Quantity, bool CrossFactionOverride = false);
 public sealed record MailItemRequest(string PlayerName, uint ItemId, int Quantity, string Subject, string Message);
 public sealed record GiveMoneyRequest(string PlayerName, int Gold, int Silver, int Copper);
 public sealed record TeleportPlayerRequest(string PlayerName, string Location);
@@ -410,7 +411,12 @@ public sealed record CharacterCollectibleSearchResult(IReadOnlyList<CharacterCol
 public sealed record AdministrationMount(
     uint ItemId, string Name, byte Quality, byte RequiredLevel, int RequiredSkillRank,
     long AllowableClass, long AllowableRace, string? Faction,
-    string? SourceVendor, string? SourceTrainer);
+    string? SourceVendor, string? SourceTrainer,
+    uint RequiredFactionId, string? RequiredFactionName, byte RequiredReputationRank,
+    IReadOnlyList<MountHeroStatus> HeroStatuses);
+public sealed record MountHeroStatus(
+    string CharacterName, bool FactionMismatch, int CurrentStanding,
+    byte CurrentRank, string CurrentRankName, bool ReputationMet, int RemainingStandingNeeded);
 public sealed record AdministrationMountSearchResult(
     IReadOnlyList<AdministrationMount> Mounts, int Page, int PageSize, int TotalCount, int TotalPages);
 public sealed record WeaponTrainingStatus(string Key, string Name, bool Learned, int CurrentSkill, int MaximumSkill);

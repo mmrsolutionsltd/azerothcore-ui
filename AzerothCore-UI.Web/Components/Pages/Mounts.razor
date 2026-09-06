@@ -78,12 +78,13 @@ else
                                 <thead>
                                     <tr>
                                         <th></th><th>Name</th><th>Level</th><th>Riding skill</th>
-                                        <th>Faction</th><th>Classes</th><th>Source</th>
+                                        <th>Faction</th><th>Reputation</th><th>Classes</th><th>Source</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     @foreach (var mount in results.Mounts)
                                     {
+                                        var mismatched = mount.HeroStatuses.Where(status => status.FactionMismatch).ToArray();
                                         <tr class="@(selected?.ItemId == mount.ItemId ? "table-primary" : null)">
                                             <td>
                                                 <button class="btn btn-sm btn-outline-primary"
@@ -94,7 +95,35 @@ else
                                             <td class="fw-semibold">@mount.Name</td>
                                             <td>@mount.RequiredLevel</td>
                                             <td>@RidingSkillLabel(mount.RequiredSkillRank)</td>
-                                            <td>@(mount.Faction ?? "Both")</td>
+                                            <td>
+                                                @(mount.Faction ?? "Both")
+                                                @if (mismatched.Length > 0)
+                                                {
+                                                    <div class="small text-danger">
+                                                        ⚠ wrong faction: @string.Join(", ", mismatched.Select(status => status.CharacterName))
+                                                    </div>
+                                                }
+                                            </td>
+                                            <td>
+                                                @if (mount.RequiredFactionId == 0)
+                                                {
+                                                    <span class="text-muted">—</span>
+                                                }
+                                                else
+                                                {
+                                                    <div class="small">
+                                                        @mount.RequiredFactionName · @ReputationRankLabel(mount.RequiredReputationRank)
+                                                    </div>
+                                                    @foreach (var status in mount.HeroStatuses)
+                                                    {
+                                                        <div class="small @(status.ReputationMet ? "text-success" : "text-warning")">
+                                                            @(status.ReputationMet
+                                                                ? $"{status.CharacterName}: ready"
+                                                                : $"{status.CharacterName}: needs {status.RemainingStandingNeeded:N0} more ({status.CurrentRankName})")
+                                                        </div>
+                                                    }
+                                                }
+                                            </td>
                                             <td>@ClassRestrictionLabel(mount.AllowableClass)</td>
                                             <td class="small text-muted">@SourceLabel(mount)</td>
                                         </tr>
@@ -145,6 +174,22 @@ else
                     <p class="small text-muted">
                         The recipient may still need to train the matching riding skill before this mount can be summoned.
                     </p>
+                    @if (selected?.Faction is not null)
+                    {
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" id="allowCrossFaction"
+                                   @bind="allowCrossFaction" />
+                            <label class="form-check-label small" for="allowCrossFaction">
+                                Allow cross-faction mount
+                            </label>
+                        </div>
+                        <p class="small text-warning">
+                            When enabled, this @selected.Faction mount can be given to characters of the
+                            opposite faction. It may still be unusable in-game until the character has
+                            appropriate riding skill/training, and AzerothCore's own faction check may still
+                            reject it when used, regardless of this override.
+                        </p>
+                    }
                     <button class="btn btn-primary" type="button"
                             disabled="@(isGiving || selected is null || targetNames.Count == 0)"
                             @onclick="GiveAsync">

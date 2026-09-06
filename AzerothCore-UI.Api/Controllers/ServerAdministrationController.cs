@@ -569,6 +569,7 @@ public sealed class ServerAdministrationController(
     public async Task<ActionResult<AdministrationMountSearchResult>> GetMounts(
         [FromQuery] string? search, [FromQuery] int? minimumLevel = null, [FromQuery] int? maximumLevel = null,
         [FromQuery] int? minimumSkillRank = null, [FromQuery] string? faction = null,
+        [FromQuery] string? characterNames = null,
         [FromQuery] int page = 1, [FromQuery] int pageSize = 30, CancellationToken cancellationToken = default)
     {
         if (!IsLocalRequest()) return NotFound();
@@ -591,6 +592,9 @@ public sealed class ServerAdministrationController(
                    item.RequiredLevel AS RequiredLevel, item.RequiredSkillRank AS RequiredSkillRank,
                    CAST(item.AllowableClass AS SIGNED) AS AllowableClass,
                    CAST(item.AllowableRace AS SIGNED) AS AllowableRace,
+                   item.RequiredReputationFaction AS RequiredFactionId,
+                   item.RequiredReputationRank AS RequiredReputationRank,
+                   NULLIF(requiredFaction.Name_Lang_enUS, '') AS RequiredFactionName,
                    GROUP_CONCAT(DISTINCT vendorCreature.name ORDER BY vendorCreature.name SEPARATOR ', ') AS SourceVendor,
                    GROUP_CONCAT(DISTINCT trainerCreature.name ORDER BY trainerCreature.name SEPARATOR ', ') AS SourceTrainer
             FROM acore_world.item_template item
@@ -601,13 +605,16 @@ public sealed class ServerAdministrationController(
                 ON defaultTrainer.TrainerId = trainerSpell.TrainerId
             LEFT JOIN acore_world.creature_template trainerCreature
                 ON trainerCreature.entry = defaultTrainer.CreatureId
+            LEFT JOIN acore_world.faction_dbc requiredFaction
+                ON requiredFaction.ID = item.RequiredReputationFaction
             WHERE item.class = 15 AND item.subclass = 5 AND item.spellid_1 <> 0 AND item.name <> ''
               AND (@Search IS NULL OR item.name LIKE CONCAT('%', @Search, '%'))
               AND (@MinimumLevel IS NULL OR item.RequiredLevel >= @MinimumLevel)
               AND (@MaximumLevel IS NULL OR item.RequiredLevel <= @MaximumLevel)
               AND (@MinimumSkillRank IS NULL OR item.RequiredSkillRank >= @MinimumSkillRank)
             GROUP BY item.entry, item.name, item.Quality, item.RequiredLevel,
-                     item.RequiredSkillRank, item.AllowableClass, item.AllowableRace
+                     item.RequiredSkillRank, item.AllowableClass, item.AllowableRace,
+                     item.RequiredReputationFaction, item.RequiredReputationRank, requiredFaction.Name_Lang_enUS
             ORDER BY item.name, item.entry;
             """;
         await using var connection = connectionFactory.CreateConnection();
@@ -619,14 +626,84 @@ public sealed class ServerAdministrationController(
         var allMounts = rows.Select(row => new AdministrationMount(
             row.ItemId, row.Name, row.Quality, row.RequiredLevel, row.RequiredSkillRank,
             row.AllowableClass, row.AllowableRace, MountFaction(row.AllowableRace),
-            row.SourceVendor, row.SourceTrainer)).ToArray();
+            row.SourceVendor, row.SourceTrainer,
+            row.RequiredFactionId, row.RequiredFactionName, row.RequiredReputationRank,
+            [])).ToArray();
         var filtered = faction is null
             ? allMounts
             : allMounts.Where(mount => mount.Faction == faction).ToArray();
         var total = filtered.Length;
         var mounts = filtered.Skip((page - 1) * pageSize).Take(pageSize).ToArray();
+
+        var requestedNames = (characterNames ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries
+            | StringSplitOptions.TrimEntries).Distinct(StringComparer.OrdinalIgnoreCase).Take(50).ToArray();
+        if (requestedNames.Length > 0 && mounts.Length > 0)
+        {
+            var identity = HttpContext.AdministrationIdentity();
+            var characters = (await connection.QueryAsync<MountHeroRow>(new CommandDefinition("""
+                SELECT guid AS Guid, name AS Name, race AS Race
+                FROM acore_characters.characters
+                WHERE name IN @Names AND (@AllAccounts OR account IN @AllowedAccounts);
+                """, new
+            {
+                Names = requestedNames,
+                AllAccounts = identity?.AccountScope == "All",
+                AllowedAccounts = identity?.GameAccountIds ?? []
+            }, cancellationToken: cancellationToken))).AsList();
+
+            var requiredFactionIds = mounts.Where(mount => mount.RequiredFactionId != 0)
+                .Select(mount => mount.RequiredFactionId).Distinct().ToArray();
+            var standings = requiredFactionIds.Length == 0 || characters.Count == 0
+                ? []
+                : (await connection.QueryAsync<CharacterReputationRow>(new CommandDefinition("""
+                    SELECT guid AS Guid, faction AS FactionId, standing AS Standing
+                    FROM acore_characters.character_reputation
+                    WHERE guid IN @Guids AND faction IN @FactionIds;
+                    """, new
+                {
+                    Guids = characters.Select(character => character.Guid).ToArray(),
+                    FactionIds = requiredFactionIds
+                }, cancellationToken: cancellationToken))).AsList();
+            var standingByGuidAndFaction = standings.ToDictionary(
+                row => (row.Guid, row.FactionId), row => row.Standing);
+
+            mounts = mounts.Select(mount => mount with
+            {
+                HeroStatuses = characters.Select(character => BuildHeroStatus(
+                    character.Name, character.Race, mount.Faction,
+                    mount.RequiredFactionId, mount.RequiredReputationRank,
+                    standingByGuidAndFaction.GetValueOrDefault((character.Guid, mount.RequiredFactionId), 0)))
+                    .ToArray()
+            }).ToArray();
+        }
+
         return Ok(new AdministrationMountSearchResult(mounts, page, pageSize, total,
             total == 0 ? 0 : (int)Math.Ceiling(total / (double)pageSize)));
+    }
+
+    // Pure/testable: given one character's race and one mount's faction/reputation
+    // requirement, reports whether the mount's faction conflicts with the character
+    // and (only when the mount has a reputation requirement) their current standing,
+    // whether it's met, and how much more is needed.
+    internal static MountHeroStatus BuildHeroStatus(
+        string characterName, byte characterRace, string? mountFaction,
+        uint requiredFactionId, byte requiredReputationRank, int currentStanding)
+    {
+        var factionMismatch = mountFaction switch
+        {
+            "Alliance" => !IsAllianceRace(characterRace),
+            "Horde" => IsAllianceRace(characterRace),
+            _ => false
+        };
+        if (requiredFactionId == 0)
+            return new(characterName, factionMismatch, 0, 0, "", true, 0);
+
+        var currentRank = ReputationRanks.GetRank(currentStanding);
+        var met = currentRank >= requiredReputationRank;
+        var remaining = met ? 0 : Math.Max(0,
+            ReputationRanks.MinimumStandingForRank(requiredReputationRank) - currentStanding);
+        return new(characterName, factionMismatch, currentStanding,
+            currentRank, ReputationRanks.Name(currentRank), met, remaining);
     }
 
     private sealed class MountRow
@@ -638,8 +715,25 @@ public sealed class ServerAdministrationController(
         public int RequiredSkillRank { get; init; }
         public long AllowableClass { get; init; }
         public long AllowableRace { get; init; }
+        public uint RequiredFactionId { get; init; }
+        public byte RequiredReputationRank { get; init; }
+        public string? RequiredFactionName { get; init; }
         public string? SourceVendor { get; init; }
         public string? SourceTrainer { get; init; }
+    }
+
+    private sealed class MountHeroRow
+    {
+        public uint Guid { get; init; }
+        public string Name { get; init; } = "";
+        public byte Race { get; init; }
+    }
+
+    private sealed class CharacterReputationRow
+    {
+        public uint Guid { get; init; }
+        public uint FactionId { get; init; }
+        public int Standing { get; init; }
     }
 
     private static readonly long AllianceMountRaceMask = MountRaceMask(1, 3, 4, 7, 11);
@@ -957,7 +1051,8 @@ public sealed class ServerAdministrationController(
             return BadRequest("Item ID and a quantity from 1 to 1000 are required.");
         var output = await soapClient.ExecuteAsync(
             $"additem {player} {request.ItemId} {request.Quantity}", cancellationToken);
-        Audit("GiveItem", player, $"Item={request.ItemId};Quantity={request.Quantity}");
+        Audit("GiveItem", player, $"Item={request.ItemId};Quantity={request.Quantity}" +
+            (request.CrossFactionOverride ? ";CrossFactionOverride=True" : ""));
         return Ok(new AdministrationResult(true, "Item command completed.", output));
     }
 

@@ -16,6 +16,7 @@ public partial class Mounts : IDisposable
     private int? minimumSkillRank;
     private string? faction;
     private string? message;
+    private bool allowCrossFaction;
     private bool isLoadingPage = true, isSearching, isGiving, succeeded;
 
     protected override async Task OnInitializedAsync()
@@ -45,13 +46,15 @@ public partial class Mounts : IDisposable
         {
             targetNames.Clear();
             targetNames.UnionWith(await SelectedCharacterStore.GetTargetsAsync());
+            await LoadAsync(results.Page);
             StateHasChanged();
         });
 
-    private void OnTargetsChanged(IReadOnlyList<string> names) => _ = InvokeAsync(() =>
+    private void OnTargetsChanged(IReadOnlyList<string> names) => _ = InvokeAsync(async () =>
     {
         targetNames.Clear();
         targetNames.UnionWith(names);
+        await LoadAsync(results.Page);
         StateHasChanged();
     });
 
@@ -73,7 +76,8 @@ public partial class Mounts : IDisposable
         try
         {
             results = await Api.GetMountsAsync(
-                search, minimumLevel, maximumLevel, minimumSkillRank, faction, page);
+                search, minimumLevel, maximumLevel, minimumSkillRank, faction, page, targetNames);
+            selected = selected is null ? null : results.Mounts.FirstOrDefault(mount => mount.ItemId == selected.ItemId) ?? selected;
         }
         catch (Exception exception)
         {
@@ -91,7 +95,14 @@ public partial class Mounts : IDisposable
         selected = mount;
         giveResults = [];
         message = null;
+        allowCrossFaction = false;
     }
+
+    private static readonly string[] ReputationRankNames =
+        ["Hated", "Hostile", "Unfriendly", "Neutral", "Friendly", "Honored", "Revered", "Exalted"];
+
+    private static string ReputationRankLabel(byte rank) =>
+        ReputationRankNames[Math.Clamp(rank, (byte)0, (byte)7)];
 
     private async Task GiveAsync()
     {
@@ -103,11 +114,26 @@ public partial class Mounts : IDisposable
         {
             foreach (var name in targetNames)
             {
+                var status = mount.HeroStatuses.FirstOrDefault(
+                    heroStatus => string.Equals(heroStatus.CharacterName, name, StringComparison.OrdinalIgnoreCase));
+                var mismatch = status?.FactionMismatch == true;
+                if (mismatch && !allowCrossFaction)
+                {
+                    collected.Add(new PlayerActionResult(name, false,
+                        $"Blocked: {mount.Faction} mount cannot be given to a character of the opposite faction. " +
+                        "Enable \"Allow cross-faction mount\" to override."));
+                    continue;
+                }
                 try
                 {
-                    var result = await Api.GiveItemAsync(new GiveItemRequest(name, mount.ItemId, 1));
-                    collected.Add(new PlayerActionResult(
-                        name, result?.Success == true, result?.Message ?? "No response returned."));
+                    var result = await Api.GiveItemAsync(new GiveItemRequest(
+                        name, mount.ItemId, 1, CrossFactionOverride: mismatch));
+                    var resultMessage = result?.Message ?? "No response returned.";
+                    if (mismatch && result?.Success == true)
+                        resultMessage += " Cross-faction override: the mount may still be unusable in-game " +
+                            "until the character has appropriate riding skill/training, or may be rejected " +
+                            "by the server's own faction check when used.";
+                    collected.Add(new PlayerActionResult(name, result?.Success == true, resultMessage));
                 }
                 catch (Exception exception)
                 {

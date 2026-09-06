@@ -121,3 +121,47 @@ Requirements:
 - Add packaging validation/tests where practical and build the Web project. Do not deploy yet.
 
 Before editing, inspect `ClientAddonPackageBuilder`, `Program.cs`, ClientAddons.razor and existing deployment scripts. Document the plan and any source/staging limitation.
+# Request: reputation grant tool and cross-faction mount option
+
+Important clarification: do not assume direct DB writes are the only route. Investigate AzerothCore's native GM command/API (`.modify rep <factionId> <amount>` or the equivalent in this exact revision) and whether mod-web-admin can safely expose a narrowly validated `webadmin reputation grant` operation that invokes native reputation logic. Prefer that route so standing, spillover and faction-state handling remain server-owned. Direct `character_reputation` writes should only be considered if the native path genuinely does not exist, and would require explicit review/backup safeguards.
+
+Implement two related features.
+
+## Give reputation tool
+
+- Add a reusable sidebar/player-action tool using the shared hero selection (no duplicate picker).
+- Let the user search/select a reputation faction from live `acore_world` faction data (display names, IDs, and sensible ordering; include examples such as Tranquillien, Darkspear Trolls and Orgrimmar).
+- Accept a validated reputation amount, with clear handling of positive/negative values and AzerothCore's standing/range limits. Prefer an incremental grant command/API rather than direct character-table edits.
+- Support multiple selected heroes through the existing audited batch operation pattern, with per-character results.
+- Preserve account scoping, permissions, local-request checks and audit trail. Add useful error messages for offline/unsupported targets.
+- Add focused API/UI tests and update menu/tool documentation.
+
+## Cross-faction mounts
+
+- On the Mounts page, add an explicit per-grant option such as “Allow cross-faction mount”. Keep it off by default.
+- Enrich each mount row/card with its reputation requirement when present: faction, required reputation standing, numeric threshold, and (for selected heroes) current reputation/standing plus the remaining amount needed. Make “already met” visually distinct from “needs reputation” and handle mounts with no reputation requirement cleanly.
+- Obtain current reputation read-only from the existing character/telemetry or database access patterns; do not grant reputation as a side effect of browsing the mount catalogue.
+- When enabled, allow giving an Alliance mount item to Horde characters and vice versa; do not alter the catalogue's normal faction metadata or silently bypass class/level/riding requirements.
+- Clearly warn that the item may still be unusable until the character has appropriate riding skill/training, and record the override in the audit detail.
+- Reuse the existing validated GiveItem path where possible; if server-side faction checks reject the item, surface the exact failure rather than modifying DB templates.
+- Add tests for default-off behaviour, explicit override propagation, and multi-hero results.
+
+Before editing, inspect current item-give, shared player-action tool, faction data schema, Mounts page/API and permission policies. Write and compare an implementation plan, call out whether AzerothCore enforces mount faction at item use time, then implement the smallest safe change. Build/test affected projects; do not perform live reputation grants or item grants and do not deploy yet.
+# Clarification from Codex/owner
+
+Do not treat “skip reputation” as a final decision. The owner requested both features. Finish the Mounts catalogue/cross-faction/reputation-display work first, then implement the reputation grant as a separate, reviewable change.
+
+For reputation, the preferred route is a new narrowly validated `mod-web-admin` C++ command (for example `webadmin reputation grant <player> <factionId> <amount>`) that resolves the named player and invokes AzerothCore's native reputation logic. Do not rely on the GM-selected-player `.modify reputation` command and do not write `character_reputation` directly unless the native route is proven impossible and explicitly re-approved.
+
+The Linux server is already building/installing `mod-web-admin`; the repository's handover and server-module README document the source/build/install layout. You may prepare and isolated-build the C++ module/worldserver and provide exact deployment steps, but do not install/restart the live worldserver without explicit approval. Keep the website/API and C++ portions separately committed where practical, with tests and a clear note that the C++ build is required for the reputation endpoint.
+# Collaboration kickoff
+
+Use a handoff-first workflow for the remaining Mounts and Give Reputation work:
+
+1. Implement and test the Mounts UI/API first.
+2. Prepare the reputation bridge/UI as a separate change; do not deploy it.
+3. Report exact files, commands, tests, schema assumptions and any C++ build requirements in your response.
+4. Codex will independently review the diff, build the affected .NET projects and Linux `worldserver` target, inspect the live azerothmedia service/config layout, and identify rollback steps.
+5. No live database writes, worldserver installation or service restart until Codex has reviewed the result and the owner explicitly approves deployment.
+
+Keep commits logically separated (Mounts/UI versus reputation bridge) where practical so either feature can be reviewed or reverted independently.

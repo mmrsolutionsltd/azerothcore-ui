@@ -973,11 +973,8 @@ public sealed class CharactersController(
         public int CurrentStanding { get; init; }
     }
 
-    private static byte GetReputationRank(int standing) => standing switch
-    {
-        < -6000 => 0, < -3000 => 1, < 0 => 2, < 3000 => 3,
-        < 9000 => 4, < 21000 => 5, < 42000 => 6, _ => 7
-    };
+    private static byte GetReputationRank(int standing) =>
+        AzerothCore_UI.Api.Services.ReputationRanks.GetRank(standing);
 
     private sealed class QuestRecipeRow
     {

@@ -1,6 +1,7 @@
 using AzerothCore_UI.Api.Controllers;
 using AzerothCore_UI.Api.Data;
 using AzerothCore_UI.Api.Models;
+using AzerothCore_UI.Api.Services;
 using Xunit;
 
 namespace AzerothCore_UI.Api.Tests.Controllers;
@@ -70,6 +71,93 @@ public sealed class ServerAdministrationControllerTests
     {
         Assert.Equal(expectedFaction,
             ServerAdministrationController.MountFaction(allowableRace));
+    }
+
+    [Theory]
+    [InlineData("Alliance", 3, false)] // Alliance mount, Alliance character (Night Elf)
+    [InlineData("Alliance", 2, true)]  // Alliance mount, Horde character (Orc)
+    [InlineData("Horde", 2, false)]    // Horde mount, Horde character (Orc)
+    [InlineData("Horde", 3, true)]     // Horde mount, Alliance character (Night Elf)
+    [InlineData(null, 2, false)]       // Unrestricted mount never mismatches
+    public void BuildHeroStatusReportsFactionMismatchIndependentlyOfReputation(
+        string? mountFaction, byte characterRace, bool expectedMismatch)
+    {
+        var status = ServerAdministrationController.BuildHeroStatus(
+            "Kiesh", characterRace, mountFaction, requiredFactionId: 0, requiredReputationRank: 0, currentStanding: 0);
+
+        Assert.Equal(expectedMismatch, status.FactionMismatch);
+        Assert.Equal("Kiesh", status.CharacterName);
+    }
+
+    [Fact]
+    public void BuildHeroStatusWithNoReputationRequirementReportsTriviallyMet()
+    {
+        var status = ServerAdministrationController.BuildHeroStatus(
+            "Kiesh", characterRace: 3, mountFaction: null,
+            requiredFactionId: 0, requiredReputationRank: 6, currentStanding: -20000);
+
+        Assert.True(status.ReputationMet);
+        Assert.Equal(0, status.RemainingStandingNeeded);
+        Assert.Equal(0, status.CurrentStanding);
+    }
+
+    [Fact]
+    public void BuildHeroStatusComputesRemainingStandingWhenNotMet()
+    {
+        var status = ServerAdministrationController.BuildHeroStatus(
+            "Kiesh", characterRace: 3, mountFaction: "Alliance",
+            requiredFactionId: 69, requiredReputationRank: 6, currentStanding: 1000);
+
+        Assert.False(status.ReputationMet);
+        Assert.Equal(3, status.CurrentRank);
+        Assert.Equal("Neutral", status.CurrentRankName);
+        Assert.Equal(20000, status.RemainingStandingNeeded);
+    }
+
+    [Fact]
+    public void BuildHeroStatusReportsMetWhenStandingAlreadyClearsTheRequiredRank()
+    {
+        var status = ServerAdministrationController.BuildHeroStatus(
+            "Vynlan", characterRace: 3, mountFaction: "Alliance",
+            requiredFactionId: 69, requiredReputationRank: 6, currentStanding: 45000);
+
+        Assert.True(status.ReputationMet);
+        Assert.Equal(7, status.CurrentRank);
+        Assert.Equal("Exalted", status.CurrentRankName);
+        Assert.Equal(0, status.RemainingStandingNeeded);
+    }
+
+    [Theory]
+    [InlineData(-7000, 0)]
+    [InlineData(-6000, 1)]
+    [InlineData(-3000, 2)]
+    [InlineData(0, 3)]
+    [InlineData(3000, 4)]
+    [InlineData(9000, 5)]
+    [InlineData(21000, 6)]
+    [InlineData(42000, 7)]
+    public void ReputationRanksGetRankMatchesStandardWotlkThresholds(int standing, byte expectedRank)
+    {
+        Assert.Equal(expectedRank, ReputationRanks.GetRank(standing));
+    }
+
+    [Theory]
+    [InlineData(0, "Hated")]
+    [InlineData(3, "Neutral")]
+    [InlineData(7, "Exalted")]
+    public void ReputationRanksNameMapsRankToItsDisplayName(byte rank, string expectedName)
+    {
+        Assert.Equal(expectedName, ReputationRanks.Name(rank));
+    }
+
+    [Fact]
+    public void ReputationRanksMinimumStandingForRankMatchesGetRankBoundaries()
+    {
+        for (byte rank = 0; rank <= 7; rank++)
+        {
+            var minimum = ReputationRanks.MinimumStandingForRank(rank);
+            Assert.Equal(rank, ReputationRanks.GetRank(minimum));
+        }
     }
 
     [Fact]
