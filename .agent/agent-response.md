@@ -292,3 +292,34 @@ The owner tested live in-game right after confirming the patch was installed: ga
 2. **Client addon override**: a small addon (same delivery pipeline as UnBot/YssBossLoot/AzerothCompanion) that calls the low-level `UseContainerItem(bag, slot)` API directly for a flagged mount slot, bypassing the default UI's own eligibility pre-check, so the request reaches the server (where my existing patch would then actually apply). Requires every family member to install/update the addon, and the exact client-side gating behavior (whether `UseContainerItem` truly skips the pre-check) isn't something I've verified empirically yet - only inferred from how Blizzard's default UI is commonly understood to layer these checks.
 
 Option 1 feels more robust to me (server-owned, no client dependency, matches the reputation-grant precedent we already shipped) - but wanted to lay out the actual dilemma for you rather than just picking one and building it. Nothing further built or installed for this yet; the existing server-side `AllowableRace` exemption patch stays as-is (harmless, just insufficient alone).
+
+# RESPONSE: direct server-side mount teaching (commit `50418d4`, built, NOT installed)
+
+Implemented option 1 per your follow-up request. Built successfully, not installed, not restarted - awaiting your review and the owner's explicit approval.
+
+**Command:** `webadmin mount teach <onlinePlayer> <itemId>` in `server-modules/mod-web-admin` (`HandleMountTeachCommand`, registered `SEC_ADMINISTRATOR, Console::Yes` under a new `mount` subgroup, same pattern as `reputation`). Resolves `sObjectMgr->GetItemTemplate(itemId)`, rejects if it isn't `ITEM_CLASS_MISC`/`ITEM_SUBCLASS_JUNK_MOUNT`, resolves the taught spell (`Spells[0].SpellId == 483 || 55884` -> use `Spells[1].SpellId`, the same generic-teach redirect `Player::CastItemUseSpell` uses for its own "special learning case"; otherwise `Spells[0].SpellId` directly), rejects if that spell doesn't resolve via `sSpellMgr->GetSpellInfo`, then validates eligibility via `player->CanUseItem(proto)` - the exact same gate the earlier `mount-allowablerace-exemption` patch modified, so `AllowableClass`, required level, required skill/riding rank, required spell, and holiday requirements all still apply; only `AllowableRace` is exempted, and only for real mount items. On success, calls `player->learnSpell(teachSpellId)` directly (native path, same primitive used by `.learn`/trainer purchases) and reports `WEBADMIN_MOUNT_TEACH\t<player>\t<itemId>\t<spellId>\t<taught|already-known>`. Does not touch inventory - giving the physical item is unchanged, separate, existing behavior.
+
+**Validated the resolution logic against the real failing case from the live test:** item 5656 (Brown Horse Bridle) has `Spells[0].SpellId=55884`, `Spells[1].SpellId=458` - confirms the redirect resolves to spell 458 as the actual taught mount spell, matching what `Player::CastItemUseSpell`'s own "special learning case" would cast if the client ever sent the request.
+
+**Web/Api:** new `POST api/server-administration/mounts/teach` (`TeachMountRequest{PlayerName,ItemId}` -> `AdministrationResult`, parsed by `ParseMountTeach`, tested for `taught`/`already-known`/missing-result cases). `Mounts.razor.cs.GiveAsync()` now calls this automatically after every successful mount give (not gated on the cross-faction checkbox - applies to every grant, same-faction or not, since it's strictly more reliable than hoping the recipient can right-click the item themselves), appending the teach result to that hero's per-mount message. Updated the give-panel warning copy to describe the new behavior instead of the old "may be unusable" hedge.
+
+**Backups:** `worldserver.pre-mount-teach-20260906-123105` (installed binary before this session touched anything today - unchanged, still running) and `backups/mount-teach-patch-20260906-123105/mod_web_admin.cpp.orig` (module source before this edit). Note: `modules/mod-web-admin` is `.gitignore`'d in the core repo (`/modules/*`) and root-owned on this box, unlike `src/server/...` - I copied to a temp file as `mark` and installed it via `sudo cp` + `sudo chown root:root` to match the existing ownership; no git-based diff/rollback is available for it locally the way there is for `PlayerStorage.cpp`, only the `.orig` backup. Synced both the module source and a `.patch` file for the earlier `PlayerStorage.cpp` change into this repo (`server-modules/mod-web-admin/`, `server-patches/`) since neither was tracked here before - happy to drop these if you'd rather this repo not carry copies of core-adjacent source.
+
+**Build result:** `cd /opt/azerothcore/build && ninja -j6 worldserver` - 6 steps (recompiled `mod_web_admin.cpp.o`, relinked `libmodules.a` and `worldserver`), 0 errors (only pre-existing warnings from mod-playerbots/g3dlite, none from my change). New binary at `/opt/azerothcore/build/src/server/apps/worldserver` (`--version` OK, size differs from the installed one by exactly the added code). Confirmed the **installed** binary and `azerothcore-world.service` are untouched (same file, same `ActiveEnterTimestamp` as before I started this).
+
+**Test:** `server-modules/mod-web-admin/tests/MountTeachSpellResolutionTest.cpp` (also written to the core's own `src/test/server/game/Entities/` on the box, same location convention as the earlier `CanUseItemMountRaceExemptionTest.cpp`) - 4 gtest cases for the pure spell-resolution predicate, including the exact 55884->458 case from the live failure. Not compiled/run: `BUILD_TESTING=OFF` in this production CMake config, same limitation as before, still deliberately not flipped by me.
+
+**Rollback** (nothing installed today, so this only means discarding the source edit):
+```bash
+sudo cp /opt/azerothcore/backups/mount-teach-patch-20260906-123105/mod_web_admin.cpp.orig \
+    /opt/azerothcore/source/core/modules/mod-web-admin/src/mod_web_admin.cpp
+cd /opt/azerothcore/build && ninja -j6 worldserver   # rebuilds the pre-patch binary in the build tree
+```
+If this is ever installed and needs reverting afterward (not needed today):
+```bash
+sudo systemctl stop azerothcore-world.service
+sudo cp /opt/azerothcore/server/bin/worldserver.pre-mount-teach-20260906-123105 /opt/azerothcore/server/bin/worldserver
+sudo systemctl start azerothcore-world.service
+```
+
+Not deployed on the .NET side either (the `/mounts/teach` endpoint will 500 with "worldserver returned no mount-teach result" until this module is installed) - pushed only, per the request.
