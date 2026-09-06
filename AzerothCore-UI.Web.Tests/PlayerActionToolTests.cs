@@ -367,7 +367,7 @@ public sealed class PlayerActionToolTests : BunitContext
     }
 
     [Fact]
-    public void TeleportPlayerModeDefaultsToOnlinePlayersAndCompanionsThenIncludesOfflineOnRequest()
+    public void TeleportPlayerModeDefaultsToOnlinePlayersAndBotsThenIncludesOfflineOnRequest()
     {
         var component = Render<TeleportTool>(parameters => parameters
             .Add(tool => tool.Targets, [OnlinePlayer])
@@ -378,10 +378,29 @@ public sealed class PlayerActionToolTests : BunitContext
         component.WaitForElement("#movement-anchor");
         Assert.True(component.Find("input[id$='-bots']").HasAttribute("checked"));
         Assert.Equal(
-            ["", "Anduin"],
+            ["", "Anduin", "Gennik"],
             AnchorValues(component));
 
         component.Find("input[id$='-offline']").Change(true);
+        Assert.Equal(
+            ["", "Anduin", "Uther", "Gennik", "Valeera"],
+            AnchorValues(component));
+    }
+
+    [Fact]
+    public void UncheckingBotsRemovesOnlineAndOfflineBotsFromTheDestinationList()
+    {
+        var component = Render<TeleportTool>(parameters => parameters
+            .Add(tool => tool.Targets, [OnlinePlayer])
+            .Add(tool => tool.Available, true));
+
+        component.FindAll("button").Single(button =>
+            button.TextContent.Trim() == "Player").Click();
+        component.WaitForElement("#movement-anchor");
+        component.Find("input[id$='-offline']").Change(true);
+
+        component.Find("input[id$='-bots']").Change(false);
+
         Assert.Equal(
             ["", "Anduin", "Uther"],
             AnchorValues(component));
