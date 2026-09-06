@@ -229,16 +229,31 @@ public sealed class PlayerActionToolTests : BunitContext
     }
 
     [Fact]
-    public void GrantingReputationWithADirectlyEnteredFactionIdSendsTheRequest()
+    public void FactionIdCannotBeTypedDirectlyOnlySelectedFromSearchResults()
     {
         var component = Render<GiveReputationTool>(parameters => parameters
             .Add(tool => tool.Targets, [OnlinePlayer])
             .Add(tool => tool.Available, true));
 
-        component.Find("input[type=number][placeholder='Faction ID']").Change("69");
+        Assert.Empty(component.FindAll("input[type=number][placeholder='Faction ID']"));
+        Assert.Single(component.FindAll("input[type=number][placeholder='Amount']"));
+    }
+
+    [Fact]
+    public void SelectingAFactionThenGrantingReputationSendsTheChosenFactionAndAmount()
+    {
+        var component = Render<GiveReputationTool>(parameters => parameters
+            .Add(tool => tool.Targets, [OnlinePlayer])
+            .Add(tool => tool.Available, true));
+
+        component.Find("input.form-control-sm").Input("Stormwind");
+        component.WaitForAssertion(() => Assert.Single(component.FindAll(".reputation-faction-results li")));
+        component.Find(".reputation-faction-results li").Click();
+
+        component.WaitForAssertion(() => Assert.Contains("Stormwind", component.Markup));
         component.Find("input[type=number][placeholder='Amount']").Change("500");
 
-        Assert.False(GrantButton(component).HasAttribute("disabled"));
+        component.WaitForAssertion(() => Assert.False(GrantButton(component).HasAttribute("disabled")));
         GrantButton(component).Click();
 
         component.WaitForAssertion(() => Assert.Contains(

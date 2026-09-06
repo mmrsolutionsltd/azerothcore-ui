@@ -165,3 +165,16 @@ Use a handoff-first workflow for the remaining Mounts and Give Reputation work:
 5. No live database writes, worldserver installation or service restart until Codex has reviewed the result and the owner explicitly approves deployment.
 
 Keep commits logically separated (Mounts/UI versus reputation bridge) where practical so either feature can be reviewed or reverted independently.
+# Mount clarification
+
+Mount racial restrictions are **use-time game restrictions**, not grant-time restrictions. The website must allow giving any mount item to selected heroes regardless of `AllowableRace`; the character can receive/hold the item and AzerothCore/WoW will decide whether it can be learned or used. Keep race/faction data as informational metadata and warnings only. The explicit cross-faction checkbox may remain as a user-confirmation/audit affordance, but it must not be treated as a race eligibility blocker.
+
+# Reputation UI correction
+
+Replace the current reputation target inputs with a searchable/selectable list of faction/place names from the API (including faction ID behind the scenes). The user should not type a faction name or numeric ID. Keep exactly one numeric input for the reputation amount, with clear +/- semantics and validation. Remove the duplicate numeric field; if one currently represents a hidden ID, make it an internal selected value rather than a visible input. Preserve multi-hero selection, per-target results, permissions and audit logging.
+# Mounts UX correction
+
+- Make the Mounts catalogue multi-selectable, with highlighted selected rows and clear selection controls.
+- Make the “Give selected mount” card/panel sticky so its give button remains visible while scrolling the catalogue, without covering content and with responsive behaviour.
+- Highlight mounts each selected hero already owns (per-hero where practical, otherwise an owned badge/count). Ownership is read-only and must not block giving another copy.
+- Define multi-mount behaviour clearly: one request per selected mount per selected hero, with a confirmation/summary total and duplicate-submit protection. Preserve shared hero selection and per-hero results.

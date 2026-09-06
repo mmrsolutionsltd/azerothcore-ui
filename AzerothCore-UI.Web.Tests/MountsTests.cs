@@ -58,19 +58,19 @@ public sealed class MountsTests : BunitContext
     }
 
     [Fact]
-    public void GiveButtonRequiresBothASelectedMountAndSelectedHeroes()
+    public void GiveButtonRequiresAtLeastOneSelectedMountAndSelectedHeroes()
     {
         var component = Render<Mounts>();
         component.WaitForAssertion(() => Assert.Equal(2, component.FindAll("tbody tr").Count));
 
         Assert.True(GiveButton(component).HasAttribute("disabled"));
 
-        SelectMountRow(component, "Black Battlestrider");
+        ToggleMountRow(component, "Black Battlestrider");
         Assert.True(GiveButton(component).HasAttribute("disabled"));
     }
 
     [Fact]
-    public async Task GivingTheSelectedMountSendsOneRequestPerSelectedHeroAndReportsSuccess()
+    public async Task SelectingMultipleMountsSendsOneRequestPerMountPerSelectedHero()
     {
         var component = Render<Mounts>();
         component.WaitForAssertion(() => Assert.Equal(2, component.FindAll("tbody tr").Count));
@@ -79,25 +79,47 @@ public sealed class MountsTests : BunitContext
         await component.InvokeAsync(() =>
             store.SetSelectedAsync(["Vynlan", "Kiesh"], "Vynlan").AsTask());
 
-        SelectMountRow(component, "Black Battlestrider");
+        ToggleMountRow(component, "Black Battlestrider");
+        ToggleMountRow(component, "Argent Hippogryph");
         component.WaitForAssertion(() => Assert.False(GiveButton(component).HasAttribute("disabled")));
+        Assert.Contains("4 total transfers", component.Markup);
 
         GiveButton(component).Click();
 
         component.WaitForAssertion(() =>
         {
-            Assert.Equal(2, handler.GivenTo.Count);
+            Assert.Equal(4, handler.GivenItemIds.Count);
+            Assert.Equal(2, handler.GivenItemIds.Count(id => id == 18243));
+            Assert.Equal(2, handler.GivenItemIds.Count(id => id == 45725));
             Assert.Contains("Vynlan", handler.GivenTo);
             Assert.Contains("Kiesh", handler.GivenTo);
-            Assert.Contains("given to all 2 selected heroes", component.Markup);
+            Assert.Contains("Gave 2 mounts to 2 heroes (4 total)", component.Markup);
         });
     }
 
     [Fact]
-    public async Task ACrossFactionMountIsBlockedByDefaultAndNeverReachesTheGiveEndpoint()
+    public async Task ClearingSelectionRemovesAllSelectedMounts()
+    {
+        var component = Render<Mounts>();
+        component.WaitForAssertion(() => Assert.Equal(2, component.FindAll("tbody tr").Count));
+
+        var store = Services.GetRequiredService<SelectedCharacterStore>();
+        await component.InvokeAsync(() => store.SetSelectedAsync(["Vynlan"], "Vynlan").AsTask());
+
+        ToggleMountRow(component, "Black Battlestrider");
+        component.WaitForAssertion(() => Assert.False(GiveButton(component).HasAttribute("disabled")));
+
+        component.FindAll("button").Single(button => button.TextContent.Trim() == "Clear").Click();
+
+        Assert.True(GiveButton(component).HasAttribute("disabled"));
+        Assert.Contains("Select one or more mounts", component.Markup);
+    }
+
+    [Fact]
+    public async Task ACrossFactionMountIsAlwaysGivenRegardlessOfTheAcknowledgementCheckbox()
     {
         handler.HeroStatusesByMount[18243] =
-            [new MountHeroStatus("Kiesh", true, 0, 0, "", true, 0)];
+            [new MountHeroStatus("Kiesh", true, false, 0, 0, "", true, 0)];
 
         var component = Render<Mounts>();
         component.WaitForAssertion(() => Assert.Equal(2, component.FindAll("tbody tr").Count));
@@ -105,35 +127,33 @@ public sealed class MountsTests : BunitContext
         var store = Services.GetRequiredService<SelectedCharacterStore>();
         await component.InvokeAsync(() => store.SetSelectedAsync(["Kiesh"], "Kiesh").AsTask());
 
-        SelectMountRow(component, "Black Battlestrider");
+        ToggleMountRow(component, "Black Battlestrider");
         component.WaitForAssertion(() => Assert.False(GiveButton(component).HasAttribute("disabled")));
 
         GiveButton(component).Click();
 
         component.WaitForAssertion(() =>
         {
-            Assert.Empty(handler.GivenTo);
-            Assert.Contains("Blocked", component.Markup);
+            Assert.Single(handler.GivenTo);
+            Assert.Contains("Kiesh", handler.GivenTo);
+            Assert.False(handler.CrossFactionOverrideByPlayer.TryGetValue("Kiesh", out var overrideFlag) && overrideFlag);
+            Assert.Contains("cross-faction mount", component.Markup, StringComparison.OrdinalIgnoreCase);
         });
     }
 
     [Fact]
-    public async Task EnablingCrossFactionOverrideAllowsTheGiveAndRecordsIt()
+    public async Task CheckingTheAcknowledgementBoxRecordsTheOverrideOnAMismatchedGive()
     {
         handler.HeroStatusesByMount[18243] =
-        [
-            new MountHeroStatus("Vynlan", false, 45000, 7, "Exalted", true, 0),
-            new MountHeroStatus("Kiesh", true, 0, 0, "", true, 0)
-        ];
+            [new MountHeroStatus("Kiesh", true, false, 0, 0, "", true, 0)];
 
         var component = Render<Mounts>();
         component.WaitForAssertion(() => Assert.Equal(2, component.FindAll("tbody tr").Count));
 
         var store = Services.GetRequiredService<SelectedCharacterStore>();
-        await component.InvokeAsync(() =>
-            store.SetSelectedAsync(["Vynlan", "Kiesh"], "Vynlan").AsTask());
+        await component.InvokeAsync(() => store.SetSelectedAsync(["Kiesh"], "Kiesh").AsTask());
 
-        SelectMountRow(component, "Black Battlestrider");
+        ToggleMountRow(component, "Black Battlestrider");
         component.WaitForAssertion(() => Assert.Single(component.FindAll("#allowCrossFaction")));
         component.Find("#allowCrossFaction").Change(true);
 
@@ -141,11 +161,8 @@ public sealed class MountsTests : BunitContext
 
         component.WaitForAssertion(() =>
         {
-            Assert.Equal(2, handler.GivenTo.Count);
-            Assert.Contains("Kiesh", handler.GivenTo);
-            Assert.True(handler.CrossFactionOverrideByPlayer.TryGetValue("Kiesh", out var kieshOverride) && kieshOverride);
-            Assert.True(handler.CrossFactionOverrideByPlayer.TryGetValue("Vynlan", out var vynlanOverride) && !vynlanOverride);
-            Assert.Contains("cross-faction override", component.Markup, StringComparison.OrdinalIgnoreCase);
+            Assert.Single(handler.GivenTo);
+            Assert.True(handler.CrossFactionOverrideByPlayer.TryGetValue("Kiesh", out var overrideFlag) && overrideFlag);
         });
     }
 
@@ -167,8 +184,8 @@ public sealed class MountsTests : BunitContext
     {
         handler.HeroStatusesByMount[18243] =
         [
-            new MountHeroStatus("Vynlan", false, 45000, 7, "Exalted", true, 0),
-            new MountHeroStatus("Kiesh", false, 1000, 3, "Neutral", false, 20000)
+            new MountHeroStatus("Vynlan", false, false, 45000, 7, "Exalted", true, 0),
+            new MountHeroStatus("Kiesh", false, false, 1000, 3, "Neutral", false, 20000)
         ];
 
         var component = Render<Mounts>();
@@ -177,7 +194,7 @@ public sealed class MountsTests : BunitContext
         var store = Services.GetRequiredService<SelectedCharacterStore>();
         await component.InvokeAsync(() =>
             store.SetSelectedAsync(["Vynlan", "Kiesh"], "Vynlan").AsTask());
-        SelectMountRow(component, "Black Battlestrider");
+        ToggleMountRow(component, "Black Battlestrider");
 
         component.WaitForAssertion(() =>
         {
@@ -188,20 +205,42 @@ public sealed class MountsTests : BunitContext
         });
     }
 
+    [Fact]
+    public async Task MountsAlreadyKnownByASelectedHeroAreHighlightedWithoutBlockingAnotherGive()
+    {
+        handler.HeroStatusesByMount[45725] =
+            [new MountHeroStatus("Vynlan", false, true, 0, 0, "", true, 0)];
+
+        var component = Render<Mounts>();
+        var store = Services.GetRequiredService<SelectedCharacterStore>();
+        await component.InvokeAsync(() => store.SetSelectedAsync(["Vynlan"], "Vynlan").AsTask());
+
+        component.WaitForAssertion(() =>
+        {
+            var row = component.FindAll("tbody tr")
+                .Single(r => r.TextContent.Contains("Argent Hippogryph", StringComparison.Ordinal));
+            Assert.Contains("Known: Vynlan", row.TextContent);
+        });
+
+        ToggleMountRow(component, "Argent Hippogryph");
+        component.WaitForAssertion(() => Assert.False(GiveButton(component).HasAttribute("disabled")));
+    }
+
     private static AngleSharp.Dom.IElement GiveButton(IRenderedComponent<Mounts> component) =>
         component.FindAll("button").Single(button =>
             button.TextContent.Trim() == "Give to selected heroes");
 
-    private static void SelectMountRow(IRenderedComponent<Mounts> component, string mountName) =>
+    private static void ToggleMountRow(IRenderedComponent<Mounts> component, string mountName) =>
         component.FindAll("tbody tr").Single(row => row.TextContent.Contains(
                 mountName, StringComparison.Ordinal))
-            .QuerySelector("button")!.Click();
+            .QuerySelector("input[type=checkbox]")!.Change(true);
 
     private sealed class MountsHandler : HttpMessageHandler
     {
         public string? LastFaction { get; private set; }
-        public Dictionary<string, bool> CrossFactionOverrideByPlayer { get; } = [];
         public List<string> GivenTo { get; } = [];
+        public List<uint> GivenItemIds { get; } = [];
+        public Dictionary<string, bool> CrossFactionOverrideByPlayer { get; } = [];
         public Dictionary<uint, IReadOnlyList<MountHeroStatus>> HeroStatusesByMount { get; } = [];
 
         private IReadOnlyList<MountHeroStatus> HeroStatusesFor(uint itemId) =>
@@ -219,13 +258,13 @@ public sealed class MountsTests : BunitContext
                 {
                     new(18243, "Black Battlestrider", 4, 40, 75, 262143, 1101, "Alliance", null, null,
                         RequiredFactionId: 69, RequiredFactionName: "Stormwind",
-                        RequiredReputationRank: 6, HeroStatuses: HeroStatusesFor(18243))
+                        RequiredReputationRank: 6, SpellId: 1, HeroStatuses: HeroStatusesFor(18243))
                 };
                 if (LastFaction is null)
                     mounts.Add(new(45725, "Argent Hippogryph", 4, 70, 300, -1, -1, null,
                         "Corporal Arthur Flew", null,
                         RequiredFactionId: 0, RequiredFactionName: null,
-                        RequiredReputationRank: 0, HeroStatuses: HeroStatusesFor(45725)));
+                        RequiredReputationRank: 0, SpellId: 2, HeroStatuses: HeroStatusesFor(45725)));
                 return Json(new AdministrationMountSearchResult(mounts, 1, 30, mounts.Count, 1));
             }
             if (request.Method == HttpMethod.Post
@@ -236,6 +275,7 @@ public sealed class MountsTests : BunitContext
                 if (body?.PlayerName is not null)
                 {
                     GivenTo.Add(body.PlayerName);
+                    GivenItemIds.Add(body.ItemId);
                     CrossFactionOverrideByPlayer[body.PlayerName] = body.CrossFactionOverride;
                 }
                 return Json(new AdministrationResult(true, "Item given."));

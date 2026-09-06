@@ -455,9 +455,9 @@ public sealed record AdministrationMount(
     long AllowableClass, long AllowableRace, string? Faction,
     string? SourceVendor, string? SourceTrainer,
     uint RequiredFactionId, string? RequiredFactionName, byte RequiredReputationRank,
-    IReadOnlyList<MountHeroStatus> HeroStatuses);
+    uint SpellId, IReadOnlyList<MountHeroStatus> HeroStatuses);
 public sealed record MountHeroStatus(
-    string CharacterName, bool FactionMismatch, int CurrentStanding,
+    string CharacterName, bool FactionMismatch, bool Owned, int CurrentStanding,
     byte CurrentRank, string CurrentRankName, bool ReputationMet, int RemainingStandingNeeded);
 public sealed record AdministrationMountSearchResult(
     IReadOnlyList<AdministrationMount> Mounts, int Page, int PageSize, int TotalCount, int TotalPages);

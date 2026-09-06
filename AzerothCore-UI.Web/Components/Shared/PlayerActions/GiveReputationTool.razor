@@ -2,48 +2,49 @@
 @implements IDisposable
 
 <PlayerActionToolHeader Title="Give Reputation" Icon="🏵" />
-<div class="mb-2">
-	<input class="form-control form-control-sm" placeholder="Search faction name or paste an id..."
-		   value="@search" @oninput="SearchChangedAsync" />
-</div>
-@if (isSearching)
+@if (selectedFaction is null)
 {
-	<p class="small text-muted">Searching factions...</p>
-}
-else if (search.Length > 0 && factions.Count == 0)
-{
-	<p class="small text-muted">
-		No matching factions were found. If this server's faction reference data isn't
-		populated yet, enter a known faction id directly below instead.
-	</p>
-}
-else if (factions.Count > 0)
-{
-	<ul class="list-group list-group-flush small mb-2 reputation-faction-results">
-		@foreach (var faction in factions)
-		{
-			<li class="list-group-item list-group-item-action" role="button" @onclick="() => SelectFaction(faction)">
-				@faction.Name <span class="text-muted">(ID @faction.FactionId)</span>
-			</li>
-		}
-	</ul>
-}
-<div class="row g-2 mb-2">
-	<div class="col-8">
-		<input class="form-control" type="number" min="0" placeholder="Faction ID"
-			   @bind="factionId" @bind:after="ClearSelectedFactionLabel" />
+	<div class="mb-2">
+		<input class="form-control form-control-sm" placeholder="Search faction name..."
+			   value="@search" @oninput="SearchChangedAsync" />
 	</div>
-	<div class="col-4">
-		<input class="form-control" type="number" placeholder="Amount" @bind="amount" />
-	</div>
-</div>
-@if (selectedFactionName is not null)
-{
-	<p class="small text-muted mb-2">Selected: <strong>@selectedFactionName</strong> (ID @factionId)</p>
+	@if (isSearching)
+	{
+		<p class="small text-muted">Searching factions...</p>
+	}
+	else if (search.Length > 0 && factions.Count == 0)
+	{
+		<p class="small text-muted">No matching factions were found.</p>
+	}
+	else if (factions.Count > 0)
+	{
+		<ul class="list-group list-group-flush small mb-2 reputation-faction-results">
+			@foreach (var faction in factions)
+			{
+				<li class="list-group-item list-group-item-action" role="button" @onclick="() => SelectFaction(faction)">
+					@faction.Name <span class="text-muted">(ID @faction.FactionId)</span>
+				</li>
+			}
+		</ul>
+	}
 }
+else
+{
+	<div class="d-flex align-items-center gap-2 mb-2">
+		<span class="flex-grow-1">
+			<strong>@selectedFaction.Name</strong>
+			<span class="text-muted small">(ID @selectedFaction.FactionId)</span>
+		</span>
+		<button type="button" class="btn btn-sm btn-outline-secondary" @onclick="ClearFaction">Change</button>
+	</div>
+}
+<div class="mb-1">
+	<input class="form-control" type="number" placeholder="Amount" @bind="amount" />
+</div>
+<p class="small text-muted mb-2">Positive grants reputation, negative removes it.</p>
 <PlayerActionFeedback Results="Results" />
 <PlayerActionToolFooter ShowResult="HasActionResult" Message="@ResultMessage" Succeeded="OperationSucceeded">
-	<button class="btn btn-primary" disabled="@(!CanExecute || factionId == 0 || amount == 0)"
+	<button class="btn btn-primary" disabled="@(!CanExecute || selectedFaction is null || amount == 0)"
 			@onclick="GrantAsync">
 		Grant reputation
 	</button>
@@ -52,8 +53,7 @@ else if (factions.Count > 0)
 @code {
 	private string search = "";
 	private IReadOnlyList<ReputationFaction> factions = [];
-	private string? selectedFactionName;
-	private uint factionId;
+	private ReputationFaction? selectedFaction;
 	private int amount;
 	private bool isSearching;
 	private CancellationTokenSource? debounce;
@@ -85,17 +85,22 @@ else if (factions.Count > 0)
 
 	private void SelectFaction(ReputationFaction faction)
 	{
-		factionId = faction.FactionId;
-		selectedFactionName = faction.Name;
+		selectedFaction = faction;
 		factions = [];
-		search = faction.Name;
+		search = "";
 	}
 
-	private void ClearSelectedFactionLabel() => selectedFactionName = null;
+	private void ClearFaction()
+	{
+		selectedFaction = null;
+		search = "";
+		factions = [];
+	}
 
 	private async Task<AdministrationResult?> GrantOneAsync(string player)
 	{
-		var result = await AccountsClient.GiveReputationAsync(new(player, factionId, amount));
+		if (selectedFaction is null) return null;
+		var result = await AccountsClient.GiveReputationAsync(new(player, selectedFaction.FactionId, amount));
 		return result is null ? null : new AdministrationResult(result.Success, result.Message);
 	}
 

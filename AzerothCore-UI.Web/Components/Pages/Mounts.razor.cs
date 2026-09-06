@@ -7,9 +7,9 @@ public partial class Mounts : IDisposable
 {
     private AdministrationMountSearchResult results = new([], 1, 30, 0, 0);
     private readonly HashSet<string> targetNames = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<AdministrationMount> selectedMounts = [];
     private IReadOnlyList<PlayerActionResult> giveResults = [];
     private CancellationTokenSource? debounce;
-    private AdministrationMount? selected;
     private string search = "";
     private int? minimumLevel;
     private int? maximumLevel;
@@ -77,7 +77,15 @@ public partial class Mounts : IDisposable
         {
             results = await Api.GetMountsAsync(
                 search, minimumLevel, maximumLevel, minimumSkillRank, faction, page, targetNames);
-            selected = selected is null ? null : results.Mounts.FirstOrDefault(mount => mount.ItemId == selected.ItemId) ?? selected;
+            // Keep any already-selected mount's HeroStatuses current even if it isn't
+            // on the currently displayed page (e.g. the hero selection changed while
+            // browsing a later page) - a mount not present in this response keeps its
+            // previously-fetched (now possibly stale) statuses rather than losing them.
+            for (var index = 0; index < selectedMounts.Count; index++)
+            {
+                var refreshed = results.Mounts.FirstOrDefault(mount => mount.ItemId == selectedMounts[index].ItemId);
+                if (refreshed is not null) selectedMounts[index] = refreshed;
+            }
         }
         catch (Exception exception)
         {
@@ -90,12 +98,23 @@ public partial class Mounts : IDisposable
         }
     }
 
-    private void SelectMount(AdministrationMount mount)
+    private bool IsSelected(AdministrationMount mount) =>
+        selectedMounts.Any(selected => selected.ItemId == mount.ItemId);
+
+    private void ToggleMountSelection(AdministrationMount mount)
     {
-        selected = mount;
+        var index = selectedMounts.FindIndex(selected => selected.ItemId == mount.ItemId);
+        if (index >= 0) selectedMounts.RemoveAt(index);
+        else selectedMounts.Add(mount);
         giveResults = [];
         message = null;
-        allowCrossFaction = false;
+    }
+
+    private void ClearMountSelection()
+    {
+        selectedMounts.Clear();
+        giveResults = [];
+        message = null;
     }
 
     private static readonly string[] ReputationRankNames =
@@ -106,46 +125,46 @@ public partial class Mounts : IDisposable
 
     private async Task GiveAsync()
     {
-        if (selected is null || targetNames.Count == 0 || isGiving) return;
+        if (selectedMounts.Count == 0 || targetNames.Count == 0 || isGiving) return;
         isGiving = true;
-        var mount = selected;
+        var mounts = selectedMounts.ToArray();
+        var multipleMounts = mounts.Length > 1;
         var collected = new List<PlayerActionResult>();
         try
         {
-            foreach (var name in targetNames)
+            foreach (var mount in mounts)
             {
-                var status = mount.HeroStatuses.FirstOrDefault(
-                    heroStatus => string.Equals(heroStatus.CharacterName, name, StringComparison.OrdinalIgnoreCase));
-                var mismatch = status?.FactionMismatch == true;
-                if (mismatch && !allowCrossFaction)
+                foreach (var name in targetNames)
                 {
-                    collected.Add(new PlayerActionResult(name, false,
-                        $"Blocked: {mount.Faction} mount cannot be given to a character of the opposite faction. " +
-                        "Enable \"Allow cross-faction mount\" to override."));
-                    continue;
-                }
-                try
-                {
-                    var result = await Api.GiveItemAsync(new GiveItemRequest(
-                        name, mount.ItemId, 1, CrossFactionOverride: mismatch));
-                    var resultMessage = result?.Message ?? "No response returned.";
-                    if (mismatch && result?.Success == true)
-                        resultMessage += " Cross-faction override: the mount may still be unusable in-game " +
-                            "until the character has appropriate riding skill/training, or may be rejected " +
-                            "by the server's own faction check when used.";
-                    collected.Add(new PlayerActionResult(name, result?.Success == true, resultMessage));
-                }
-                catch (Exception exception)
-                {
-                    collected.Add(new PlayerActionResult(name, false, exception.Message));
+                    var status = mount.HeroStatuses.FirstOrDefault(heroStatus =>
+                        string.Equals(heroStatus.CharacterName, name, StringComparison.OrdinalIgnoreCase));
+                    var mismatch = status?.FactionMismatch == true;
+                    var resultLabel = multipleMounts ? $"{name} — {mount.Name}" : name;
+                    try
+                    {
+                        var result = await Api.GiveItemAsync(new GiveItemRequest(
+                            name, mount.ItemId, 1, CrossFactionOverride: mismatch && allowCrossFaction));
+                        var resultMessage = result?.Message ?? "No response returned.";
+                        if (mismatch)
+                            resultMessage += " This is a cross-faction mount: it may still be unusable in-game " +
+                                "until the character has appropriate riding skill/training, or may be rejected " +
+                                "by the server's own faction check when used.";
+                        collected.Add(new PlayerActionResult(resultLabel, result?.Success == true, resultMessage));
+                    }
+                    catch (Exception exception)
+                    {
+                        collected.Add(new PlayerActionResult(resultLabel, false, exception.Message));
+                    }
                 }
             }
             giveResults = collected;
             var successCount = collected.Count(result => result.Success);
             succeeded = successCount == collected.Count;
+            var summary = $"{mounts.Length} mount{(mounts.Length == 1 ? "" : "s")} to " +
+                $"{targetNames.Count} hero{(targetNames.Count == 1 ? "" : "es")} ({collected.Count} total)";
             message = succeeded
-                ? $"{mount.Name} was given to all {successCount} selected hero{(successCount == 1 ? "" : "es")}."
-                : $"{mount.Name} was given to {successCount} of {collected.Count} selected heroes.";
+                ? $"Gave {summary}."
+                : $"Completed {successCount} of {collected.Count} transfers for {summary}.";
         }
         finally
         {

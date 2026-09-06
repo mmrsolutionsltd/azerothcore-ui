@@ -595,6 +595,7 @@ public sealed class ServerAdministrationController(
                    item.RequiredReputationFaction AS RequiredFactionId,
                    item.RequiredReputationRank AS RequiredReputationRank,
                    NULLIF(requiredFaction.Name_Lang_enUS, '') AS RequiredFactionName,
+                   item.spellid_1 AS SpellId,
                    GROUP_CONCAT(DISTINCT vendorCreature.name ORDER BY vendorCreature.name SEPARATOR ', ') AS SourceVendor,
                    GROUP_CONCAT(DISTINCT trainerCreature.name ORDER BY trainerCreature.name SEPARATOR ', ') AS SourceTrainer
             FROM acore_world.item_template item
@@ -614,7 +615,8 @@ public sealed class ServerAdministrationController(
               AND (@MinimumSkillRank IS NULL OR item.RequiredSkillRank >= @MinimumSkillRank)
             GROUP BY item.entry, item.name, item.Quality, item.RequiredLevel,
                      item.RequiredSkillRank, item.AllowableClass, item.AllowableRace,
-                     item.RequiredReputationFaction, item.RequiredReputationRank, requiredFaction.Name_Lang_enUS
+                     item.RequiredReputationFaction, item.RequiredReputationRank, requiredFaction.Name_Lang_enUS,
+                     item.spellid_1
             ORDER BY item.name, item.entry;
             """;
         await using var connection = connectionFactory.CreateConnection();
@@ -628,7 +630,7 @@ public sealed class ServerAdministrationController(
             row.AllowableClass, row.AllowableRace, MountFaction(row.AllowableRace),
             row.SourceVendor, row.SourceTrainer,
             row.RequiredFactionId, row.RequiredFactionName, row.RequiredReputationRank,
-            [])).ToArray();
+            row.SpellId, [])).ToArray();
         var filtered = faction is null
             ? allMounts
             : allMounts.Where(mount => mount.Faction == faction).ToArray();
@@ -667,10 +669,26 @@ public sealed class ServerAdministrationController(
             var standingByGuidAndFaction = standings.ToDictionary(
                 row => (row.Guid, row.FactionId), row => row.Standing);
 
+            var spellIds = mounts.Select(mount => mount.SpellId).Distinct().ToArray();
+            var knownSpells = spellIds.Length == 0 || characters.Count == 0
+                ? []
+                : (await connection.QueryAsync<CharacterSpellRow>(new CommandDefinition("""
+                    SELECT guid AS Guid, spell AS SpellId
+                    FROM acore_characters.character_spell
+                    WHERE guid IN @Guids AND spell IN @SpellIds AND disabled = 0;
+                    """, new
+                {
+                    Guids = characters.Select(character => character.Guid).ToArray(),
+                    SpellIds = spellIds
+                }, cancellationToken: cancellationToken))).AsList();
+            var knownSpellsByGuid = knownSpells
+                .Select(row => (row.Guid, row.SpellId)).ToHashSet();
+
             mounts = mounts.Select(mount => mount with
             {
                 HeroStatuses = characters.Select(character => BuildHeroStatus(
                     character.Name, character.Race, mount.Faction,
+                    knownSpellsByGuid.Contains((character.Guid, mount.SpellId)),
                     mount.RequiredFactionId, mount.RequiredReputationRank,
                     standingByGuidAndFaction.GetValueOrDefault((character.Guid, mount.RequiredFactionId), 0)))
                     .ToArray()
@@ -681,12 +699,15 @@ public sealed class ServerAdministrationController(
             total == 0 ? 0 : (int)Math.Ceiling(total / (double)pageSize)));
     }
 
-    // Pure/testable: given one character's race and one mount's faction/reputation
-    // requirement, reports whether the mount's faction conflicts with the character
-    // and (only when the mount has a reputation requirement) their current standing,
-    // whether it's met, and how much more is needed.
+    // Pure/testable: given one character's race/known-spells and one mount's
+    // faction/reputation requirement, reports whether the mount's faction is
+    // informationally mismatched (a use-time restriction, never a grant-time
+    // blocker - see FactionMismatch usage on the Web side), whether the character
+    // already knows the mount, and (only when the mount has a reputation
+    // requirement) their current standing, whether it's met, and how much more is
+    // needed.
     internal static MountHeroStatus BuildHeroStatus(
-        string characterName, byte characterRace, string? mountFaction,
+        string characterName, byte characterRace, string? mountFaction, bool owned,
         uint requiredFactionId, byte requiredReputationRank, int currentStanding)
     {
         var factionMismatch = mountFaction switch
@@ -696,13 +717,13 @@ public sealed class ServerAdministrationController(
             _ => false
         };
         if (requiredFactionId == 0)
-            return new(characterName, factionMismatch, 0, 0, "", true, 0);
+            return new(characterName, factionMismatch, owned, 0, 0, "", true, 0);
 
         var currentRank = ReputationRanks.GetRank(currentStanding);
         var met = currentRank >= requiredReputationRank;
         var remaining = met ? 0 : Math.Max(0,
             ReputationRanks.MinimumStandingForRank(requiredReputationRank) - currentStanding);
-        return new(characterName, factionMismatch, currentStanding,
+        return new(characterName, factionMismatch, owned, currentStanding,
             currentRank, ReputationRanks.Name(currentRank), met, remaining);
     }
 
@@ -718,6 +739,7 @@ public sealed class ServerAdministrationController(
         public uint RequiredFactionId { get; init; }
         public byte RequiredReputationRank { get; init; }
         public string? RequiredFactionName { get; init; }
+        public uint SpellId { get; init; }
         public string? SourceVendor { get; init; }
         public string? SourceTrainer { get; init; }
     }
@@ -734,6 +756,12 @@ public sealed class ServerAdministrationController(
         public uint Guid { get; init; }
         public uint FactionId { get; init; }
         public int Standing { get; init; }
+    }
+
+    private sealed class CharacterSpellRow
+    {
+        public uint Guid { get; init; }
+        public uint SpellId { get; init; }
     }
 
     private static readonly long AllianceMountRaceMask = MountRaceMask(1, 3, 4, 7, 11);

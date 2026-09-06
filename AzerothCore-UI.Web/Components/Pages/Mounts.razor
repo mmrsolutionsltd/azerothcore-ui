@@ -8,7 +8,7 @@
 
 <PageHeader Eyebrow="CHARACTER SERVICES"
             Title="Give Mounts"
-            Description="Browse the realm's mount catalogue and hand one to every selected hero at once."
+            Description="Browse the realm's mount catalogue and hand one or more to every selected hero at once."
             BadgeText="GRANTS ITEMS"
             BadgeSubtext="Delivery is immediate"
             Tone="PageHeaderBadgeTone.Caution" />
@@ -85,22 +85,30 @@ else
                                     @foreach (var mount in results.Mounts)
                                     {
                                         var mismatched = mount.HeroStatuses.Where(status => status.FactionMismatch).ToArray();
-                                        <tr class="@(selected?.ItemId == mount.ItemId ? "table-primary" : null)">
+                                        var owned = mount.HeroStatuses.Where(status => status.Owned).ToArray();
+                                        <tr class="@(IsSelected(mount) ? "table-primary" : null)">
                                             <td>
-                                                <button class="btn btn-sm btn-outline-primary"
-                                                        @onclick="() => SelectMount(mount)">
-                                                    Select
-                                                </button>
+                                                <input class="form-check-input" type="checkbox"
+                                                       checked="@IsSelected(mount)"
+                                                       @onchange="() => ToggleMountSelection(mount)" />
                                             </td>
-                                            <td class="fw-semibold">@mount.Name</td>
+                                            <td class="fw-semibold">
+                                                @mount.Name
+                                                @if (owned.Length > 0)
+                                                {
+                                                    <div class="small text-success">
+                                                        Known: @string.Join(", ", owned.Select(status => status.CharacterName))
+                                                    </div>
+                                                }
+                                            </td>
                                             <td>@mount.RequiredLevel</td>
                                             <td>@RidingSkillLabel(mount.RequiredSkillRank)</td>
                                             <td>
                                                 @(mount.Faction ?? "Both")
                                                 @if (mismatched.Length > 0)
                                                 {
-                                                    <div class="small text-danger">
-                                                        ⚠ wrong faction: @string.Join(", ", mismatched.Select(status => status.CharacterName))
+                                                    <div class="small text-muted">
+                                                        Opposite faction: @string.Join(", ", mismatched.Select(status => status.CharacterName))
                                                     </div>
                                                 }
                                             </td>
@@ -150,48 +158,71 @@ else
             </div>
         </div>
         <div class="col-xl-3">
-            <div class="card">
+            <div class="card mount-give-panel">
                 <div class="card-body">
-                    <h2 class="h5">Give selected mount</h2>
-                    @if (selected is null)
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h2 class="h5 mb-0">Give selected mounts</h2>
+                        @if (selectedMounts.Count > 0)
+                        {
+                            <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="ClearMountSelection">
+                                Clear
+                            </button>
+                        }
+                    </div>
+                    @if (selectedMounts.Count == 0)
                     {
-                        <p class="text-muted">Select a mount from the catalogue.</p>
+                        <p class="text-muted">Select one or more mounts from the catalogue.</p>
                     }
                     else
                     {
-                        <p>
-                            <strong>@selected.Name</strong><br />
-                            <span class="small text-muted">
-                                Requires level @selected.RequiredLevel and @RidingSkillLabel(selected.RequiredSkillRank).
-                            </span>
-                        </p>
+                        <ul class="list-group list-group-flush small mb-2">
+                            @foreach (var mount in selectedMounts)
+                            {
+                                <li class="list-group-item px-0 py-1 d-flex justify-content-between align-items-center">
+                                    <span>
+                                        @mount.Name
+                                        <span class="text-muted">
+                                            (level @mount.RequiredLevel, @RidingSkillLabel(mount.RequiredSkillRank))
+                                        </span>
+                                    </span>
+                                    <button class="btn btn-sm btn-outline-secondary" type="button"
+                                            @onclick="() => ToggleMountSelection(mount)">
+                                        Remove
+                                    </button>
+                                </li>
+                            }
+                        </ul>
                     }
                     <p class="small text-muted">
                         @(targetNames.Count == 0
                             ? "No heroes are currently selected in the header."
                             : $"Will be given to {targetNames.Count} selected hero{(targetNames.Count == 1 ? "" : "es")}.")
                     </p>
+                    @if (selectedMounts.Count > 0 && targetNames.Count > 0)
+                    {
+                        <p class="small text-muted">
+                            @(selectedMounts.Count * targetNames.Count) total transfer@(selectedMounts.Count * targetNames.Count == 1 ? "" : "s").
+                        </p>
+                    }
                     <p class="small text-muted">
                         The recipient may still need to train the matching riding skill before this mount can be summoned.
                     </p>
-                    @if (selected?.Faction is not null)
-                    {
-                        <div class="form-check mb-2">
-                            <input class="form-check-input" type="checkbox" id="allowCrossFaction"
-                                   @bind="allowCrossFaction" />
-                            <label class="form-check-label small" for="allowCrossFaction">
-                                Allow cross-faction mount
-                            </label>
-                        </div>
-                        <p class="small text-warning">
-                            When enabled, this @selected.Faction mount can be given to characters of the
-                            opposite faction. It may still be unusable in-game until the character has
-                            appropriate riding skill/training, and AzerothCore's own faction check may still
-                            reject it when used, regardless of this override.
-                        </p>
-                    }
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="allowCrossFaction"
+                               @bind="allowCrossFaction" />
+                        <label class="form-check-label small" for="allowCrossFaction">
+                            Acknowledge cross-faction mount(s)
+                        </label>
+                    </div>
+                    <p class="small text-warning">
+                        Mount race/faction is only enforced by AzerothCore when the item is used, not when it's
+                        given - a mount can always be handed to any selected hero. Checking this box just records
+                        in the audit log that you knowingly gave an opposite-faction mount; it may still be
+                        unusable in-game until the character has appropriate riding skill/training, or may be
+                        rejected by the server's own faction check when used.
+                    </p>
                     <button class="btn btn-primary" type="button"
-                            disabled="@(isGiving || selected is null || targetNames.Count == 0)"
+                            disabled="@(isGiving || selectedMounts.Count == 0 || targetNames.Count == 0)"
                             @onclick="GiveAsync">
                         Give to selected heroes
                     </button>

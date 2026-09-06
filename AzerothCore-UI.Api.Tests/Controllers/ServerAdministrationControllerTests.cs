@@ -83,7 +83,8 @@ public sealed class ServerAdministrationControllerTests
         string? mountFaction, byte characterRace, bool expectedMismatch)
     {
         var status = ServerAdministrationController.BuildHeroStatus(
-            "Kiesh", characterRace, mountFaction, requiredFactionId: 0, requiredReputationRank: 0, currentStanding: 0);
+            "Kiesh", characterRace, mountFaction, owned: false,
+            requiredFactionId: 0, requiredReputationRank: 0, currentStanding: 0);
 
         Assert.Equal(expectedMismatch, status.FactionMismatch);
         Assert.Equal("Kiesh", status.CharacterName);
@@ -93,7 +94,7 @@ public sealed class ServerAdministrationControllerTests
     public void BuildHeroStatusWithNoReputationRequirementReportsTriviallyMet()
     {
         var status = ServerAdministrationController.BuildHeroStatus(
-            "Kiesh", characterRace: 3, mountFaction: null,
+            "Kiesh", characterRace: 3, mountFaction: null, owned: false,
             requiredFactionId: 0, requiredReputationRank: 6, currentStanding: -20000);
 
         Assert.True(status.ReputationMet);
@@ -105,7 +106,7 @@ public sealed class ServerAdministrationControllerTests
     public void BuildHeroStatusComputesRemainingStandingWhenNotMet()
     {
         var status = ServerAdministrationController.BuildHeroStatus(
-            "Kiesh", characterRace: 3, mountFaction: "Alliance",
+            "Kiesh", characterRace: 3, mountFaction: "Alliance", owned: false,
             requiredFactionId: 69, requiredReputationRank: 6, currentStanding: 1000);
 
         Assert.False(status.ReputationMet);
@@ -118,13 +119,26 @@ public sealed class ServerAdministrationControllerTests
     public void BuildHeroStatusReportsMetWhenStandingAlreadyClearsTheRequiredRank()
     {
         var status = ServerAdministrationController.BuildHeroStatus(
-            "Vynlan", characterRace: 3, mountFaction: "Alliance",
+            "Vynlan", characterRace: 3, mountFaction: "Alliance", owned: false,
             requiredFactionId: 69, requiredReputationRank: 6, currentStanding: 45000);
 
         Assert.True(status.ReputationMet);
         Assert.Equal(7, status.CurrentRank);
         Assert.Equal("Exalted", status.CurrentRankName);
         Assert.Equal(0, status.RemainingStandingNeeded);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void BuildHeroStatusReportsOwnershipIndependentlyOfFactionAndReputation(bool owned)
+    {
+        var status = ServerAdministrationController.BuildHeroStatus(
+            "Kiesh", characterRace: 2, mountFaction: "Horde", owned: owned,
+            requiredFactionId: 0, requiredReputationRank: 0, currentStanding: 0);
+
+        Assert.Equal(owned, status.Owned);
+        Assert.False(status.FactionMismatch);
     }
 
     [Theory]
