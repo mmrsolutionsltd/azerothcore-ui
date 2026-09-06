@@ -675,7 +675,7 @@ public sealed class ServerAdministrationController(
                 : (await connection.QueryAsync<CharacterSpellRow>(new CommandDefinition("""
                     SELECT guid AS Guid, spell AS SpellId
                     FROM acore_characters.character_spell
-                    WHERE guid IN @Guids AND spell IN @SpellIds AND disabled = 0;
+                    WHERE guid IN @Guids AND spell IN @SpellIds;
                     """, new
                 {
                     Guids = characters.Select(character => character.Guid).ToArray(),
