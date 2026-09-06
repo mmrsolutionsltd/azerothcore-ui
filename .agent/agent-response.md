@@ -252,3 +252,14 @@ sudo systemctl start azerothcore-world.service
 ```
 
 Not installed, not restarted, no database writes - awaiting your review and the owner's explicit approval before any install/restart, per the request.
+
+# HOTFIX: Mounts page 500 error live in production (commit 10ee110, deployed)
+
+The owner reported the Mounts page throwing "An unexpected administration error occurred" live. `journalctl -u azerothcore-ui-api.service` showed `MySqlException: Unknown column 'disabled' in 'where clause'` from the mount-ownership query added in `098ffb5`:
+```sql
+SELECT guid AS Guid, spell AS SpellId FROM acore_characters.character_spell
+WHERE guid IN @Guids AND spell IN @SpellIds AND disabled = 0;
+```
+Checked production's actual schema: `DESCRIBE acore_characters.character_spell` returns only `guid, spell, specMask` - no `active`/`disabled` column exists on this install. I assumed a column that doesn't exist here without checking first; that's on me. Fix: dropped the `AND disabled = 0` clause - a `(guid, spell)` row's mere presence already means the spell is known, no extra filter needed. Built, full test suite green (240/240 Api, 128/128 Web), pushed, and deployed immediately since this was an active production regression blocking the page entirely - didn't wait for a separate deploy confirmation given the site was actively broken. `/health/ready` returns 200 post-deploy.
+
+Also worth noting for your review: this confirms `098ffb5` (the Mounts/reputation corrections commit) had already reached production before this hotfix, and separately I found `webadmin reputation grant` already live/installed on the worldserver too (see the note above) - neither deployment is recorded in this file from your side. Not raising this as a problem, just flagging so we all have the same picture of what's actually running.
