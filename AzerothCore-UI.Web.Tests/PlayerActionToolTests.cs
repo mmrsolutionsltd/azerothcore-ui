@@ -367,7 +367,7 @@ public sealed class PlayerActionToolTests : BunitContext
     }
 
     [Fact]
-    public void TeleportPlayerModeDefaultsToOnlinePlayersAndBotsThenIncludesOfflineOnRequest()
+    public void TeleportPlayerModeOnlyOffersOnlineNonBotPlayersExcludingCurrentTargets()
     {
         var component = Render<TeleportTool>(parameters => parameters
             .Add(tool => tool.Targets, [OnlinePlayer])
@@ -376,34 +376,15 @@ public sealed class PlayerActionToolTests : BunitContext
         component.FindAll("button").Single(button =>
             button.TextContent.Trim() == "Player").Click();
         component.WaitForElement("#movement-anchor");
-        Assert.True(component.Find("input[id$='-bots']").HasAttribute("checked"));
+
+        // Jaina (OnlinePlayer) is excluded as an already-selected target; Uther is
+        // offline; Gennik and Valeera are plain bots (online and offline respectively).
+        // Only Anduin - an online, non-bot, non-target player - remains.
         Assert.Equal(
-            ["", "Anduin", "Gennik"],
+            ["", "Anduin"],
             AnchorValues(component));
-
-        component.Find("input[id$='-offline']").Change(true);
-        Assert.Equal(
-            ["", "Anduin", "Uther", "Gennik", "Valeera"],
-            AnchorValues(component));
-    }
-
-    [Fact]
-    public void UncheckingBotsRemovesOnlineAndOfflineBotsFromTheDestinationList()
-    {
-        var component = Render<TeleportTool>(parameters => parameters
-            .Add(tool => tool.Targets, [OnlinePlayer])
-            .Add(tool => tool.Available, true));
-
-        component.FindAll("button").Single(button =>
-            button.TextContent.Trim() == "Player").Click();
-        component.WaitForElement("#movement-anchor");
-        component.Find("input[id$='-offline']").Change(true);
-
-        component.Find("input[id$='-bots']").Change(false);
-
-        Assert.Equal(
-            ["", "Anduin", "Uther"],
-            AnchorValues(component));
+        Assert.Empty(component.FindAll("input[id$='-offline']"));
+        Assert.Empty(component.FindAll("input[id$='-bots']"));
     }
 
     [Fact]

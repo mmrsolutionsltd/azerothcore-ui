@@ -72,38 +72,16 @@
 			}
 			else
 			{
-				<div class="row g-2 align-items-center">
-					<div class="col">
-						<select id="movement-anchor" class="form-select clickable-item"
-								@bind="anchorPlayer">
-							<option value="">Choose a player...</option>
-							@foreach (var player in AvailableAnchors)
-							{
-								<option value="@player.Name">
-									@player.Name - @(player.IsPlayerBot ? "Bot" : player.Username)
-								</option>
-							}
-						</select>
-					</div>
-					<div class="col-auto">
-						<div class="form-check form-switch mb-0">
-							<input id="@($"{playerFilterId}-offline")" class="form-check-input"
-								   type="checkbox" @bind="showOffline"
-								   @bind:after="ValidateSelectedAnchor" />
-							<label class="form-check-label small"
-								   for="@($"{playerFilterId}-offline")">Offline</label>
-						</div>
-					</div>
-					<div class="col-auto">
-						<div class="form-check form-switch mb-0">
-							<input id="@($"{playerFilterId}-bots")" class="form-check-input"
-								   type="checkbox" @bind="showBots"
-								   @bind:after="ValidateSelectedAnchor" />
-							<label class="form-check-label small"
-								   for="@($"{playerFilterId}-bots")">Bots</label>
-						</div>
-					</div>
-				</div>
+				<select id="movement-anchor" class="form-select clickable-item"
+						@bind="anchorPlayer">
+					<option value="">Choose a player...</option>
+					@foreach (var player in AvailableAnchors)
+					{
+						<option value="@player.Name">
+							@player.Name - @(player.IsPlayerBot ? "Bot" : player.Username)
+						</option>
+					}
+				</select>
 			}
 		}
 	</div>
@@ -174,17 +152,13 @@
 	private string anchorPlayer = "";
 	private bool isLoadingPlayers;
 	private bool playersLoaded;
-	private bool showOffline;
-	private bool showBots = true;
 	private string? playerLoadError;
-	private readonly string playerFilterId = $"movement-anchor-{Guid.NewGuid():N}";
 	private IReadOnlyList<AdministrationPlayer> AvailableAnchors => players
-		.Where(player => (player.Online || showOffline)
-			&& (!player.IsPlayerBot || player.IsCompanion || showBots)
+		.Where(player => player.Online
+			&& (!player.IsPlayerBot || player.IsCompanion)
 			&& Targets.All(target => !target.Name.Equals(
 				player.Name, StringComparison.OrdinalIgnoreCase)))
-		.OrderBy(player => player.IsPlayerBot && !player.IsCompanion)
-		.ThenBy(player => player.Name)
+		.OrderBy(player => player.Name)
 		.ToArray();
 
 	protected override void OnTargetsChanged()
@@ -223,14 +197,6 @@
 	{
 		mode = value;
 		confirmNpcTeleport = false;
-	}
-
-	private void ValidateSelectedAnchor()
-	{
-		if (!string.IsNullOrWhiteSpace(anchorPlayer)
-			&& AvailableAnchors.All(player => !player.Name.Equals(
-				anchorPlayer, StringComparison.OrdinalIgnoreCase)))
-			anchorPlayer = "";
 	}
 
 	private void RememberStartingLocationsChanged()
