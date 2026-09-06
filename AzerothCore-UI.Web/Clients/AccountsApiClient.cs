@@ -422,6 +422,8 @@ public sealed class AccountsApiClient(HttpClient httpClient)
     public Task<ReputationGrantResult?> GiveReputationAsync(GiveReputationRequest request) =>
         PostResultAsync<GiveReputationRequest, ReputationGrantResult>(
             "api/server-administration/reputation/grant", request);
+    public Task<AdministrationResult?> TeachMountAsync(TeachMountRequest request) =>
+        PostAsync("api/server-administration/mounts/teach", request);
     public Task<AdministrationResult?> TeleportAsync(TeleportPlayerRequest request) => PostAsync("api/server-administration/players/teleport", request);
     public Task<AdministrationResult?> TeleportToNpcAsync(TeleportPlayerToNpcRequest request) =>
         PostAsync("api/server-administration/players/teleport-to-npc", request);

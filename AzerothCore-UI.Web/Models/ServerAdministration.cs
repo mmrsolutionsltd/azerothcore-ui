@@ -152,6 +152,7 @@ public sealed record TrainerSearchResult(
 public sealed record ServerLogEntry(string Source, string Message);
 public sealed record GiveItemRequest(
     string PlayerName, uint ItemId, int Quantity, bool CrossFactionOverride = false);
+public sealed record TeachMountRequest(string PlayerName, uint ItemId);
 public sealed record MailItemRequest(string PlayerName, uint ItemId, int Quantity, string Subject, string Message);
 public sealed record GiveMoneyRequest(string PlayerName, int Gold, int Silver, int Copper);
 public sealed record GiveReputationRequest(string PlayerName, uint FactionId, int Amount);

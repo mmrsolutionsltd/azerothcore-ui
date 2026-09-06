@@ -217,9 +217,10 @@ else
                     <p class="small text-warning">
                         Mount race/faction is only enforced by AzerothCore when the item is used, not when it's
                         given - a mount can always be handed to any selected hero. Checking this box just records
-                        in the audit log that you knowingly gave an opposite-faction mount; it may still be
-                        unusable in-game until the character has appropriate riding skill/training, or may be
-                        rejected by the server's own faction check when used.
+                        in the audit log that you knowingly gave an opposite-faction mount. After giving, the mount
+                        is also taught directly to each recipient (this bypasses the WoW client's own faction check,
+                        which would otherwise silently block the character from using the item themselves) - level,
+                        class, and riding skill requirements still apply and can still cause teaching to fail.
                     </p>
                     <button class="btn btn-primary" type="button"
                             disabled="@(isGiving || selectedMounts.Count == 0 || targetNames.Count == 0)"

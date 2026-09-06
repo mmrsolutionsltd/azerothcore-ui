@@ -1186,6 +1186,46 @@ public sealed class ServerAdministrationController(
             $"{player}'s reputation changed by {delta:+#;-#;0} (now {after}).", before, after, delta);
     }
 
+    // Not yet callable in production: requires the "webadmin mount teach" command
+    // added to server-modules/mod-web-admin, which has not been installed on the
+    // worldserver yet. See that module's README for the exact command and rejection
+    // cases. This exists specifically because the WotLK 3.3.5a client checks a mount
+    // item's AllowableRace/AllowableClass locally and silently refuses to even send
+    // the "use item" request when it decides the character can't use it - confirmed
+    // live against production (no CMSG_USE_ITEM ever reached the server for a
+    // cross-faction mount give) - so a server-side item-use exemption alone can never
+    // be reached through normal play. This teaches the mount spell directly instead.
+    [HttpPost("mounts/teach")]
+    public async Task<ActionResult<AdministrationResult>> TeachMount(
+        TeachMountRequest request, CancellationToken cancellationToken)
+    {
+        if (!IsLocalRequest()) return NotFound();
+        var player = AzerothCoreSoapClient.RequirePlayerName(request.PlayerName);
+        if (request.ItemId == 0)
+            return BadRequest(new AdministrationResult(false, "An item id is required."));
+        var output = await soapClient.ExecuteAsync(
+            $"webadmin mount teach {player} {request.ItemId}", cancellationToken);
+        var result = ParseMountTeach(output, player);
+        Audit("TeachMount", player, $"Item={request.ItemId};Result={result.Message}");
+        return Ok(result);
+    }
+
+    internal static AdministrationResult ParseMountTeach(string output, string player)
+    {
+        var fields = output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.Split('\t'))
+            .FirstOrDefault(values => values.Length >= 5 && values[0] == "WEBADMIN_MOUNT_TEACH");
+        if (fields is null)
+            throw new InvalidOperationException(
+                "The worldserver returned no mount-teach result. Rebuild and install the latest mod-web-admin module.");
+        return fields[4] switch
+        {
+            "taught" => new AdministrationResult(true, $"{player} learned the mount."),
+            "already-known" => new AdministrationResult(true, $"{player} already knew this mount."),
+            var status => new AdministrationResult(false, $"Unexpected mount-teach status: {status}")
+        };
+    }
+
     private sealed class ReputationFactionRow
     {
         public uint FactionId { get; init; }

@@ -2457,6 +2457,10 @@ public:
         {
             { "grant", HandleReputationGrantCommand, SEC_ADMINISTRATOR, Console::Yes }
         };
+        static ChatCommandTable mountCommands =
+        {
+            { "teach", HandleMountTeachCommand, SEC_ADMINISTRATOR, Console::Yes }
+        };
         static ChatCommandTable guildCommands =
         {
             { "inspect", HandleGuildInspectCommand, SEC_ADMINISTRATOR, Console::Yes },
@@ -2495,7 +2499,8 @@ public:
             { "weapon", weaponCommands },
             { "quest", questCommands },
             { "npc", npcCommands },
-            { "reputation", reputationCommands }
+            { "reputation", reputationCommands },
+            { "mount", mountCommands }
             ,{ "guild", guildCommands },
             { "companion", companionCommands }
         };
@@ -3922,6 +3927,88 @@ private:
         int32 after = player->GetReputationMgr().GetReputation(factionEntry);
         handler->PSendSysMessage("WEBADMIN_REPUTATION\t{}\t{}\t{}\t{}\t{}",
             player->GetName(), factionId, before, after, after - before);
+        return true;
+    }
+
+    // Directly teaches an online player the mount spell carried by a mount item,
+    // bypassing the "use item" client flow entirely. The 3.3.5a client independently
+    // checks an item's AllowableRace/AllowableClass locally and silently refuses to
+    // even send CMSG_USE_ITEM when it decides the character can't use the item - so a
+    // server-side AllowableRace exemption for mounts (see the isMountItem exemption in
+    // Player::CanUseItem, PlayerStorage.cpp) can never be reached for a cross-faction
+    // grant via a normal right-click. This command sidesteps that entirely: it
+    // validates eligibility server-side using the same CanUseItem gate (so
+    // AllowableClass, required level, required skill/riding rank, required spell, and
+    // holiday requirements are all still enforced exactly as normal use would enforce
+    // them - only AllowableRace is exempted, and only for real mount items), then
+    // grants the resulting spell directly via the native Player::learnSpell path. It
+    // does not touch the character's inventory - giving the physical item itself is a
+    // separate, already-existing action (webadmin/.additem); this only grants the
+    // ability to summon the mount.
+    static bool HandleMountTeachCommand(ChatHandler* handler, char const* args)
+    {
+        std::istringstream input(args ? args : "");
+        std::string playerName, unexpected;
+        uint32 itemId = 0;
+        if (!(input >> playerName >> itemId) || (input >> unexpected))
+        {
+            handler->SendErrorMessage("Usage: webadmin mount teach <onlinePlayer> <itemId>");
+            return false;
+        }
+        Player* player = RequireOnlinePlayer(handler, playerName, "Player");
+        if (!player || handler->HasLowerSecurity(player)) return false;
+
+        ItemTemplate const* proto = sObjectMgr->GetItemTemplate(itemId);
+        if (!proto)
+        {
+            handler->SendErrorMessage("Unknown item id {}.", itemId);
+            return false;
+        }
+        if (proto->Class != ITEM_CLASS_MISC || proto->SubClass != ITEM_SUBCLASS_JUNK_MOUNT)
+        {
+            handler->SendErrorMessage("Item {} ({}) is not a mount item.", itemId, proto->Name1);
+            return false;
+        }
+
+        // Many mount items route through a generic "teach a spell chosen by the
+        // caller" trigger spell (483/55884) whose actual target spell is stored in the
+        // item's second spell slot - the same resolution Player::CastItemUseSpell uses
+        // for its own "special learning case". A mount item not using that generic
+        // redirect casts its teach spell directly from the first slot instead.
+        uint32 teachSpellId = (proto->Spells[0].SpellId == 483 || proto->Spells[0].SpellId == 55884)
+            ? proto->Spells[1].SpellId
+            : proto->Spells[0].SpellId;
+        if (!teachSpellId)
+        {
+            handler->SendErrorMessage("Mount item {} ({}) has no teachable spell.", itemId, proto->Name1);
+            return false;
+        }
+        if (!sSpellMgr->GetSpellInfo(teachSpellId))
+        {
+            handler->SendErrorMessage(
+                "Mount item {} ({}) references unknown spell {}.", itemId, proto->Name1, teachSpellId);
+            return false;
+        }
+
+        InventoryResult eligibility = player->CanUseItem(proto);
+        if (eligibility != EQUIP_ERR_OK)
+        {
+            handler->SendErrorMessage(
+                "{} does not meet the requirements to learn this mount (level, class, or riding skill).",
+                player->GetName());
+            return false;
+        }
+
+        if (player->HasSpell(teachSpellId))
+        {
+            handler->PSendSysMessage("WEBADMIN_MOUNT_TEACH	{}	{}	{}	already-known",
+                player->GetName(), itemId, teachSpellId);
+            return true;
+        }
+
+        player->learnSpell(teachSpellId);
+        handler->PSendSysMessage("WEBADMIN_MOUNT_TEACH	{}	{}	{}	taught",
+            player->GetName(), itemId, teachSpellId);
         return true;
     }
 

@@ -145,11 +145,28 @@ public partial class Mounts : IDisposable
                         var result = await Api.GiveItemAsync(new GiveItemRequest(
                             name, mount.ItemId, 1, CrossFactionOverride: mismatch && allowCrossFaction));
                         var resultMessage = result?.Message ?? "No response returned.";
-                        if (mismatch)
-                            resultMessage += " This is a cross-faction mount: it may still be unusable in-game " +
-                                "until the character has appropriate riding skill/training, or may be rejected " +
-                                "by the server's own faction check when used.";
-                        collected.Add(new PlayerActionResult(resultLabel, result?.Success == true, resultMessage));
+                        var gaveSucceeded = result?.Success == true;
+                        // Learning the mount server-side (rather than relying on the character
+                        // right-clicking the item) is required for cross-faction grants: the WotLK
+                        // client checks AllowableRace locally and silently refuses to even send the
+                        // "use item" request when it decides the character can't use it, so it can
+                        // never reach the server-side exemption. Attempted for every mount grant
+                        // (not just mismatched ones) so the mount is immediately usable either way.
+                        if (gaveSucceeded)
+                        {
+                            try
+                            {
+                                var teachResult = await Api.TeachMountAsync(new(name, mount.ItemId));
+                                resultMessage += teachResult?.Success == true
+                                    ? $" {teachResult.Message}"
+                                    : $" Could not teach the mount automatically: {teachResult?.Message ?? "no response"}.";
+                            }
+                            catch (Exception exception)
+                            {
+                                resultMessage += $" Could not teach the mount automatically: {exception.Message}.";
+                            }
+                        }
+                        collected.Add(new PlayerActionResult(resultLabel, gaveSucceeded, resultMessage));
                     }
                     catch (Exception exception)
                     {

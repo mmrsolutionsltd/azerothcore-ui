@@ -8,7 +8,32 @@ webadmin speed <onlinePlayer> <0.5-10>
 webadmin weapon inspect <onlinePlayer>
 webadmin weapon learn <onlinePlayer> <weaponKey>
 webadmin reputation grant <onlinePlayer> <factionId> <amount>
+webadmin mount teach <onlinePlayer> <itemId>
 ```
+
+`webadmin mount teach` directly teaches an online character the mount spell carried
+by a mount item (`ItemTemplate::Class == ITEM_CLASS_MISC && SubClass ==
+ITEM_SUBCLASS_JUNK_MOUNT`), bypassing the normal "use item" client flow entirely.
+This exists because the WotLK 3.3.5a client independently checks an item's
+`AllowableRace`/`AllowableClass` locally (it receives both via
+`SMSG_ITEM_QUERY_SINGLE_RESPONSE`) and silently refuses to even send
+`CMSG_USE_ITEM` when it decides the character can't use the item - confirmed live
+against production (no such packet ever reached the server for a cross-faction
+mount grant) - so a server-side `AllowableRace` exemption for mounts (see
+`Player::CanUseItem`, `PlayerStorage.cpp`) can never be reached through normal play
+for a cross-faction grant. This command resolves the item's taught spell (following
+the same `483`/`55884` generic "teach a spell" redirect that
+`Player::CastItemUseSpell` itself uses, when applicable), validates eligibility
+using the same `Player::CanUseItem` gate - so `AllowableClass`, required level,
+required skill/riding rank, required spell, and holiday requirements are all still
+enforced exactly as normal use would enforce them, with only `AllowableRace`
+exempted for real mount items - then grants the spell directly via the native
+`Player::learnSpell` path. It does not touch inventory; giving the physical item is
+a separate, already-existing action. Rejected for an offline character, an unknown
+item id, an item that isn't a real mount, a mount with no resolvable teach spell, or
+a target with equal/higher security than the caller. Reports
+`WEBADMIN_MOUNT_TEACH\t<player>\t<itemId>\t<spellId>\t<taught|already-known>` on
+success.
 
 `webadmin reputation grant` applies an incremental reputation change to a named,
 online character's standing with the given DBC faction id, using AzerothCore's own

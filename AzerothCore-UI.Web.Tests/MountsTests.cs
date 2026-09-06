@@ -98,6 +98,27 @@ public sealed class MountsTests : BunitContext
     }
 
     [Fact]
+    public async Task GivingAMountAlsoTeachesItDirectlySoTheClientsOwnFactionCheckCannotBlockIt()
+    {
+        var component = Render<Mounts>();
+        component.WaitForAssertion(() => Assert.Equal(2, component.FindAll("tbody tr").Count));
+
+        var store = Services.GetRequiredService<SelectedCharacterStore>();
+        await component.InvokeAsync(() => store.SetSelectedAsync(["Vynlan"], "Vynlan").AsTask());
+
+        ToggleMountRow(component, "Black Battlestrider");
+        component.WaitForAssertion(() => Assert.False(GiveButton(component).HasAttribute("disabled")));
+
+        GiveButton(component).Click();
+
+        component.WaitForAssertion(() =>
+        {
+            Assert.Single(handler.TaughtMounts);
+            Assert.Equal(("Vynlan", 18243u), handler.TaughtMounts[0]);
+        });
+    }
+
+    [Fact]
     public async Task ClearingSelectionRemovesAllSelectedMounts()
     {
         var component = Render<Mounts>();
@@ -240,6 +261,7 @@ public sealed class MountsTests : BunitContext
         public string? LastFaction { get; private set; }
         public List<string> GivenTo { get; } = [];
         public List<uint> GivenItemIds { get; } = [];
+        public List<(string Player, uint ItemId)> TaughtMounts { get; } = [];
         public Dictionary<string, bool> CrossFactionOverrideByPlayer { get; } = [];
         public Dictionary<uint, IReadOnlyList<MountHeroStatus>> HeroStatusesByMount { get; } = [];
 
@@ -279,6 +301,15 @@ public sealed class MountsTests : BunitContext
                     CrossFactionOverrideByPlayer[body.PlayerName] = body.CrossFactionOverride;
                 }
                 return Json(new AdministrationResult(true, "Item given."));
+            }
+            if (request.Method == HttpMethod.Post
+                && request.RequestUri!.AbsolutePath == "/api/server-administration/mounts/teach")
+            {
+                var body = await request.Content!.ReadFromJsonAsync<TeachMountRequest>(
+                    cancellationToken: cancellationToken);
+                if (body?.PlayerName is not null)
+                    TaughtMounts.Add((body.PlayerName, body.ItemId));
+                return Json(new AdministrationResult(true, "learned the mount."));
             }
             return new HttpResponseMessage(HttpStatusCode.NotFound);
         }

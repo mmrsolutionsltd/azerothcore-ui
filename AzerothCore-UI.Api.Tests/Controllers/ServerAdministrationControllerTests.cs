@@ -209,6 +209,35 @@ public sealed class ServerAdministrationControllerTests
     }
 
     [Fact]
+    public void ParseMountTeachReportsATaughtMount()
+    {
+        var result = ServerAdministrationController.ParseMountTeach(
+            "WEBADMIN_MOUNT_TEACH\tKiesh\t5656\t458\ttaught", "Kiesh");
+
+        Assert.True(result.Success);
+        Assert.Contains("learned the mount", result.Message);
+    }
+
+    [Fact]
+    public void ParseMountTeachReportsAnAlreadyKnownMount()
+    {
+        var result = ServerAdministrationController.ParseMountTeach(
+            "WEBADMIN_MOUNT_TEACH\tKiesh\t5656\t458\talready-known", "Kiesh");
+
+        Assert.True(result.Success);
+        Assert.Contains("already knew", result.Message);
+    }
+
+    [Fact]
+    public void ParseMountTeachThrowsWhenTheModuleDoesNotReportAResult()
+    {
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            ServerAdministrationController.ParseMountTeach("Command 'mount' does not exist", "Kiesh"));
+
+        Assert.Contains("Rebuild and install", exception.Message);
+    }
+
+    [Fact]
     public void QuestingCompanionLevelOrderingUsesSignedArithmetic()
     {
         var query = ServerAdministrationController.QuestingCompanionCandidateSql;

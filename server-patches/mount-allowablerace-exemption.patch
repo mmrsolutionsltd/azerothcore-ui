@@ -1,0 +1,22 @@
+diff --git a/src/server/game/Entities/Player/PlayerStorage.cpp b/src/server/game/Entities/Player/PlayerStorage.cpp
+index bc9f918bd..9453211ed 100644
+--- a/src/server/game/Entities/Player/PlayerStorage.cpp
++++ b/src/server/game/Entities/Player/PlayerStorage.cpp
+@@ -2389,7 +2389,16 @@ InventoryResult Player::CanUseItem(ItemTemplate const* proto) const
+         return EQUIP_ERR_YOU_CAN_NEVER_USE_THAT_ITEM;
+     }
+ 
+-    if ((proto->AllowableClass & getClassMask()) == 0 || (proto->AllowableRace & getRaceMask()) == 0)
++    // Mount items/spells (ITEM_CLASS_MISC + ITEM_SUBCLASS_JUNK_MOUNT) are exempt from
++    // the AllowableRace check specifically - AzerothCore-UI's website can hand a mount
++    // item to any selected hero regardless of faction, and mount race/faction is meant
++    // to be enforced only here, at the point the item is actually used to learn/summon
++    // the mount. Every other AllowableRace-gated item is unaffected, and AllowableClass,
++    // the two ITEM_FLAG2_FACTION_* checks above, and every check below (required skill,
++    // required spell, required level, holiday) are unchanged for mounts too.
++    bool const isMountItem = proto->Class == ITEM_CLASS_MISC && proto->SubClass == ITEM_SUBCLASS_JUNK_MOUNT;
++    if ((proto->AllowableClass & getClassMask()) == 0
++        || (!isMountItem && (proto->AllowableRace & getRaceMask()) == 0))
+     {
+         return EQUIP_ERR_YOU_CAN_NEVER_USE_THAT_ITEM;
+     }
