@@ -197,3 +197,58 @@ Mounts UX correction - implemented:
 Tests: MountsTests.cs and PlayerActionToolTests.cs both rewritten for the new shapes (checkbox-based selection, no blocking, ownership highlight, faction-picker-only reputation tool). `BuildHeroStatus`'s pure-logic tests extended for the new `owned` parameter.
 
 Build/test: `dotnet build AzerothCore-UI.slnx` clean. `dotnet test AzerothCore-UI.slnx` - 240/240 Api, 128/128 Web (the previously-flagged pre-existing `TeleportPlayerModeDefaultsToOnlinePlayersAndCompanionsThenIncludesOfflineOnRequest` order-dependent flake passed this run; PlayerActionToolTests+MountsTests together re-run 3x clean to check for timing flakiness from the debounced faction search). Nothing deployed or granted live.
+
+# Note: reputation grant is already live in production
+
+Before starting the next request I checked `webadmin reputation grant` against the production SOAP endpoint - it's live: `help webadmin reputation` lists it, and `azerothcore-world.service`'s `ActiveEnterTimestamp` (2026-09-06 10:42:33 UTC) matches a `worldserver.pre-reputation-20260906-104233` backup on the box, meaning the worldserver was rebuilt, installed, and restarted with that command sometime today. I have no record of this in `.agent/claude-request.md` or `.agent/agent-response.md` - no note here says the owner reviewed/approved it, so this must have happened through a channel between you and the owner outside this file. Flagging it for the record rather than assuming anything was skipped; I have not tested a live grant against a real character and didn't touch anything related to it this turn.
+
+# RESPONSE: server-side mount cross-race/faction core patch (built, NOT installed)
+
+Implemented, built successfully, NOT installed, NOT restarted - awaiting your review and the owner's explicit approval, per the request.
+
+**Exact function and check identified:** `Player::CanUseItem(ItemTemplate const* proto)` in `/opt/azerothcore/source/core/src/server/game/Entities/Player/PlayerStorage.cpp` (line ~2392 before the patch). This is the single shared gate reached from the real item-use path - `WorldSession::HandleUseItemOpcode` (`ItemHandler.cpp:559`) calls the `Item*` overload `Player::CanUseItem(Item*, bool)`, which calls this `ItemTemplate*` overload - and (per its own comment) also from `Group::NeedBeforeGreed`'s need/greed-roll eligibility check. There is a second, textually-identical AllowableRace check duplicated inline inside `Player::CanRollForItemInLFG` (LFG roll eligibility) that I deliberately left untouched - it's a separate function/check the request didn't ask me to touch, and mount items rolling via LFG are a much narrower edge case than the two paths above.
+
+**Mount predicate used:** `proto->Class == ITEM_CLASS_MISC && proto->SubClass == ITEM_SUBCLASS_JUNK_MOUNT` (`ItemClass.dbc`/`ItemSubClass.dbc` values 15 and 5, confirmed against `ItemTemplate.h`) - the exact same class/subclass pair `ServerAdministrationController.GetMounts` already filters mount items on, so this stays consistent with how the rest of this project already identifies "is this a mount."
+
+**The change** (`git diff`, 10 lines):
+```cpp
+    bool const isMountItem = proto->Class == ITEM_CLASS_MISC && proto->SubClass == ITEM_SUBCLASS_JUNK_MOUNT;
+    if ((proto->AllowableClass & getClassMask()) == 0
+        || (!isMountItem && (proto->AllowableRace & getRaceMask()) == 0))
+    {
+        return EQUIP_ERR_YOU_CAN_NEVER_USE_THAT_ITEM;
+    }
+```
+Only the `AllowableRace` half of the combined condition is exempted for mount items; `AllowableClass` stays enforced for every item including mounts, and every other check in the function (the two `ITEM_FLAG2_FACTION_*` flag checks above, `RequiredSkill`/`RequiredSkillRank` i.e. riding skill/training, `RequiredSpell`, `RequiredLevel`, `HolidayId`) is completely untouched. Non-mount items (any other class/subclass) go through the exact same check as before - verified in the added test below.
+
+**Test added** (since `BUILD_TESTING=OFF` in this production CMake config, see below): `src/test/server/game/Entities/CanUseItemMountRaceExemptionTest.cpp`, 5 gtest cases mirroring just the boolean predicate/condition (the same pattern this test suite already uses elsewhere, e.g. `ResetAttackTimerTest.cpp`, for logic that can't be exercised without a fully constructed `Player`): mount+mismatched-race is accepted, mount+mismatched-class is still rejected, a non-mount item with mismatched race is still rejected, mount+matching everything is accepted, and an `ITEM_CLASS_MISC` item with the WRONG subclass (not 5) is still rejected (proving the exemption doesn't leak to all of "misc," only real mounts). I could not build/run this: `cmake . && ninja unit_tests` failed with "unknown target" because `BUILD_TESTING` is `OFF` in this build's `CMakeCache.txt`, and I deliberately did not flip that option myself since it's shared production build state I don't want to perturb without asking - if you want it actually compiled and run, either flip `BUILD_TESTING` to `ON` and rebuild (pulls in gtest/gmock if not already vendored under `deps/`) or let me know and I will.
+
+**Manual verification plan** (documented, not executed by me - needs a real client/character):
+1. `.additem <raceMismatchedTestCharacter> <mountItemId> 1` (SOAP-safe, no use-time effect) on a mount item whose `AllowableRace` excludes that character's race.
+2. Before this patch is installed: right-clicking the item in-game should show "You can never use that item" and fail to learn/summon the mount.
+3. After installing this patch: the same right-click should succeed (assuming class/level/riding-skill requirements are otherwise met) with no faction-related rejection.
+4. Confirm an unrelated race-restricted item (e.g. a heirloom or class-quest item with `AllowableRace` set) still correctly rejects the wrong race on the same character - proves the exemption is scoped to mounts only.
+5. Confirm a class-restricted mount (e.g. a paladin-only mount) still rejects a mismatched-class character - proves `AllowableClass` is still enforced.
+
+**Backups made** (all under `/opt/azerothcore`, box-local, referenced by timestamp `20260906-111333`):
+- `server/bin/worldserver.pre-mount-race-20260906-111333` - copy of the binary that was live/installed before this session touched anything (unchanged today, still installed and running).
+- `backups/mount-race-patch-20260906-111333/PlayerStorage.cpp.orig` - the file exactly as it was before my edit.
+- `backups/mount-race-patch-20260906-111333/source-commit.txt` - records `52f58186a53399e603c46c24977fe60fcaad7f9d`, the core repo's HEAD commit at the time (this repo tracks upstream `mod-playerbots/azerothcore-wotlk` on `origin` - I did not commit or push anything there; the working tree simply carries this uncommitted diff plus the new untracked test file, both visible via `git status`/`git diff` in `/opt/azerothcore/source/core`).
+
+**Build result:** `cd /opt/azerothcore/build && ninja -j6 worldserver` - 4 steps (incremental: recompiled `PlayerStorage.cpp.o`, relinked `libgame.a` and `worldserver`), no errors. The new binary sits at `/opt/azerothcore/build/src/server/apps/worldserver` (`--version` reports the correct revision) and has **not** been copied anywhere or installed - `/opt/azerothcore/server/bin/worldserver` and `azerothcore-world.service` are untouched (confirmed: same file, same `ActiveEnterTimestamp` as before I started).
+
+**Exact rollback commands** (nothing has been installed, so today this only means discarding the source edit - no service action needed):
+```bash
+cd /opt/azerothcore/source/core
+git checkout -- src/server/game/Entities/Player/PlayerStorage.cpp   # or: cp /opt/azerothcore/backups/mount-race-patch-20260906-111333/PlayerStorage.cpp.orig src/server/game/Entities/Player/PlayerStorage.cpp
+rm src/test/server/game/Entities/CanUseItemMountRaceExemptionTest.cpp
+cd /opt/azerothcore/build && cmake . && ninja -j6 worldserver   # rebuilds the pre-patch binary in the build tree
+```
+If this is ever installed and needs reverting afterward (not needed today):
+```bash
+sudo systemctl stop azerothcore-world.service
+sudo cp /opt/azerothcore/server/bin/worldserver.pre-mount-race-20260906-111333 /opt/azerothcore/server/bin/worldserver
+sudo systemctl start azerothcore-world.service
+```
+
+Not installed, not restarted, no database writes - awaiting your review and the owner's explicit approval before any install/restart, per the request.

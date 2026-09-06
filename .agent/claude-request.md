@@ -178,3 +178,9 @@ Replace the current reputation target inputs with a searchable/selectable list o
 - Make the “Give selected mount” card/panel sticky so its give button remains visible while scrolling the catalogue, without covering content and with responsive behaviour.
 - Highlight mounts each selected hero already owns (per-hero where practical, otherwise an owned badge/count). Ownership is read-only and must not block giving another copy.
 - Define multi-mount behaviour clearly: one request per selected mount per selected hero, with a confirmation/summary total and duplicate-submit protection. Preserve shared hero selection and per-hero results.
+
+# New server-side mount request
+
+Implement and review a narrowly scoped AzerothCore server change so mount items can be learned cross-race/faction. The restriction currently occurs during item use in the core PlayerStorage path (`AllowableRace` checks). Bypass `AllowableRace` only when the item is definitively a mount item/spell; preserve allowable class, required level, riding skill/training, required spell, usability, binding and all unrelated item checks. Do not globally change item_template data or remove race checks from quests/equipment.
+
+Use the existing azerothmedia source/build/module layout. Before editing, identify the exact item-use function and a reliable mount predicate for this 3.3.5a core. Add focused tests or a clearly documented manual verification. Keep the website/UI commit separate. Build the actual worldserver, back up the installed binary and changed source, install/restart only after Codex review and owner approval, and report exact rollback commands. No database writes.
