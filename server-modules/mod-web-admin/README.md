@@ -208,6 +208,19 @@ needed quest-object scan. The bridge scans within 40 metres; normal herb, minera
 skinning, and loot travel uses `AiPlayerbot.LootDistance`, which should also be set to
 `40.0` in `playerbots.conf` for matching behaviour.
 
+When no lootable quest object is nearby, the same scan also checks for a "source
+item" objective: a quest that still needs an item the companion can only obtain by
+using a carried item (a vial, phial, or similar) whose own use-spell creates that
+exact item. This is fully data-driven from `quest_template.RequiredItemId`/
+`RequiredItemCount` and each carried item's `SPELL_EFFECT_CREATE_ITEM(_2)` effect -
+no quest or item is hard-coded. If that source item's spell requires a spell-focus
+gameobject (`SpellInfo::RequiresSpellFocus`, e.g. a phial that only works at its
+source pool), the companion approaches the nearest live, spawned gameobject whose
+`spellFocus.focusId` matches before using it; if the spell has no such requirement,
+it is used immediately. This covers cases such as Feralas' "Tenaron's Summons"
+questline (Crown of the Earth, filled from a phial at specific pools) without
+naming that quest anywhere in the implementation.
+
 Real-player warlocks that know both Summon Imp and Summon Voidwalker may have both
 demons active. The demon summoned normally remains the controllable pet-bar pet; the
 other is created as an automatically managed guardian. It follows the warlock,

@@ -58,6 +58,7 @@
 #include <cctype>
 #include <ctime>
 #include <cstdlib>
+#include <functional>
 #include <map>
 
 using namespace Acore::ChatCommands;
@@ -1661,6 +1662,202 @@ static bool IsNeededCompanionQuestObject(Player* companion, GameObject* gameObje
     return LootObject::IsNeededQuestObject(companion, gameObject);
 }
 
+// Finds a carried item whose own use-spell would produce `producedItemId` via
+// SPELL_EFFECT_CREATE_ITEM(_2) - the generic, data-driven link between a quest's
+// RequiredItemId objective and a "source item" (vial, phial, tool, etc.) that
+// must be used to obtain it, regardless of which quest or item is involved.
+static SpellInfo const* ItemProducesQuestItem(Item* item, uint32 producedItemId)
+{
+    ItemTemplate const* proto = item->GetTemplate();
+    for (uint8 index = 0; index < MAX_ITEM_PROTO_SPELLS; ++index)
+    {
+        uint32 spellId = proto->Spells[index].SpellId;
+        if (!spellId)
+            continue;
+
+        SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(spellId);
+        if (!spellInfo)
+            continue;
+
+        for (SpellEffectInfo const& effect : spellInfo->GetEffects())
+            if ((effect.Effect == SPELL_EFFECT_CREATE_ITEM
+                    || effect.Effect == SPELL_EFFECT_CREATE_ITEM_2)
+                && effect.ItemType == producedItemId)
+                return spellInfo;
+    }
+    return nullptr;
+}
+
+static Item* FindCompanionInventoryItem(Player* companion, std::function<bool(Item*)> const& matches)
+{
+    for (uint8 slot = INVENTORY_SLOT_ITEM_START; slot < INVENTORY_SLOT_ITEM_END; ++slot)
+        if (Item* item = companion->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
+            if (matches(item))
+                return item;
+
+    for (uint8 bagSlot = INVENTORY_SLOT_BAG_START; bagSlot < INVENTORY_SLOT_BAG_END; ++bagSlot)
+        if (Bag* bag = companion->GetBagByPos(bagSlot))
+            for (uint32 slot = 0; slot < bag->GetBagSize(); ++slot)
+                if (Item* item = bag->GetItemByPos(slot))
+                    if (matches(item))
+                        return item;
+
+    return nullptr;
+}
+
+// Scans the companion's active quests for an item objective that is still
+// short, then looks for a carried item that produces it. Deliberately not
+// specific to any one quest/item - any RequiredItemId objective backed by a
+// SPELL_EFFECT_CREATE_ITEM(_2) source item is picked up automatically.
+static bool ResolveCompanionQuestSourceItem(
+    Player* companion, Item*& sourceItem, SpellInfo const*& sourceSpell)
+{
+    for (uint8 slot = 0; slot < MAX_QUEST_LOG_SIZE; ++slot)
+    {
+        uint32 questId = companion->GetQuestSlotQuestId(slot);
+        Quest const* quest = questId
+            ? sObjectMgr->GetQuestTemplate(questId)
+            : nullptr;
+        if (!quest)
+            continue;
+
+        for (uint8 index = 0; index < QUEST_ITEM_OBJECTIVES_COUNT; ++index)
+        {
+            uint32 itemId = quest->RequiredItemId[index];
+            uint32 required = quest->RequiredItemCount[index];
+            if (!itemId || !required
+                || companion->GetItemCount(itemId, false) >= required)
+                continue;
+
+            Item* found = FindCompanionInventoryItem(companion,
+                [&](Item* item) { return ItemProducesQuestItem(item, itemId) != nullptr; });
+            if (!found)
+                continue;
+
+            sourceItem = found;
+            sourceSpell = ItemProducesQuestItem(found, itemId);
+            return true;
+        }
+    }
+    return false;
+}
+
+// Spell-focus items (SpellInfo::RequiresSpellFocus) are only usable next to a
+// live GAMEOBJECT_TYPE_SPELL_FOCUS object whose data0 (spellFocus.focusId)
+// matches - the same mechanism the client enforces for e.g. Tenaron's Summons'
+// phials at their source pools. Reuses the companion's existing "nearest game
+// objects" perception list rather than a separate scan.
+static GameObject* FindCompanionSpellFocusObject(
+    PlayerbotAI* companionAI, Player* companion, uint32 focusId, float& nearestDistance)
+{
+    AiObjectContext* context = companionAI->GetAiObjectContext();
+    GuidVector gameObjects =
+        context->GetValue<GuidVector>("nearest game objects")->Get();
+    GameObject* nearest = nullptr;
+    nearestDistance = CompanionGatherRadius;
+    for (ObjectGuid const& guid : gameObjects)
+    {
+        GameObject* candidate = companionAI->GetGameObject(guid);
+        if (!candidate || !candidate->isSpawned()
+            || candidate->GetGoType() != GAMEOBJECT_TYPE_SPELL_FOCUS
+            || candidate->GetGOInfo()->spellFocus.focusId != focusId)
+            continue;
+
+        float distance = companion->GetDistance(candidate);
+        if (distance < nearestDistance)
+        {
+            nearest = candidate;
+            nearestDistance = distance;
+        }
+    }
+    return nearest;
+}
+
+// Approaches (if needed) and uses a quest source item at its required
+// gameobject, e.g. a vial at a pool. Only reached once CollectCompanionQuestObject
+// finds no lootable quest object nearby, so it never competes with or changes
+// the existing chest/herb/mining/skinning collection path above.
+static void CollectCompanionQuestSourceItem(
+    QuestingCompanionRegistration& registration, Player* companion,
+    PlayerbotAI* companionAI)
+{
+    Item* sourceItem = nullptr;
+    SpellInfo const* sourceSpell = nullptr;
+    if (!ResolveCompanionQuestSourceItem(companion, sourceItem, sourceSpell))
+    {
+        registration.QuestObjectStatus =
+            "No needed quest object within 40 metres.";
+        return;
+    }
+
+    if (companion->IsNonMeleeSpellCast(false) || companion->isMoving())
+    {
+        registration.QuestObjectCheckTimer = 1000;
+        return;
+    }
+
+    std::string const itemName =
+        CompanionProtocolText(sourceItem->GetTemplate()->Name1);
+
+    GameObject* focusObject = nullptr;
+    float focusDistance = 0.0f;
+    if (sourceSpell->RequiresSpellFocus)
+    {
+        focusObject = FindCompanionSpellFocusObject(
+            companionAI, companion, sourceSpell->RequiresSpellFocus, focusDistance);
+        if (!focusObject)
+        {
+            registration.QuestObjectStatus =
+                "Waiting for the object needed to use " + itemName + ".";
+            registration.QuestObjectCheckTimer = 5000;
+            return;
+        }
+    }
+
+    std::ostringstream status;
+    if (focusObject && focusDistance >= INTERACTION_DISTANCE - 2.0f)
+    {
+        LootObject loot(companion, focusObject->GetGUID());
+        if (loot.IsEmpty())
+        {
+            registration.QuestObjectStatus = "Found " + focusObject->GetName()
+                + ", but PlayerBots rejected it.";
+            registration.QuestObjectCheckTimer = 10000;
+            RecordCompanionResult(
+                registration, false, registration.QuestObjectStatus);
+            return;
+        }
+
+        // "move to loot" is reused purely for its generic walk-to-WorldObject
+        // movement - this object is never opened/looted, only approached.
+        AiObjectContext* context = companionAI->GetAiObjectContext();
+        context->GetValue<LootObjectStack*>("available loot")->Get()->Add(
+            focusObject->GetGUID());
+        context->GetValue<LootObject>("loot target")->Set(loot);
+
+        bool moving = companionAI->DoSpecificAction(
+            "move to loot", Event("webadmin companion quest source item"), true);
+        registration.QuestObjectCheckTimer = moving ? 3000 : 10000;
+        status << (moving ? "Moving to " : "Could not move to ")
+               << focusObject->GetName() << " to use " << itemName << ".";
+    }
+    else
+    {
+        bool used = companionAI->DoSpecificAction(
+            "use",
+            Event("webadmin companion quest source item",
+                sourceItem->GetTemplate()->Name1),
+            true);
+        registration.QuestObjectCheckTimer = used ? 3000 : 10000;
+        status << (used ? "Using " : "Could not use ") << itemName << ".";
+    }
+    registration.QuestObjectStatus = status.str();
+    RecordCompanionResult(
+        registration,
+        registration.QuestObjectStatus.rfind("Could not", 0) != 0,
+        registration.QuestObjectStatus);
+}
+
 static void CollectCompanionQuestObject(
     QuestingCompanionRegistration& registration, Player* companion)
 {
@@ -1696,8 +1893,7 @@ static void CollectCompanionQuestObject(
 
     if (!nearest)
     {
-        registration.QuestObjectStatus =
-            "No needed quest object within 40 metres.";
+        CollectCompanionQuestSourceItem(registration, companion, companionAI);
         return;
     }
 
@@ -2022,7 +2218,8 @@ static void ReportCompanionDiagnostics(
     }
     else if (registration
         && (registration->QuestObjectStatus.rfind("Moving to", 0) == 0
-            || registration->QuestObjectStatus.rfind("Opening", 0) == 0))
+            || registration->QuestObjectStatus.rfind("Opening", 0) == 0
+            || registration->QuestObjectStatus.rfind("Using", 0) == 0))
     {
         activity = "Gathering";
         destination = registration->QuestObjectStatus;
